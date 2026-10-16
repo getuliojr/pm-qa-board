@@ -278,22 +278,43 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print(f"Project: {p['name']} [{p['prefix']}] {'(registered)' if plan['registered'] else '(not registered)'}")
         print(f"Code:    {plan['code_path']}")
         print(f"Docs:    {p['docs_path']} ({p['docs_mode']}{', stealth' if plan['stealth'] else ''})")
-        print(f"Agents:  {', '.join(plan['agents']) or 'none detected'}")
-        print(f"Mode:    {plan['mode']}" + (f" — own loop: {', '.join(plan['own_loop_skills'])}" if plan["own_loop_skills"] else ""))
-        print("Prerequisites: " + ", ".join(f"{k}={'ok' if v else 'MISSING'}" for k, v in plan["prerequisites"].items()))
+        print(f"Tools:   {', '.join(setup_flow.TOOL_LABELS[t] for t in plan['agents']) or 'none detected'}")
+        print(f"Mode:    {plan['mode']}" + (f" (own loop: {', '.join(plan['own_loop_skills'])})" if plan["own_loop_skills"] else ""))
+        mark = {"ok": "ok    ", "change": "change", "review": "review", "info": "info  "}
+        print("\n== What you have, and where it belongs")
+        for g in plan["inventory"]:
+            print(f"\n  {g['group']}")
+            for it in g["items"]:
+                print(f"   [{mark[it['status']]}] {it['what']}")
+                print(f"            now:     {it['now']}")
+                print(f"            belongs: {it['belongs']}")
+                print(f"            why:     {it['why']}")
         for note in plan.get("notes", []):
-            print(f"Note: {note}")
-        if not plan["actions"]:
-            print("\nNothing to do — this project is set up and current.")
-        for a in plan["actions"]:
-            print(f"\n  {a['id']}  {a['title']}")
-            for w in a.get("writes", []):
-                print(f"       writes: {w}")
-            if a.get("detail"):
-                print(f"       {a['detail']}")
-            if a.get("preview"):
-                print("       adds:\n" + "\n".join("         | " + line for line in a["preview"].splitlines()))
-        print("\nNothing has been changed. Approve ids with: cli.py setup-apply <code_path> A1 A2 ...")
+            print(f"  Note: {note}")
+        print("\n== Recommended target")
+        for line in plan["target"]:
+            print(f"  - {line}")
+        if not plan["decisions"]:
+            print("\n== Nothing to decide: this project is set up and current.")
+        else:
+            print("\n== Decisions (ask these, recommendation first)")
+            for n, d in enumerate(plan["decisions"], 1):
+                print(f"\n  {n}. {d['question']}")
+                print(f"     Recommended: {d['recommendation']}")
+                for o in d["options"]:
+                    print(f"       - {o['label']}: {o['description']}")
+            print("\n== For the agent only (never show these ids as the thing to decide)")
+            for n, d in enumerate(plan["decisions"], 1):
+                print(f"  {n}. " + " | ".join(f"{o['label']} -> {' '.join(o['approve']) or '(nothing)'}" for o in d["options"]))
+            for a in plan["actions"]:
+                print(f"  {a['id']} {a['kind']}: {a['title']}")
+                for w in a.get("writes", []):
+                    print(f"       writes: {w}")
+                if a.get("detail"):
+                    print(f"       {a['detail']}")
+                if a.get("preview"):
+                    print("       adds:\n" + "\n".join("         | " + line for line in a["preview"].splitlines()))
+        print("\nNothing has been changed. Apply the approved options with: cli.py setup-apply <code_path> <ids>")
         return 0
 
     # setup-apply: re-plan and refuse if the approved actions no longer match what the user saw

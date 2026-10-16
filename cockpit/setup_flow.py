@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import projects
+import wiring
 from onboarding import inspect_project
 
 TOOL_ROOT = Path(__file__).resolve().parent.parent
@@ -315,6 +316,45 @@ def own_loop_skills(code: Path) -> list[str]:
     return sorted(set(found))
 
 
+TOOL_LABELS = {"claude": "Claude Code", "cursor": "Cursor", "antigravity": "Antigravity"}
+TOOL_ORDER = ("claude", "antigravity", "cursor")  # Cursor last: it also reads the other two folders
+GENERIC_SKILLS = ("grill-me", "grilling")
+
+
+def generic_global_target(tool: str) -> Path:
+    """Where a generic skill is copied for one tool (the tool's own global folder)."""
+    home = projects.user_home()
+    return {"claude": home / ".claude" / "skills", "antigravity": home / ".agents" / "skills",
+            "cursor": home / ".cursor" / "skills"}[tool]
+
+
+def generic_reach(code: Path, tool: str) -> dict[str, list[str]]:
+    """Where a tool can load grill-me / grilling from: its global folders and the project folders it reads."""
+    return {
+        "global": [str(r / n) for r in global_read_roots(tool) for n in GENERIC_SKILLS if (r / n / "SKILL.md").is_file()],
+        "project": [f"{rel}/{n}" for rel in project_read_dirs(tool) for n in GENERIC_SKILLS
+                    if (code / rel / n / "SKILL.md").is_file()],
+    }
+
+
+def bootstrap_reach(code: Path, tool: str) -> list[Path]:
+    """Every pm-qa-setup copy a tool can load (global first, then the project's folders)."""
+    found = [r / BOOTSTRAP_SKILL for r in global_read_roots(tool)]
+    found += [code / rel / BOOTSTRAP_SKILL for rel in project_read_dirs(tool)]
+    return [p for p in found if (p / "SKILL.md").is_file()]
+
+
+def machine_tools() -> list[str]:
+    home = projects.user_home()
+    return [t for t, d in (("claude", ".claude"), ("antigravity", ".agents"), ("cursor", ".cursor")) if (home / d).is_dir()]
+
+
+def _home_short(p: str | Path) -> str:
+    """A path shown to the user with the home folder as ``~``."""
+    s, h = str(p).replace("\\", "/"), str(projects.user_home()).replace("\\", "/")
+    return "~" + s[len(h):] if s.lower().startswith(h.lower()) else s
+
+
 def _strip_metadata(b: bytes) -> bytes:
     return re.sub(rb"\nmetadata:\n(?:[ \t]+[^\n]*\n)+", b"\n", normalized(b))
 
@@ -445,20 +485,48 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
     def add(kind: str, title: str, **kw: Any) -> None:
         actions.append({"id": f"A{len(actions) + 1}", "kind": kind, "title": title, **kw})
 
-    # 1. Prerequisites (machine level)
+    # 1. Prerequisites (machine level). grill-me must be reachable for every tool this project uses
+    #    (R2-Q5); a generic skill found only in a project or another tool's folder is copied to the
+    #    tool's global folder, never moved (R1-Q4).
+    tools = [t for t in TOOL_ORDER if t in agents] or ["claude"]
+    reach = {t: generic_reach(code, t) for t in tools}
     prereq = {
         "uv": _which("uv"),
         "git": _which("git"),
         "running_copy": (projects.cockpit_home() / "app" / "cockpit" / "server.py").is_file(),
-        "grill_me": any((r / n / "SKILL.md").is_file() for r in global_roots().values() for n in ("grill-me", "grilling")),
+        "grill_me": all(reach[t]["global"] or reach[t]["project"] for t in tools),
+        "grill_me_global": {t: bool(reach[t]["global"]) for t in tools},
     }
     if not prereq["running_copy"]:
         add("clone-running-copy", "Clone the cockpit's running copy",
             writes=[str(projects.cockpit_home() / "app")],
             detail="git clone https://github.com/getuliojr/pm-qa-cockpit ~/.pm-qa-cockpit/app")
-    if not prereq["grill_me"]:
+    sources: dict[str, Path] = {}  # generic skill name -> a folder to copy it from
+    for rel in sorted({d for t in tools for d in project_read_dirs(t)}):
+        for n in GENERIC_SKILLS:
+            if (code / rel / n / "SKILL.md").is_file():
+                sources.setdefault(n, code / rel / n)
+    for r in [*global_roots().values(), *(generic_global_target(t) for t in TOOL_ORDER)]:
+        for n in GENERIC_SKILLS:
+            if (r / n / "SKILL.md").is_file():
+                sources.setdefault(n, r / n)
+    planned: set[Path] = set()  # global folders that will hold a generic skill after the copies
+    fetch_for: list[str] = []
+    for t in tools:
+        if reach[t]["global"] or any(r in planned for r in global_read_roots(t)):
+            continue
+        target = generic_global_target(t)
+        copies = [{"skill": n, "from": str(src), "to": str(target / n)} for n, src in sorted(sources.items())]
+        if copies:
+            planned.add(target)
+            add("copy-generic", f"Copy {' and '.join(c['skill'] for c in copies)} to the {TOOL_LABELS[t]} global folder",
+                tool=t, copies=copies, writes=[c["to"] for c in copies],
+                detail="copy only: " + "; ".join(f"{c['from']} -> {c['to']}" for c in copies))
+        else:
+            fetch_for.append(t)
+    if fetch_for:
         add("fetch-grill-me", "Install grill-me once for this machine (design-before-code skill)",
-            writes=[str(global_roots()["claude"] / "grill-me"), str(global_roots()["antigravity"] / "grill-me")],
+            tools=fetch_for, writes=[str(generic_global_target(t) / "grill-me") for t in fetch_for],
             detail=f"source: {GRILL_SOURCE}")
 
     # 2. Register + gates
@@ -555,8 +623,26 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
             add("upgrade-bootstrap", f"{'Upgrade' if st['state'] == 'outdated' else 'Resolve local edits in'} the global {BOOTSTRAP_SKILL} for {agent}",
                 agent=agent, skill=BOOTSTRAP_SKILL, state=st["state"], writes=[str(root / BOOTSTRAP_SKILL)],
                 detail=f"{st['installed_version'] or '-'} -> {st['available_version']}")
+    # ... and installed for a used tool that can't reach any copy (Cursor also reads ~/.claude/skills)
+    for t in tools:
+        if not bootstrap_reach(code, t) and not any(
+            a["kind"] == "install-bootstrap" and global_roots()[a["agent"]] in global_read_roots(t) for a in actions
+        ):
+            dest = global_roots()[t] / BOOTSTRAP_SKILL
+            add("install-bootstrap", f"Install {BOOTSTRAP_SKILL} in the {TOOL_LABELS[t]} global folder",
+                agent=t, skill=BOOTSTRAP_SKILL, state="missing", writes=[str(dest)],
+                detail=f"- -> {tool_version()}")
 
-    return {
+    # 8. Launcher wiring (R2-Q6): a launcher that prefers the dev clone gets the exact line change.
+    launchers = wiring.scan_launchers(code)
+    for lw in launchers:
+        if lw["edit"]:
+            e = lw["edit"]
+            add("launcher-edit", f"Point {lw['file']} at the running copy (line {e['line']})", file=lw["file"],
+                edit=e, writes=[str(code / lw["file"])], preview=f"- {e['old'].strip()}\n+ {e['new'].strip()}")
+    hooks = wiring.scan_hooks(code)
+
+    plan = {
         "tool_version": tool_version(),
         "code_path": str(code),
         "project": project,
@@ -570,11 +656,324 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
         "skills": skills_status,
         "notes": notes,
         "actions": actions,
+        "tools": tools,
+        "launchers": launchers,
+        "hooks": hooks,
     }
+    for t in machine_tools():
+        if t not in tools:
+            notes.append(f"{TOOL_LABELS[t]} is installed on this machine but this project doesn't use it: nothing is planned for it.")
+    plan["inventory"] = build_inventory(plan, code, reach, sources)
+    plan["decisions"] = build_decisions(plan)
+    plan["target"] = build_target(plan)
+    return plan
 
 
 # ---------------------------------------------------------------------------
-# Applying approved actions
+# Inventory, target state and decisions (Story 2.1): the first reply, in plain words
+# ---------------------------------------------------------------------------
+
+THEMES = (
+    ("pm-data", "Where the PM data lives"),
+    ("skills", "Where skills live"),
+    ("wiring", "Launcher wiring"),
+    ("gates", "Gates"),
+)
+THEME_OF = {
+    "register": "pm-data", "pointer": "pm-data",
+    "clone-running-copy": "skills", "fetch-grill-me": "skills", "copy-generic": "skills",
+    "install-skill": "skills", "exclude": "skills", "cleanup-global": "skills",
+    "upgrade-bootstrap": "skills", "install-bootstrap": "skills",
+    "launcher-edit": "wiring", "profile-gates": "gates",
+}
+
+
+def _item(what: str, now: str, belongs: str, why: str, status: str = "ok", actions: list[str] | None = None) -> dict[str, Any]:
+    """status: ok (stays as is) | change (an approval would change it) | review (yours to look at) | info"""
+    return {"what": what, "now": now, "belongs": belongs, "why": why, "status": status, "actions": actions or []}
+
+
+def _ids(plan: dict[str, Any], kind: str, **match: Any) -> list[str]:
+    return [a["id"] for a in plan["actions"] if a["kind"] == kind and all(a.get(k) == v for k, v in match.items())]
+
+
+def build_inventory(plan: dict[str, Any], code: Path, reach: dict[str, dict[str, list[str]]],
+                    sources: dict[str, Path]) -> list[dict[str, Any]]:
+    """Groups: this project / each used tool's global folder / launchers / PM data / hooks."""
+    project, full = plan["project"], plan["mode"] == "full"
+    groups: list[dict[str, Any]] = []
+
+    # -- this project
+    items = []
+    for s in plan["own_loop_skills"]:
+        items.append(_item(f"Your own loop skill {Path(s).name}", s, f"stays in {s}",
+                           "this project already runs its own story loop, and its rules win"))
+    for rel in sorted({d for t in plan["tools"] for d in project_read_dirs(t)}):
+        for n in GENERIC_SKILLS:
+            if (code / rel / n / "SKILL.md").is_file():
+                items.append(_item(f"{n} (generic design skill)", f"{rel}/{n}", f"stays in {rel}/{n}; also in each tool's global folder",
+                                   "the project copy is yours (committed, teammates use it); a global copy makes it work in every project"))
+    by_dir: dict[str, list[dict[str, Any]]] = {}
+    for row in plan["skills"]:
+        by_dir.setdefault(row["path"].rsplit("/", 1)[0], []).append(row)
+    for rel, rows in sorted(by_dir.items()):
+        states = {r["state"] for r in rows}
+        if not full:
+            installed = [r["skill"] for r in rows if r["state"] != "missing"]
+            if installed:
+                items.append(_item("Cockpit skills", f"{rel}: {', '.join(installed)}", "not needed here",
+                                   "register-only: the project's own loop wins; they were left as they are", "review"))
+            continue
+        ids = [i for r in rows for i in _ids(plan, "install-skill", dir=rel, skill=r["skill"])]
+        now = "; ".join(f"{r['skill']} {r['state']}" + (f" ({r['installed_version']})" if r["installed_version"] else "") for r in rows)
+        status = "ok" if states <= {"current"} else ("review" if states & {"edited", "foreign"} else "change")
+        items.append(_item(f"Cockpit skills for {rows[0]['agent']}", now, f"{rel}, current version {plan['tool_version']}",
+                           "full mode: the cockpit loop runs from the project's own skill folder", status, ids))
+    existing = [f for f, ok in plan["inspection"]["orchestration_files"].items() if ok]
+    for f in existing:
+        ids = _ids(plan, "pointer", file=f)
+        items.append(_item(f"Your rules file {f}", f, f"stays; {'a short cockpit section is appended' if ids else 'unchanged'}",
+                           "your rules are yours: text is only ever appended between markers, never rewritten",
+                           "change" if ids else "ok", ids))
+    for a in plan["actions"]:
+        if a["kind"] == "pointer" and a["file"] not in existing:
+            items.append(_item(f"{a['file']} (new)", "missing", f"created with a short cockpit section",
+                               f"{a['file']} is where this project's tools read their rules", "change", [a["id"]]))
+    groups.append({"group": "This project", "items": items})
+
+    # -- global folders, one group per used tool (plus any folder with something to clean up)
+    tool_groups: dict[str, list[dict[str, Any]]] = {t: [] for t in plan["tools"]}
+    for t in plan["tools"]:
+        r = reach[t]
+        ids = _ids(plan, "copy-generic", tool=t) + [a["id"] for a in plan["actions"]
+                                                   if a["kind"] == "fetch-grill-me" and t in a.get("tools", [])]
+        if r["global"]:
+            tool_groups[t].append(_item("grill-me (design before code)", ", ".join(_home_short(p) for p in r["global"]),
+                                        "here", "a generic skill: global, so every project has it"))
+        else:
+            copied = [a for a in plan["actions"] if a["id"] in ids and a["kind"] == "copy-generic"]
+            src = f"; found in {', '.join(_home_short(c['from']) for c in copied[0]['copies'])}" if copied else ""
+            covered = not ids and any(r2 in {Path(c["to"]).parent for a in plan["actions"] if a["kind"] == "copy-generic"
+                                             for c in a["copies"]} for r2 in global_read_roots(t))
+            tool_groups[t].append(_item(
+                "grill-me (design before code)",
+                f"missing for {TOOL_LABELS[t]}" + (" (only in this project)" if r["project"] else "") + src,
+                f"{_home_short(generic_global_target(t))}" + (" (covered by another tool's folder)" if covered else "")
+                + ("; the project copy stays" if r["project"] else ""),
+                "a generic skill: global, so every project has it", "change" if ids or covered else "review", ids))
+        boot = bootstrap_reach(code, t)
+        boot_ids = [a["id"] for a in plan["actions"] if a["kind"] in ("upgrade-bootstrap", "install-bootstrap")
+                    and global_roots()[a["agent"]] in global_read_roots(t)]
+        if boot:
+            st = skill_state(boot[0], TOOL_ROOT / "skills" / BOOTSTRAP_SKILL)
+            tool_groups[t].append(_item(f"{BOOTSTRAP_SKILL} (this setup)", f"{_home_short(boot[0])} ({st['state']}, {st['installed_version'] or '-'})",
+                                        f"current version {plan['tool_version']}", "the one global cockpit skill; it runs setup and upgrades",
+                                        "ok" if st["state"] == "current" else ("review" if st["state"] in ("edited", "foreign") else "change"),
+                                        boot_ids))
+        else:
+            tool_groups[t].append(_item(f"{BOOTSTRAP_SKILL} (this setup)", f"missing for {TOOL_LABELS[t]}",
+                                        _home_short(global_roots()[t]), "the one global cockpit skill; it runs setup and upgrades",
+                                        "change", boot_ids))
+    cleanup = next((a for a in plan["actions"] if a["kind"] == "cleanup-global"), None)
+    for t, root in global_roots().items():
+        for s in PROJECT_SKILLS:
+            status = global_copy_status(root / s, s)
+            if not status:
+                continue
+            rel = ledger_version(s, content_hash(root / s))
+            if status == "ours":
+                it = _item(f"Old cockpit skill {s}", _home_short(root / s) + (f" (release {rel}, unedited)" if rel else " (unedited)"),
+                           "removed: cockpit skills now live per project", "an old cockpit version, safe to remove",
+                           "change", [cleanup["id"]] if cleanup else [])
+                if cleanup and "Still relying" in cleanup.get("detail", ""):
+                    it["why"] += f" once the projects using it are set up ({cleanup['detail'].split(': ', 1)[1]})"
+            else:
+                it = _item(f"Cockpit-like skill {s}", _home_short(root / s), "yours to review",
+                           "edited by you" if status == "ours-edited" else "not provably a cockpit copy", "review")
+            tool_groups.setdefault(t, []).append(it)
+    for t, items in tool_groups.items():
+        if items:
+            groups.append({"group": f"Global folder: {TOOL_LABELS[t]}" + ("" if t in plan["tools"] else " (not used by this project)"),
+                           "items": items})
+
+    # -- launchers
+    items = []
+    for lw in plan["launchers"]:
+        if lw["kind"] == "orchestration" and lw["verdict"] == "ok":
+            continue  # prose that only mentions an old copy: history, not a launch path
+        ids = _ids(plan, "launcher-edit", file=lw["file"])
+        first = lw["refs"][0]
+        verdicts = {
+            "ok": ("calls the running copy first" + (" (falls back to others when it is missing)" if len(lw["refs"]) > 1 else ""), "ok"),
+            "missing": ("calls the running copy, which isn't installed", "review"),
+            "dev-clone-first": ("calls the dev clone first", "change" if ids else "review"),
+            "frozen": ("calls a frozen in-repo copy", "review"),
+            "dev-clone-mentioned": ("mentions a dev-clone path", "review"),
+        }
+        how, status = verdicts[lw["verdict"]]
+        now = f"{lw['file']}" + (f" line {first['line']}" if first.get("line") else "") + f": {how}"
+        fix = "" if status == "ok" or ids else " (no exact automatic edit: change it by hand to $HOME/.pm-qa-cockpit/app)"
+        items.append(_item(f"Launcher {lw['file']}", now, "calls ~/.pm-qa-cockpit/app first",
+                           "the running copy only changes on release, so a half-finished edit in the dev clone can't break it" + fix,
+                           status, ids))
+    if items:
+        groups.append({"group": "Launchers", "items": items})
+
+    # -- PM data
+    docs = Path(project["docs_path"])
+    reg_ids = _ids(plan, "register")
+    gates = (project.get("gates") or {}).get("mode", "unprofiled")
+    items = [
+        _item("Registration", "registered" if plan["registered"] else "not registered",
+              f"registered as '{project['slug']}' (prefix {project['prefix']})",
+              "the dashboard and the CLI find a project through the registry", "ok" if plan["registered"] else "change", reg_ids),
+        _item("PM data folder", f"{docs.as_posix()} ({project['docs_mode']})" + ("" if docs.is_dir() else ", not created yet"),
+              "stays there" if docs.is_dir() else f"{docs.as_posix()}",
+              "in-repo docs are committed with the code; external docs keep PM files out of the code repo",
+              "ok" if docs.is_dir() else "change", reg_ids),
+        _item("Gate mode", gates, "fast or heavy, measured once",
+              "a suite under 6 minutes runs inline before every close; a longer one is split out",
+              "ok" if gates not in ("unprofiled", None) else "change", _ids(plan, "profile-gates")),
+    ]
+    groups.append({"group": "PM data", "items": items})
+
+    # -- hooks
+    items = []
+    for h in plan["hooks"]:
+        if not h["cockpit_refs"] and not h["problem"]:
+            continue
+        items.append(_item(f"{TOOL_LABELS.get(h['tool'], h['tool'])} hook ({h['event']})", f"{h['file']}: {h['command'][:80]}",
+                           "stays, never touched", {None: "calls the cockpit correctly", "dev-clone": "calls the dev clone: point it at ~/.pm-qa-cockpit/app",
+                                                   "missing-path": "calls a cockpit path that doesn't exist"}[h["problem"]],
+                           "ok" if not h["problem"] else "review"))
+    if plan["hooks"] and not items:
+        items.append(_item("Your hooks", f"{len(plan['hooks'])} hook command(s), none calls the cockpit", "stay, never touched",
+                           "the cockpit ships no hooks; it only checks the paths yours call"))
+    if items:
+        groups.append({"group": "Hooks", "items": items})
+    return groups
+
+
+def _say(a: dict[str, Any], plan: dict[str, Any]) -> str:
+    """One action in plain words (no ids)."""
+    p = plan["project"]
+    k = a["kind"]
+    if k == "register":
+        where = "inside the repo" if p["docs_mode"] == "in-repo" else "outside the code repo"
+        return f"register {p['name']} (card prefix {p['prefix']}) with its PM data in {p['docs_path']} ({where})"
+    if k == "pointer":
+        return f"append a short PM & QA Cockpit section to {a['file']} (your text stays as it is)"
+    if k == "clone-running-copy":
+        return "download the cockpit's running copy to ~/.pm-qa-cockpit/app"
+    if k == "fetch-grill-me":
+        return f"install grill-me from {GRILL_SOURCE} for {', '.join(TOOL_LABELS[t] for t in a['tools'])}"
+    if k == "copy-generic":
+        return (f"copy {' and '.join(c['skill'] for c in a['copies'])} to the {TOOL_LABELS[a['tool']]} global folder "
+                f"({_home_short(Path(a['copies'][0]['to']).parent)}); the copy it comes from stays")
+    if k == "install-skill":
+        return {"missing": f"install {a['skill']} into {a['dir']}",
+                "outdated": f"upgrade {a['skill']} in {a['dir']} ({a['detail']})"}.get(a["state"], f"resolve {a['skill']}")
+    if k == "exclude":
+        return "keep the installed cockpit skill folders out of git (.git/info/exclude, exact paths)"
+    if k == "cleanup-global":
+        return f"remove {len(a['paths'])} old, unedited cockpit skill copies from the global folders"
+    if k == "upgrade-bootstrap":
+        return f"upgrade {BOOTSTRAP_SKILL} in the {TOOL_LABELS[a['agent']]} global folder ({a['detail']})"
+    if k == "install-bootstrap":
+        return f"install {BOOTSTRAP_SKILL} in the {TOOL_LABELS[a['agent']]} global folder"
+    if k == "launcher-edit":
+        return f"change {a['file']} line {a['edit']['line']} to call the running copy"
+    if k == "profile-gates":
+        return "time the test suite once (it runs the whole suite) to choose fast or heavy gates"
+    return a["title"]
+
+
+def _join(parts: list[str]) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def _merge_skill_installs(acts: list[dict[str, Any]], plan: dict[str, Any]) -> list[str]:
+    """Several per-skill installs into one folder read as one sentence."""
+    out, grouped, boot = [], {}, {}
+    for a in acts:
+        if a["kind"] == "install-skill":
+            grouped.setdefault((a["dir"], a["state"]), []).append(a["skill"])
+        elif a["kind"] in ("upgrade-bootstrap", "install-bootstrap"):
+            boot.setdefault((a["kind"], a["detail"]), []).append(TOOL_LABELS[a["agent"]])
+        else:
+            out.append(_say(a, plan))
+    for (rel, state), skills in grouped.items():
+        verb = "install" if state == "missing" else "upgrade"
+        out.insert(0, f"{verb} the cockpit skills {_join(skills)} in {rel}")
+    for (kind, detail), tools in boot.items():
+        verb = "upgrade" if kind == "upgrade-bootstrap" else "install"
+        where = "folder" if len(tools) == 1 else "folders"
+        out.append(f"{verb} {BOOTSTRAP_SKILL} in the {_join(tools)} global {where}"
+                   + (f" ({detail})" if kind == "upgrade-bootstrap" else ""))
+    return out
+
+
+def build_decisions(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Fixed themes in order (R3-Q9), empty ones skipped; plus one question per edited skill. The
+    text never contains action ids: those live in ``actions`` / each option's ``approve`` list."""
+    edited = [a for a in plan["actions"] if a.get("state") == "edited"]
+    out: list[dict[str, Any]] = []
+    for theme, title in THEMES:
+        acts = [a for a in plan["actions"] if THEME_OF.get(a["kind"]) == theme and a not in edited]
+        if not acts:
+            continue
+        said = _merge_skill_installs(acts, plan)
+        ids = [a["id"] for a in acts]
+        extra = ""
+        if theme == "skills" and plan["mode"] == "register-only":
+            extra = " No cockpit skills go into this project: its own loop wins."
+        out.append({
+            "theme": theme,
+            "title": title,
+            "question": f"{title}: OK to {_join(said)}?",
+            "recommendation": "Yes, all of it." + extra,
+            "options": [
+                {"label": "Yes, all of it (recommended)", "description": "; ".join(said), "approve": ids},
+                {"label": "Not now", "description": "Nothing in this group is changed; setup can offer it again later.", "approve": []},
+            ],
+            "actions": ids,
+        })
+    for a in edited:
+        where = a.get("dir") or TOOL_LABELS.get(a.get("agent", ""), "") + " global folder"
+        out.append({
+            "theme": "edited",
+            "title": f"Your edits in {a['skill']}",
+            "question": f"{a['skill']} in {where} has your own changes and a newer version is available. What should happen?",
+            "recommendation": "Keep yours; save the new version beside it to merge by hand.",
+            "options": [
+                {"label": "Keep mine, save the new one beside it (recommended)",
+                 "description": f"the new version goes to {NEW_DIR}/, which agents don't load", "approve": [f"{a['id']}=new"]},
+                {"label": "Keep mine only", "description": "nothing changes", "approve": [a["id"]]},
+                {"label": "Replace with the new version", "description": "removes the whole skill folder, including files you added",
+                 "approve": [f"{a['id']}=replace"]},
+            ],
+            "actions": [a["id"]],
+        })
+    return out
+
+
+def build_target(plan: dict[str, Any]) -> list[str]:
+    """The recommended end state in sentences."""
+    p = plan["project"]
+    tools = _join([TOOL_LABELS[t] for t in plan["tools"]])
+    out = [f"{p['name']} is registered (prefix {p['prefix']}) with its PM data in {p['docs_path']}."]
+    if plan["mode"] == "full":
+        out.append(f"The cockpit skills live in this project's own skill folder and are current ({plan['tool_version']}).")
+    else:
+        out.append("No cockpit skills in this project: its own loop and rules stay in charge; the dashboard only shows its cards.")
+    out.append(f"grill-me and {BOOTSTRAP_SKILL} are in the global folder of every tool this project uses ({tools}).")
+    if any(a["kind"] == "cleanup-global" for a in plan["actions"]):
+        out.append("The old global copies of the cockpit skills are gone.")
+    if plan["launchers"]:
+        out.append("Every launcher calls the running copy ~/.pm-qa-cockpit/app first.")
+    out.append("Your own rules, hooks and orchestration files are untouched.")
+    out.append("`cli.py doctor` then reports every check as pass.")
+    return out
 # ---------------------------------------------------------------------------
 
 
@@ -623,6 +1022,12 @@ def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | 
             raise ValueError(f"{a['file']} is not UTF-8; nothing was changed. Convert it or decline {aid}.")
         if a["kind"] == "exclude" and exclude_file(code) is None:
             raise ValueError(f"cannot locate this repo's info/exclude; nothing was changed. Decline {aid}.")
+        if a["kind"] == "launcher-edit":
+            f = code / a["file"]
+            lines = f.read_bytes().decode("utf-8-sig", errors="replace").splitlines() if f.is_file() else []
+            n = a["edit"]["line"]
+            if n > len(lines) or lines[n - 1] != a["edit"]["old"]:
+                raise ValueError(f"{a['file']}:{n} changed since the plan was shown; nothing was changed.")
 
     def choice(aid: str) -> str:
         return on_conflict.get(aid, "abort") if isinstance(on_conflict, dict) else on_conflict
@@ -649,9 +1054,25 @@ def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | 
                 exclude.parent.mkdir(parents=True, exist_ok=True)
                 append_bytes(exclude, "# PM & QA Cockpit skills (installed per project)\n" + "\n".join(add) + "\n")
             results.append({"id": aid, "result": f"excluded {len(add)} path(s)"})
-        elif kind == "upgrade-bootstrap":
+        elif kind in ("upgrade-bootstrap", "install-bootstrap"):
             dest = global_roots()[a["agent"]] / BOOTSTRAP_SKILL
             results.append({"id": aid, "result": install_skill(TOOL_ROOT / "skills" / BOOTSTRAP_SKILL, dest, choice(aid))})
+        elif kind == "copy-generic":
+            done = []
+            for c in a["copies"]:
+                src, dest = Path(c["from"]), Path(c["to"])
+                if dest.exists():
+                    done.append(f"{c['skill']}: already there")  # never overwrite another copy
+                elif (src / "SKILL.md").is_file():
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(src, dest)
+                    done.append(f"{c['skill']}: copied")
+                else:
+                    done.append(f"{c['skill']}: source gone, skipped")
+            results.append({"id": aid, "result": "; ".join(done)})
+        elif kind == "launcher-edit":
+            wiring.apply_launcher_edit(code, a["file"], a["edit"])
+            results.append({"id": aid, "result": "written"})
         elif kind == "cleanup-global":
             removed, kept = 0, []
             for p in a["paths"]:
