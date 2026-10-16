@@ -14,7 +14,7 @@
     Port to listen on (sets PM_QA_COCKPIT_PORT). Default 3333.
 
 .EXAMPLE
-    powershell -File cockpit.ps1 -Project money-nest
+    powershell -File dashboard.ps1 -Project money-nest
 #>
 param(
     [string]$Project,

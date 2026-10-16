@@ -181,5 +181,5 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"Created: {c}")
     print(f"Registered '{project['slug']}' as the active project in {projects.registry_path()}")
     if os.name == "nt":
-        print("Next: cli.py profile-gates --measure --apply  ·  powershell -File cockpit.ps1")
+        print("Next: cli.py profile-gates --measure --apply  ·  powershell -File dashboard.ps1")
     return 0

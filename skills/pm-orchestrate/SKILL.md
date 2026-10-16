@@ -2,7 +2,7 @@
 name: pm-orchestrate
 description: Use at the start of any new feature, story or nontrivial change in a project tracked by the PM & QA Cockpit, before writing code or spawning agents; also when onboarding a project (cli.py init), choosing gate mode (profile-gates), or closing a story (close-out artifact).
 metadata:
-  version: 0.2.0
+  version: 0.2.1
   source: pm-qa-cockpit
 ---
 

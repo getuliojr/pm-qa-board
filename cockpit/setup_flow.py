@@ -315,7 +315,7 @@ def pointer_text(project: dict[str, Any], register_only: bool) -> str:
         "## PM & QA Cockpit",
         "",
         f"Stories are tracked with PM & QA Cockpit (card prefix `{project['prefix']}`, docs in `{docs}`).",
-        f"Dashboard: `powershell -File ~/.pm-qa-cockpit/app/cockpit.ps1 -Project {project['slug']}`"
+        f"Dashboard: `powershell -File ~/.pm-qa-cockpit/app/dashboard.ps1 -Project {project['slug']}`"
         " → http://localhost:3333.",
     ]
     if register_only:

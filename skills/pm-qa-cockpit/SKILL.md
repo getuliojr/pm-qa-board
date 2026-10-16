@@ -2,7 +2,7 @@
 name: pm-qa-cockpit
 description: Use when creating, reading or updating story cards, PLAN.md, reviews or close-out artifacts for a project tracked by the PM & QA Cockpit (local dashboard on :3333), or when asked to launch/register the Cockpit. Defines card schema, project resolution, docs layout and the CLI.
 metadata:
-  version: 0.2.0
+  version: 0.2.1
   source: pm-qa-cockpit
 ---
 
@@ -82,7 +82,7 @@ validated: false
 | `profile-gates [--measure] [--apply] [--threshold-seconds 360]` | pick fast/heavy gate mode |
 
 ## Launching
-`powershell -File <cockpit>\cockpit.ps1 [-Project slug] [-Port 3333]` opens http://localhost:3333.
+`powershell -File <cockpit>\dashboard.ps1 [-Project slug] [-Port 3333]` opens http://localhost:3333.
 Agents do not launch it unattended (long-running server) unless asked.
 
 ## Related skills

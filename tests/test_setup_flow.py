@@ -80,7 +80,8 @@ def test_unedited_older_version_is_outdated_and_upgrades(tmp_path):
     dest = tmp_path / "installed" / "pm-sync"
     setup_flow.install_skill(src, dest)
     md = src / "SKILL.md"
-    md.write_text(md.read_text(encoding="utf-8").replace("version: 0.2.0", "version: 0.3.0") + "\nNew rule.\n",
+    current = setup_flow.skill_metadata(md)["version"]
+    md.write_text(md.read_text(encoding="utf-8").replace(f"version: {current}", "version: 0.3.0") + "\nNew rule.\n",
                   encoding="utf-8")
     assert setup_flow.skill_state(dest, src)["state"] == "outdated"
     assert setup_flow.install_skill(src, dest) == "upgraded"
@@ -149,8 +150,11 @@ def test_legacy_global_copies_offered_for_cleanup(cockpit_home, fake_globals, tm
     legacy = fake_globals["claude"] / "pm-sync"
     shutil.copytree(SKILLS / "pm-sync", legacy)
     md = legacy / "SKILL.md"  # a pre-versioning copy: no metadata block
-    md.write_text(md.read_text(encoding="utf-8").replace("metadata:\n  version: 0.2.0\n  source: pm-qa-cockpit\n", ""),
-                  encoding="utf-8")
+    import re
+
+    stripped = re.sub(r"metadata:\n  version: [^\n]+\n  source: pm-qa-cockpit\n", "", md.read_text(encoding="utf-8"))
+    assert "metadata:" not in stripped
+    md.write_text(stripped, encoding="utf-8")
     (fake_globals["claude"] / "pm-review").mkdir()
     (fake_globals["claude"] / "pm-review" / "SKILL.md").write_text("---\nname: pm-review\n---\nunrelated\n", encoding="utf-8")
     plan = setup_flow.build_plan(code, name="P", prefix="PP")

@@ -23,7 +23,7 @@ powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1
 #      "set up PM & QA Cockpit in this project"
 
 # 4. Launch the dashboard (http://localhost:3333)
-powershell -File $HOME\.pm-qa-cockpit\app\cockpit.ps1 [-Project my-app] [-Port 3333]
+powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 [-Project my-app] [-Port 3333]
 ```
 
 **How setup works** (`skills/pm-qa-setup`): the agent checks prerequisites (uv, git, the running copy,

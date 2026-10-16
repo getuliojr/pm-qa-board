@@ -2,7 +2,7 @@
 name: pm-qa-setup
 description: Use when the user asks to set up, install, onboard, register, upgrade or check PM & QA Cockpit in a project (or on this machine), or to clean up old cockpit skills. Inspects the project's existing orchestration and hooks, proposes exactly what to add, and changes only what the user approves — never overwrites a user's rules or skills.
 metadata:
-  version: 0.2.0
+  version: 0.2.1
   source: pm-qa-cockpit
 ---
 
@@ -75,7 +75,7 @@ only if they ask).
 
 ### 5. Confirm
 Re-run `CLI setup-plan` — it should show nothing left (or only what the user declined). Tell the user
-how to open the dashboard: `powershell -File ~/.pm-qa-cockpit/app/cockpit.ps1 -Project <slug>` →
+how to open the dashboard: `powershell -File ~/.pm-qa-cockpit/app/dashboard.ps1 -Project <slug>` →
 <http://localhost:3333>, and that design work starts with `grill-me` then the `pm-orchestrate` loop
 (full mode) or the project's own loop (register-only).
 
