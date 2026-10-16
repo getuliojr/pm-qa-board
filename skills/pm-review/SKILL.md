@@ -31,7 +31,7 @@ a different party and never replaces it. Only an ad-hoc chat fix with no card is
 ---
 story: "<story>"
 round: 1
-verdict: PASS            # or CHANGES_REQUESTED
+verdict: PASS            # PASS | PASS with findings | CHANGES REQUESTED
 reviewer: Reviewer (Model)
 date: YYYY-MM-DD
 start_sha: <sha>
