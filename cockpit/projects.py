@@ -52,6 +52,17 @@ def _norm(p: str | Path) -> str:
     return str(Path(p).expanduser().resolve()).replace("\\", "/")
 
 
+def git_toplevel(path: str | Path) -> Path | None:
+    """The git work tree containing ``path`` (or None). Lets one private docs repo hold many projects."""
+    p = Path(path)
+    while not p.exists() and p.parent != p:
+        p = p.parent
+    res = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=str(p), capture_output=True, text=True, check=False
+    )
+    return Path(res.stdout.strip()).resolve() if res.returncode == 0 and res.stdout.strip() else None
+
+
 def load_registry() -> dict[str, Any]:
     path = registry_path()
     if not path.exists():
@@ -136,7 +147,9 @@ def ensure_docs_root(project: dict[str, Any]) -> list[str]:
                 title = fname[:-3].replace("_", " ")
                 f.write_text(f"# {project['name']} — {title}\n", encoding="utf-8")
                 created.append(str(f))
-        if not (docs / ".git").exists():
+        # A folder inside an existing docs repo (e.g. pm-qa-docs/<slug>) uses that repo; only a
+        # stand-alone folder gets its own `git init`. Never nest a repo inside another.
+        if git_toplevel(docs) is None:
             subprocess.run(["git", "init", "-q"], cwd=str(docs), check=False, capture_output=True)
             created.append(str(docs / ".git"))
     return created

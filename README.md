@@ -40,6 +40,36 @@ Resolution order: `--project`, then the project containing the current directory
   `artifacts/`, `WORKLOG.md`, `QUALITY.md`, `E2E_CANDIDATES.md`, `gate-heavy-results/`. Code git
   operations stay in the code repo and PM files never enter it. `--stealth` also hides local cockpit files
   through `.git/info/exclude`.
+- **Shared private docs repo**: an external `docs_path` may be a folder inside one private repo that holds
+  many projects (`pm-qa-docs/<slug>/`). The cockpit commits into that enclosing repo and never creates a
+  nested one.
+
+## Code, running copy and data — keep them apart
+
+| Layer | Where | Syncs via |
+|---|---|---|
+| Tool code (you develop it) | your dev clone of this repo, on branches | this public repo |
+| Running copy (projects use it) | `~/.pm-qa-cockpit/app`, a clone of this repo on `main` | `git -C ~/.pm-qa-cockpit/app pull` |
+| PM data (cards, PLAN, reviews, close-outs) | each project's own repo, or a private docs repo such as `pm-qa-docs/<slug>/` | that repo |
+| Registry | `~/.pm-qa-cockpit/projects.json` (absolute paths, per machine) | not synced: re-run `cli.py init` |
+| Installed skills | `~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills-cursor` | `install.ps1` per machine |
+
+**This repo never holds PM data.** Its own cards live in the private docs repo (`.gitignore` blocks
+`docs/`, `PLAN.md` and friends here as a safety net).
+
+**Release flow:** develop and test in the dev clone → merge to `main` and push → update the running copy
+and skills:
+
+```powershell
+git -C $HOME\.pm-qa-cockpit\app pull
+powershell -File $HOME\.pm-qa-cockpit\app\install.ps1 -Force
+```
+
+Projects find the cockpit through `$env:PM_QA_COCKPIT_REPO`, else `~/.pm-qa-cockpit/app`, else a sibling
+`pm-qa-cockpit` folder — so a half-finished edit in the dev clone never breaks a project's dashboard.
+
+**New machine:** clone this repo (dev), clone it again into `~/.pm-qa-cockpit/app` (running copy), clone
+your projects and the private docs repo, run `install.ps1`, then `cli.py init ... --apply` once per project.
 
 ## Story schema
 

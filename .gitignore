@@ -3,3 +3,13 @@ __pycache__/
 *.pyc
 .pytest_cache/
 gate-heavy-results/current_run.log
+
+# PM data never lives in this public tool repo: it goes to a private docs repo
+# (e.g. pm-qa-docs/pm-qa-cockpit) registered as this project's external docs_path.
+/docs/
+/PLAN.md
+/WORKLOG.md
+/QUALITY.md
+/E2E_CANDIDATES.md
+/ORCHESTRATION.md
+/gate-heavy-results/

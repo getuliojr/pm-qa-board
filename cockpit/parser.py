@@ -118,16 +118,23 @@ class PMParser:
         frontmatter["_schema"] = "story" if is_story else "sprint"
 
     def commit_docs(self, files: list[Path], message: str) -> bool:
-        """Commit PM files in the docs repo (external docs_path only). Local commit, never push."""
-        if not (self.docs_path / ".git").exists():
+        """Commit PM files in the repo that holds docs_path (external docs only). Local, never push.
+
+        docs_path may be its own repo or a folder of a shared docs repo (``pm-qa-docs/<slug>``).
+        Refuses if that repo is the code repo — PM files never get committed there.
+        """
+        from projects import git_toplevel
+
+        top = git_toplevel(self.docs_path)
+        if top is None or top == self.root_dir or self.root_dir.is_relative_to(top):
             return False
-        rels = [str(Path(f).resolve().relative_to(self.docs_path)) for f in files]
-        add = subprocess.run(["git", "add", "--", *rels], cwd=str(self.docs_path), capture_output=True, check=False)
+        rels = [Path(f).resolve().relative_to(top).as_posix() for f in files]
+        add = subprocess.run(["git", "add", "--", *rels], cwd=str(top), capture_output=True, check=False)
         if add.returncode != 0:
             return False
         res = subprocess.run(
             ["git", "commit", "-q", "-m", message, "--", *rels],
-            cwd=str(self.docs_path),
+            cwd=str(top),
             capture_output=True,
             check=False,
         )

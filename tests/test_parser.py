@@ -124,3 +124,27 @@ def test_validate_reports_failed_docs_commit(cockpit_home, external_project, mon
     monkeypatch.setattr(p, "commit_docs", lambda *_a: False)
     ok, msg = p.validate_card("APP-3.1", do_commit=True)
     assert ok and "commit failed" in msg
+
+
+def test_shared_docs_repo_holds_many_projects(cockpit_home, tmp_path):
+    """pm-qa-docs layout: one private docs repo, one folder per project, no nested repos."""
+    from conftest import init_repo
+
+    docs_repo = init_repo(tmp_path / "pm-qa-docs")
+    (docs_repo / "README.md").write_text("docs\n", encoding="utf-8")
+    git(docs_repo, "add", "-A")
+    git(docs_repo, "commit", "-q", "-m", "init")
+    code_a = init_repo(tmp_path / "app-a")
+    code_b = init_repo(tmp_path / "app-b")
+
+    a = projects.build_project("App A", code_a, prefix="APP", docs_path=docs_repo / "app-a")
+    b = projects.build_project("App B", code_b, prefix="BBB", docs_path=docs_repo / "app-b")
+    for proj in (a, b):
+        projects.ensure_docs_root(proj)
+    assert not (docs_repo / "app-a" / ".git").exists() and not (docs_repo / "app-b" / ".git").exists()
+
+    seed_external_docs(docs_repo / "app-a")
+    ok, msg = PMParser(project=a).validate_card("APP-3.1", do_commit=True)
+    assert ok and "commit failed" not in msg
+    assert "validate APP-3.1" in git(docs_repo, "log", "--oneline", "-1")
+    assert git(code_a, "status", "--porcelain") == "" and git(code_b, "status", "--porcelain") == ""
