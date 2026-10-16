@@ -308,6 +308,12 @@ Gate 5 (pytest full suite + coverage) failed when run against {sha_display}.
             return list(self.log_lines)[-limit:]
 
 
+def _worker_config(parser: PMParser) -> tuple[str, str, str | None]:
+    """What a HeavyGateWorker depends on; a change means the worker must be rebuilt."""
+    gates = parser.project.get("gates") or {}
+    return (str(parser.root_dir), str(parser.heavy_results_dir), gates.get("heavy_script"))
+
+
 class CockpitState:
     """The active project's parser + heavy-gate worker; swapped atomically on project switch."""
 
@@ -333,11 +339,17 @@ class CockpitState:
         with self.lock:
             self.project = project
             self.parser = new_parser
-            # One worker per project so a running heavy gate keeps its own log across switches;
-            # an idle worker is rebuilt so a reconfigured docs_path / gate script takes effect.
+            # One worker per project, kept across switches so its last run's status and log survive.
+            # It is rebuilt only when what it runs against changed (reconfigured docs_path or gate
+            # script) and it is not mid-run.
             current = self.workers.get(project["slug"])
-            if current is None or current.status != "running":
+            if current is None:
                 self.workers[project["slug"]] = HeavyGateWorker(new_parser)
+            elif _worker_config(current.parser) != _worker_config(new_parser):
+                with current.lock:
+                    running = current.status == "running"
+                if not running:
+                    self.workers[project["slug"]] = HeavyGateWorker(new_parser)
 
     @property
     def worker(self) -> HeavyGateWorker:

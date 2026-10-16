@@ -185,3 +185,20 @@ def test_reactivating_rebuilds_idle_worker(server, legacy_project, tmp_path):
     srv.STATE.activate(project)
     assert srv.STATE.worker is not first
     assert srv.STATE.worker.log_file_path.parent == other_docs.resolve() / "gate-heavy-results"
+
+
+def test_switching_back_keeps_finished_run_state(server, legacy_project, external_project):
+    """Review round 2 #1: A -> B -> A must not wipe A's last heavy-gate status/log."""
+    _, srv = server
+    code, docs = external_project
+    a = srv.STATE.project
+    worker_a = srv.STATE.worker
+    worker_a.status, worker_a.exit_code = "completed", 0
+    worker_a.log_lines.append("run finished")
+    b = projects.build_project("Story App", code, prefix="APP", docs_path=docs)
+    projects.ensure_docs_root(b)
+    srv.STATE.activate(b)
+    srv.STATE.activate(a)
+    assert srv.STATE.worker is worker_a
+    assert srv.STATE.worker.get_status()["status"] == "completed"
+    assert srv.STATE.worker.get_log() == ["run finished"]
