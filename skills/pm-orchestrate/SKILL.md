@@ -2,7 +2,7 @@
 name: pm-orchestrate
 description: Use at the start of any new feature, story or nontrivial change in a project tracked by the PM & QA Cockpit, before writing code or spawning agents; also when onboarding a project (cli.py init), choosing gate mode (profile-gates), or closing a story (close-out artifact).
 metadata:
-  version: 0.3.0
+  version: 0.4.0
   source: pm-qa-cockpit
 ---
 
@@ -11,7 +11,14 @@ metadata:
 Roles are generic: **lead** (process, contract, merges, answers the user), **builder** (cheaper model,
 writes code against a brief), **advisor** (stronger model, consulted for a hard call, max 3 calls per
 problem then escalate to the user), **retrieval** (cheap, fact-finding only). Cold reviewer = a stronger
-model (see `pm-review`). Never switch the whole session's model; delegate instead.
+model (see `pm-review`), and **pm-sync** (cheap, ticks DoD boxes; see `pm-sync`). Never switch the
+whole session's model; delegate instead.
+
+**Roster.** Who fills each role is in the `## Roster` section of the project's `ORCHESTRATION.md`
+(docs folder), one table per tool, with an agent, model and effort per role. When you delegate a role,
+dispatch **the agent that table names** for the tool you run in (pass the table's effort if the agent
+file has none). If the project has no Roster or no agent for that role, use the generic rule above.
+`cli.py doctor` checks the roster; `pm-qa-setup` fills it.
 
 ## The loop
 1. **Design first (`grill-me`).** No code until open questions are closed. Ask each decision interactively

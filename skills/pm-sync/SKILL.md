@@ -2,7 +2,7 @@
 name: pm-sync
 description: Use during a story build, after every phase commit, lane merge, gate result or review milestone, to keep the card's DoD checkboxes and PLAN.md in step. Never batch the ticking at the end.
 metadata:
-  version: 0.3.0
+  version: 0.4.0
   source: pm-qa-cockpit
 ---
 
@@ -33,6 +33,10 @@ with the start SHA first. If code was already written against an unstarted card,
 **Changelog row:** `| YYYY-MM-DD HH:MM | <Role (Model)> | <What> |`; `User` for human actions.
 
 **Anti-pattern:** "I'll update the card when we're done."
+
+**Delegation:** the ticking is mechanical, so hand it to the **pm-sync** agent the project's
+`ORCHESTRATION.md` Roster names for your tool (a cheap model); with no Roster or no such agent, do it
+yourself. The agent changes only checkboxes and Changelog rows.
 
 For external docs, card and PLAN.md edits commit to the docs repo, not the code repo (see `pm-qa-cockpit`).
 Never `git push`.

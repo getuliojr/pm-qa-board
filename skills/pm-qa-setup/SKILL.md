@@ -2,7 +2,7 @@
 name: pm-qa-setup
 description: Use when the user asks to set up, install, onboard, register, upgrade or check PM & QA Cockpit in a project (or on this machine), or to clean up old cockpit skills. Inspects what the project and this machine already have, says in plain words where each thing belongs, asks a few plain questions, and changes only what the user approves; never overwrites a user's rules or skills. Ends with a read-only doctor check.
 metadata:
-  version: 0.3.0
+  version: 0.4.0
   source: pm-qa-cockpit
 ---
 
@@ -36,8 +36,8 @@ Use `--json` to read the details. The plan carries:
   status (`ok` stays as is, `change` an approval changes it, `review` the user's to look at).
 - **`target`**: the recommended end state, in sentences.
 - **`decisions`**: at most one per fixed theme, in this order: where the PM data lives, where skills
-  live, launcher wiring, gates (empty themes are skipped), plus one question per skill the user has
-  edited. Each has a plain `question`, a `recommendation` and `options` whose `approve` lists hold
+  live, launcher wiring, gates, who does each step (the roster; empty themes are skipped), plus one
+  question per skill the user has edited. Each has a plain `question`, a `recommendation` and `options` whose `approve` lists hold
   the internal action ids.
 - `actions` (the internal ids, files written, exact text added), `notes`, `mode`
   (`full`, or `register-only` when the project runs its **own loop**, e.g. `money-nest-orchestrate`:
@@ -52,12 +52,20 @@ In this order, in plain words:
 2. **Recommended target**: the `target` sentences.
 3. **The decisions**: ask them with the interactive question tool if you have one (one question per
    decision, the recommended option first), otherwise as a short numbered list of questions. That is
-   at most 4 questions, plus one per edited skill.
+   at most 5 questions, plus one per edited skill.
 
 **Never show action ids (A1, A3 …) as the thing to decide.** They are for you: map each answer to its
 option's `approve` list. Show ids only if the user asks for them.
 For a launcher change, show the exact old and new line. For an edited skill, first show the diff
 between their copy and the shipped one (`git diff --no-index <theirs> ~/.pm-qa-cockpit/app/skills/<name>`).
+
+**The roster question** ("Who does each step: use the recommended roster?") appears only in full mode
+and only when a role has no agent yet. Show `roster_table` as one table per tool (role, model, effort,
+and "new" / "yours" / "your session pick"); the lead is the user's session choice, only recorded. Yes
+approves the whole action. "Customise" asks the decision's `questions` one by one (a model from the
+list, recommendation first or Other, and an effort), then passes the answers to apply as
+`--roster '{"claude": {"advisor": {"model": "...", "effort": "high"}}}'`. In a register-only project
+the roster is reported, never offered: the project's own loop wins. Existing agent files are never edited.
 
 ## 3. Apply only what was approved
 

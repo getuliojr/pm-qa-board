@@ -2,7 +2,7 @@
 name: pm-review
 description: Use when a story's build is committed and gates are green, to run the cold review gate before the card moves to qa. Defines the separate cold reviewer, diff-only rounds, the review file format and the qa transition.
 metadata:
-  version: 0.3.0
+  version: 0.4.0
   source: pm-qa-cockpit
 ---
 
@@ -13,7 +13,8 @@ a different party and never replaces it. Only an ad-hoc chat fix with no card is
 
 ## Rules
 - **Cold and separate:** dispatch a fresh agent on a stronger model than the builder, with no inherited
-  context. The lead reviewing its own work never counts - it holds the assumptions that produced any bug.
+  context. Use the **reviewer** agent the project's `ORCHESTRATION.md` Roster names for your tool; with no
+  Roster or no reviewer there, spawn a fresh agent on a stronger model yourself. Never `inherit`. The lead reviewing its own work never counts - it holds the assumptions that produced any bug.
 - **Everything committed first:** a worktree or diff only sees committed history. Verify a clean tree.
 - **Diff-only:** the reviewer reads `git diff <start_sha>..HEAD` (in `code_path`) plus the PM files and takes
   the builder's reported gate numbers. It does not re-run gates unless the brief flags the change as
