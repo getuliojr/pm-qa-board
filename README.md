@@ -68,5 +68,5 @@ read-only. See `skills/pm-orchestrate/SKILL.md` for the spec.
 ## Tests
 
 ```powershell
-uv run --native-tls --group dev pytest
+uv run --system-certs --group dev pytest
 ```
