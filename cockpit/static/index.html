@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Money-Nest • Dev PM & QA Cockpit</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons via CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Marked Markdown Parser via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- DOMPurify via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+  <link rel="stylesheet" href="style.css?v=20261001-font">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-emerald-500 selection:text-white">
+
+  <!-- Top Global Loading Bar -->
+  <div id="loadingBar" class="fixed top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 z-50 transition-opacity duration-300 opacity-0 pointer-events-none"></div>
+
+  <!-- TOP APP BAR -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-lg shadow-inner">
+          <i data-lucide="shield-check" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h1 class="font-bold text-base text-white tracking-tight">Money-Nest</h1>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">PM & QA Cockpit</span>
+          </div>
+          <p class="text-xs text-slate-400" id="headerBranch">Branch: loading...</p>
+        </div>
+      </div>
+
+      <!-- Quick Metrics Bar -->
+      <div class="hidden md:flex items-center space-x-6 text-xs">
+        <div class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60">
+          <span class="text-slate-400">Awaiting QA:</span>
+          <span id="headerQaCount" class="font-bold text-amber-400 px-1.5 py-0.2 rounded bg-amber-400/10">0</span>
+        </div>
+        <div class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60">
+          <span class="text-slate-400">Total Cards:</span>
+          <span id="headerTotalCount" class="font-bold text-slate-200">0</span>
+        </div>
+        <div class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60">
+          <span class="text-slate-400">Active Sprint:</span>
+          <span id="headerActiveSprint" class="font-bold text-emerald-400">...</span>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <button id="refreshBtn" class="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg border border-slate-700 transition">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5" id="refreshIcon"></i>
+          <span>Refresh</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 -mb-px">
+      <button class="nav-tab active-tab" data-tab="pipeline">
+        <i data-lucide="kanban" class="w-4 h-4 mr-2"></i>
+        <span>Pipeline Board</span>
+      </button>
+      <button class="nav-tab" data-tab="sprint-dod">
+        <i data-lucide="list-checks" class="w-4 h-4 mr-2"></i>
+        <span>Active Work & Live DoD</span>
+        <span id="sprintDodNavBadge" class="ml-2 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">0 active</span>
+      </button>
+      <button class="nav-tab" data-tab="qa">
+        <i data-lucide="shield-check" class="w-4 h-4 mr-2"></i>
+        <span>QA & Heavy Gates</span>
+        <span id="qaTabBadge" class="ml-2 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden">0</span>
+      </button>
+      <button class="nav-tab" data-tab="sprints">
+        <i data-lucide="milestone" class="w-4 h-4 mr-2"></i>
+        <span>Sprint Roadmap & Decisions</span>
+      </button>
+      <button class="nav-tab" data-tab="activity">
+        <i data-lucide="activity" class="w-4 h-4 mr-2"></i>
+        <span>Agent Activity & Git</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+
+    <!-- Global Error Banner -->
+    <div id="globalErrorBanner" class="hidden mb-6 p-4 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-center justify-between shadow-lg">
+      <div class="flex items-center gap-2.5">
+        <i data-lucide="alert-circle" class="w-4 h-4 text-rose-400 shrink-0"></i>
+        <span id="globalErrorMessage">Failed to load dashboard data. Check server connection.</span>
+      </div>
+      <button onclick="fetchAll()" class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold transition cursor-pointer">
+        Retry
+      </button>
+    </div>
+
+    <!-- 1. PIPELINE TAB -->
+    <section id="tab-pipeline" class="tab-content">
+      <!-- Filter Bar -->
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">Sprint:</span>
+          <select id="pipelineSprintFilter" class="bg-slate-800 text-slate-200 text-xs rounded-lg px-3 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-500">
+            <option value="ALL">All Sprints</option>
+          </select>
+
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider ml-2 mr-1">Type:</span>
+          <div class="flex space-x-1" id="pipelineTypeFilters">
+            <button class="type-filter-pill active" data-type="ALL">All</button>
+            <button class="type-filter-pill" data-type="feature">Features</button>
+            <button class="type-filter-pill" data-type="bug">Bugs</button>
+            <button class="type-filter-pill" data-type="improvement">Improvements</button>
+          </div>
+        </div>
+
+        <div class="w-full sm:w-64 relative">
+          <input type="text" id="pipelineSearch" placeholder="Search tasks or IDs..." class="w-full bg-slate-800 text-slate-200 text-xs rounded-lg pl-8 pr-3 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-500">
+          <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+        </div>
+      </div>
+
+      <!-- Kanban Columns Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <!-- Backlog -->
+        <div class="board-column" data-col="backlog">
+          <div class="board-column-header text-slate-400 border-slate-700">
+            <span>Backlog</span>
+            <span class="count-badge" id="count-backlog">0</span>
+          </div>
+          <div class="board-cards-container" id="cards-backlog"></div>
+        </div>
+
+        <!-- Ready to Build -->
+        <div class="board-column" data-col="sprint-backlog">
+          <div class="board-column-header text-blue-400 border-blue-500/40">
+            <span>Ready to Build</span>
+            <span class="count-badge" id="count-sprint-backlog">0</span>
+          </div>
+          <div class="board-cards-container" id="cards-sprint-backlog"></div>
+        </div>
+
+        <!-- In Progress -->
+        <div class="board-column" data-col="in-progress">
+          <div class="board-column-header text-purple-400 border-purple-500/40">
+            <span>In Progress</span>
+            <span class="count-badge" id="count-in-progress">0</span>
+          </div>
+          <div class="board-cards-container" id="cards-in-progress"></div>
+        </div>
+
+        <!-- QA Test -->
+        <div class="board-column" data-col="qa">
+          <div class="board-column-header text-amber-400 border-amber-500/40">
+            <span>QA Test</span>
+            <span class="count-badge bg-amber-500/20 text-amber-300" id="count-qa">0</span>
+          </div>
+          <div class="board-cards-container" id="cards-qa"></div>
+        </div>
+
+        <!-- Completed -->
+        <div class="board-column" data-col="completed">
+          <div class="board-column-header text-emerald-400 border-emerald-500/40">
+            <span>Completed</span>
+            <span class="count-badge bg-emerald-500/20 text-emerald-300" id="count-completed">0</span>
+          </div>
+          <div class="board-cards-container" id="cards-completed"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. ACTIVE WORK & LIVE DOD TAB (Sprint 17.11) -->
+    <section id="tab-sprint-dod" class="tab-content hidden">
+      <!-- Active Sprint Header & Metrics -->
+      <div class="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 mb-6 backdrop-blur">
+        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
+              <i data-lucide="layers" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2.5">
+                <h2 id="sprintDodTitle" class="text-base font-bold text-white tracking-tight">Active Work Streams</h2>
+                <span id="sprintDodStatusBadge" class="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20">Live</span>
+              </div>
+              <p id="sprintDodScope" class="text-xs text-slate-400 mt-0.5">Concurrent active stories, builder lanes, and design grills...</p>
+            </div>
+          </div>
+
+          <!-- Stream Layout Toggle & Sprint Switcher & Refresh -->
+          <div class="flex items-center space-x-3 self-stretch md:self-auto justify-end">
+            <!-- Column Toggle [ 1 Col ] [ 2 Cols ] -->
+            <div id="streamColsToggleContainer" class="flex items-center space-x-1 bg-slate-800/80 p-0.5 rounded-lg border border-slate-700/80">
+              <button id="btnStreamCols1" onclick="setActiveStreamsCols(1)" class="px-2.5 py-1 text-xs font-medium rounded-md transition text-slate-400 hover:text-slate-200 cursor-pointer" title="1 Column (Full Width)">1 Col</button>
+              <button id="btnStreamCols2" onclick="setActiveStreamsCols(2)" class="px-2.5 py-1 text-xs font-medium rounded-md transition text-slate-400 hover:text-slate-200 cursor-pointer" title="2 Columns (Side-by-Side)">2 Cols</button>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <span class="text-xs text-slate-400 font-medium">View:</span>
+              <select id="activeSprintSelect" class="bg-slate-800 text-slate-200 text-xs rounded-lg px-3 py-1.5 border border-slate-700 focus:outline-none focus:border-purple-500">
+                <option value="ACTIVE">⚡ All Active Streams</option>
+              </select>
+            </div>
+            <button onclick="fetchActiveSprint()" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" title="Reload Active Streams">
+              <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Progress Metrics Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4 text-xs">
+          <!-- Active Streams Count -->
+          <div class="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 flex items-center justify-between">
+            <div>
+              <div class="text-slate-400" id="metricStreamsLabel">Active Streams</div>
+              <div id="activeStreamsMetricCount" class="text-base font-bold text-purple-400 font-mono mt-0.5">0</div>
+            </div>
+            <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+              <i data-lucide="git-merge" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+          <!-- Card Acceptance Criteria Progress -->
+          <div class="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80">
+            <div class="flex items-center justify-between text-slate-400 mb-1.5">
+              <span class="font-medium" id="metricDodLabel">Active Streams DoD</span>
+              <span id="cardDodRatio" class="font-mono text-emerald-400 font-bold">0/0 (0%)</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+              <div id="cardDodProgressBar" class="bg-emerald-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Cards in Progress -->
+          <div class="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 flex items-center justify-between">
+            <div>
+              <div class="text-slate-400">Cards In Progress</div>
+              <div id="sprintInProgressCount" class="text-base font-bold text-purple-400 font-mono mt-0.5">0</div>
+            </div>
+            <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+              <i data-lucide="play-circle" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+          <!-- Cards Awaiting QA -->
+          <div class="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 flex items-center justify-between cursor-pointer hover:border-amber-500/40 transition" onclick="switchTab('qa')">
+            <div>
+              <div class="text-slate-400">Awaiting QA Test</div>
+              <div id="sprintQaCount" class="text-base font-bold text-amber-400 font-mono mt-0.5">0</div>
+            </div>
+            <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+              <i data-lucide="clock" class="w-4 h-4"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW A: Multi-Stream Live Work Grid (Sprint 17.11) -->
+      <div id="activeStreamsView">
+        <!-- Clean Empty State -->
+        <div id="activeStreamsEmptyState" class="hidden p-12 text-center bg-slate-900/60 rounded-2xl border border-slate-800 my-4">
+          <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-800/80 border border-slate-700/80 flex items-center justify-center text-slate-400">
+            <i data-lucide="check-circle-2" class="w-8 h-8 text-emerald-400"></i>
+          </div>
+          <h3 class="text-base font-bold text-white mb-1">No Active Work Streams</h3>
+          <p class="text-xs text-slate-400 max-w-md mx-auto mb-5">All current development stories are completed or moved to the QA tab. Ready to pick the next sprint from the backlog.</p>
+          <button onclick="switchTab('pipeline')" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20 transition cursor-pointer">
+            <i data-lucide="list-plus" class="w-4 h-4"></i>
+            <span>View Ready to Build</span>
+          </button>
+        </div>
+
+        <!-- Stream Cards Grid (Up to 2 cards per row, spacious view) -->
+        <div id="activeStreamsGrid" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <!-- Populated dynamically via renderActiveStreams -->
+        </div>
+      </div>
+
+      <!-- VIEW B: Historical Single Sprint Audit View -->
+      <div id="historicalSprintView" class="hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <!-- Left: Sprint Definition of Done Checklist (PLAN.md) -->
+          <div class="lg:col-span-5 bg-slate-900/70 p-5 rounded-2xl border border-slate-800 flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <div class="flex items-center space-x-2">
+                <i data-lucide="check-square" class="w-4 h-4 text-emerald-400"></i>
+                <h3 class="font-bold text-sm text-slate-200">Sprint DoD (PLAN.md)</h3>
+              </div>
+              <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">Live Sync</span>
+            </div>
+            <p class="text-xs text-slate-400 mb-3">Authoritative checklist from the sprint plan. Toggling a checkbox updates <code class="text-emerald-400 font-mono">PLAN.md</code> directly.</p>
+            <div id="sprintDodList" class="space-y-2 overflow-y-auto max-h-[calc(100vh-22rem)] pr-1">
+              <!-- Sprint DoD items -->
+            </div>
+          </div>
+
+          <!-- Right: Active Cards Breakdown -->
+          <div class="lg:col-span-7 bg-slate-900/70 p-5 rounded-2xl border border-slate-800 flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+              <div class="flex items-center space-x-2">
+                <i data-lucide="layers" class="w-4 h-4 text-blue-400"></i>
+                <h3 class="font-bold text-sm text-slate-200">Sprint Tasks & Criteria Breakdown</h3>
+              </div>
+              <span id="sprintCardsTotalBadge" class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">0 tasks</span>
+            </div>
+
+            <div id="sprintCardsContainer" class="space-y-3 overflow-y-auto max-h-[calc(100vh-22rem)] pr-1">
+              <!-- Cards list -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. QA TESTING STATION & HEAVY GATES TAB -->
+    <section id="tab-qa" class="tab-content hidden space-y-6">
+
+      <!-- ① HUMAN QA STATION — primary work area (top) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- QA Card List Sidebar -->
+        <div class="lg:col-span-4 bg-slate-900/70 p-4 rounded-xl border border-slate-800 flex flex-col h-[calc(100vh-14rem)]">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h2 class="font-bold text-sm text-slate-200 flex items-center">
+              <i data-lucide="check-circle" class="w-4 h-4 text-amber-400 mr-2"></i>
+              Awaiting Verification
+            </h2>
+            <span id="qaStationCount" class="text-xs px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-400 border border-amber-400/20 font-bold">0</span>
+          </div>
+          <div class="overflow-y-auto flex-1 mt-3 space-y-2.5 pr-1" id="qaListContainer">
+            <!-- QA Items rendered here -->
+          </div>
+        </div>
+
+        <!-- Active QA Card Inspection Details -->
+        <div class="lg:col-span-8 bg-slate-900/70 p-6 rounded-xl border border-slate-800 flex flex-col h-[calc(100vh-14rem)] overflow-y-auto" id="qaDetailContainer">
+          <div class="h-full flex flex-col items-center justify-center text-slate-500">
+            <i data-lucide="layers" class="w-12 h-12 mb-3 text-slate-600"></i>
+            <p class="text-sm">Select a card on the left to inspect acceptance criteria and validate work.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ② SPRINT VERIFICATION & QUALITY AUDIT — standalone section (middle) -->
+      <div class="bg-slate-900/80 p-5 rounded-2xl border border-slate-800">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
+              <i data-lucide="check-check" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <span>Sprint Verification &amp; Quality Audit</span>
+                <span id="sprintAuditPendingBadge" class="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20">0 Owed</span>
+              </h3>
+              <p class="text-[11px] text-slate-400 mt-0.5">Audit past sprints in isolated detached worktrees (<code class="font-mono text-[10px] text-slate-300">.gate-worktrees/</code>) and auto-record metrics to <code class="font-mono text-[10px] text-emerald-400">docs/QUALITY.md</code>.</p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button id="runAllPendingSprintsBtn" onclick="startRunAllPendingSprints()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-[11px] font-bold rounded-lg shadow-sm flex items-center space-x-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed">
+              <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
+              <span>Run All Pending</span>
+            </button>
+            <button onclick="fetchSprintGateStatus()" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition" title="Refresh Sprint Audit Status">
+              <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Sprint Quality Audit Filter Pills -->
+        <div class="flex flex-wrap items-center gap-2 mb-3" id="sprintAuditFilterGroup">
+          <button class="audit-filter-pill active" data-filter="needs_attention" onclick="setSprintAuditFilter('needs_attention')">
+            <span class="w-2 h-2 rounded-full bg-amber-400 mr-1.5 inline-block"></span>
+            Needs Attention <span id="auditCountNeedsAttention" class="pill-count">0</span>
+          </button>
+          <button class="audit-filter-pill" data-filter="failed" onclick="setSprintAuditFilter('failed')">
+            <span class="w-2 h-2 rounded-full bg-rose-400 mr-1.5 inline-block"></span>
+            Failed <span id="auditCountFailed" class="pill-count">0</span>
+          </button>
+          <button class="audit-filter-pill" data-filter="owed" onclick="setSprintAuditFilter('owed')">
+            <span class="w-2 h-2 rounded-full bg-yellow-400 mr-1.5 inline-block"></span>
+            Owed <span id="auditCountOwed" class="pill-count">0</span>
+          </button>
+          <button class="audit-filter-pill" data-filter="passed" onclick="setSprintAuditFilter('passed')">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 mr-1.5 inline-block"></span>
+            Passed <span id="auditCountPassed" class="pill-count">0</span>
+          </button>
+          <button class="audit-filter-pill" data-filter="all" onclick="setSprintAuditFilter('all')">
+            All <span id="auditCountAll" class="pill-count">0</span>
+          </button>
+        </div>
+
+        <div class="bg-slate-950 rounded-xl border border-slate-800 overflow-x-auto shadow-inner">
+          <table class="w-full text-left border-collapse min-w-[650px]">
+            <thead>
+              <tr class="bg-slate-900/90 border-b border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                <th class="py-2 px-3">Sprint</th>
+                <th class="py-2 px-3">Target Scope</th>
+                <th class="py-2 px-3 w-24">Commit SHA</th>
+                <th class="py-2 px-3 w-28">Gate 5 Status</th>
+                <th class="py-2 px-3 w-32">Measured Metrics</th>
+                <th class="py-2 px-3 w-28 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="sprintAuditTableBody" class="divide-y divide-slate-800/60 text-xs">
+              <tr>
+                <td colspan="6" class="py-4 text-center text-slate-500 font-mono text-xs">Loading sprint audit data...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Show-all toggle — rendered by JS below the table -->
+        <div id="sprintAuditShowAllToggle" class="mt-2.5 text-center"></div>
+      </div>
+
+      <!-- ③ HEAVY GATE 5 RUNNER — secondary/ops area (bottom) -->
+      <div class="bg-slate-900/80 p-5 rounded-2xl border border-slate-800">
+        <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <i data-lucide="shield-alert" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2.5">
+                <h3 class="text-sm font-bold text-white tracking-tight">Heavy Gate 5 Runner (<code class="text-amber-400 font-mono text-xs">finalgates.ps1</code>)</h3>
+                <span id="heavyGateStatusBadge" class="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-slate-800 text-slate-400 border border-slate-700">Idle</span>
+                <span id="heavyGateTimer" class="text-[11px] font-mono text-slate-400 hidden">00:00</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-0.5">Runs full pytest suite, coverage threshold, and drains bespoke queued checks before sprint close.</p>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex items-center space-x-2.5 self-stretch lg:self-auto justify-end">
+            <button id="runHeavyGateBtn" onclick="startHeavyGate()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center space-x-2 transition disabled:opacity-50 disabled:cursor-not-allowed">
+              <i data-lucide="play" class="w-4 h-4"></i>
+              <span>Run Heavy Gate</span>
+            </button>
+            <button id="stopHeavyGateBtn" onclick="stopHeavyGate()" class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-rose-900/30 flex items-center space-x-2 transition hidden">
+              <i data-lucide="square" class="w-4 h-4"></i>
+              <span>Stop Execution</span>
+            </button>
+            <button onclick="fetchHeavyGateStatus()" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition" title="Refresh Gate Status">
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Heavy Gate Queue Banner & Latest Run Summary -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 text-xs">
+          <!-- Queue Status -->
+          <div class="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+              <span class="font-medium flex items-center gap-1.5">
+                <i data-lucide="list-ordered" class="w-3.5 h-3.5 text-amber-400"></i>
+                Bespoke Heavy Queue
+              </span>
+              <span id="heavyQueueCount" class="font-mono font-bold text-amber-400">0 queued</span>
+            </div>
+            <div id="heavyQueueList" class="text-[11px] font-mono text-slate-400 mt-1 max-h-16 overflow-y-auto">
+              <p class="text-slate-500 italic">No bespoke checks in scripts/heavy-gate-queue/.</p>
+            </div>
+          </div>
+
+          <!-- Latest Run Summary -->
+          <div class="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+              <span class="font-medium flex items-center gap-1.5">
+                <i data-lucide="history" class="w-3.5 h-3.5 text-blue-400"></i>
+                Latest Run (<code class="text-slate-300 font-mono text-[10px]">latest.json</code>)
+              </span>
+              <span id="latestRunBadge" class="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-slate-800 text-slate-400">No runs yet</span>
+            </div>
+            <div id="latestRunDetails" class="text-[11px] font-mono text-slate-300 flex items-center justify-between mt-1">
+              <span id="latestRunSha">SHA: --</span>
+              <span id="latestRunTime">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Terminal Output Drawer -->
+        <div class="mt-4">
+          <div class="flex items-center justify-between bg-slate-950 px-3 py-2 rounded-t-lg border border-b-0 border-slate-800 text-xs">
+            <div class="flex items-center space-x-2 text-slate-400 font-mono text-[11px]">
+              <span class="w-2.5 h-2.5 rounded-full bg-slate-700 inline-block" id="terminalIndicator"></span>
+              <span>Live Console (<code class="text-slate-300">gate-heavy-results/current_run.log</code>)</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <label class="flex items-center space-x-1.5 text-[11px] text-slate-400 cursor-pointer">
+                <input type="checkbox" id="autoScrollTerminal" checked class="rounded border-slate-700 text-emerald-500 bg-slate-800">
+                <span>Auto-scroll</span>
+              </label>
+              <button onclick="clearHeavyLog()" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-400 hover:text-slate-200 transition">Clear</button>
+            </div>
+          </div>
+          <pre id="heavyGateTerminal" class="bg-slate-950/90 text-slate-300 p-3 rounded-b-lg border border-slate-800 font-mono text-[11px] leading-relaxed max-h-48 min-h-[5rem] overflow-y-auto whitespace-pre-wrap select-text">Ready. Click "Run Heavy Gate" to initiate out-of-band verification.</pre>
+        </div>
+      </div>
+
+    </section>
+
+
+
+
+    <!-- 4. SPRINT ROADMAP & DECISIONS TAB -->
+    <section id="tab-sprints" class="tab-content hidden">
+      <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-800">
+        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 mb-4 pb-4 border-b border-slate-800/80">
+          <div>
+            <h2 class="text-base font-bold text-slate-100 flex items-center">
+              <i data-lucide="milestone" class="w-5 h-5 text-emerald-400 mr-2"></i>
+              Sprint Roadmap & Historical Decisions
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">Chronological record of completed phases, active sprints, and planned work (ordered sprint desc).</p>
+          </div>
+          <div class="relative w-full md:w-64">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5"></i>
+            <input
+              type="text"
+              id="roadmapSearchInput"
+              placeholder="Filter sprint or scope..."
+              oninput="onRoadmapSearch(this.value)"
+              class="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
+            />
+          </div>
+        </div>
+
+        <!-- Tag Status Filters -->
+        <div class="flex flex-wrap items-center gap-2 mb-4" id="roadmapFilterGroup">
+          <button class="roadmap-filter-btn active" data-filter="ALL" onclick="setRoadmapFilter('ALL')">
+            All <span id="rfCountAll" class="ml-1 text-[10px] px-1.5 py-0.2 rounded bg-slate-800 font-mono text-slate-300">0</span>
+          </button>
+          <button class="roadmap-filter-btn" data-filter="ACTIVE" onclick="setRoadmapFilter('ACTIVE')">
+            <span class="w-2 h-2 rounded-full bg-amber-400 mr-1.5 inline-block animate-pulse"></span>
+            Active / In QA <span id="rfCountActive" class="ml-1 text-[10px] px-1.5 py-0.2 rounded bg-slate-800 font-mono text-slate-300">0</span>
+          </button>
+          <button class="roadmap-filter-btn" data-filter="PLANNED" onclick="setRoadmapFilter('PLANNED')">
+            <span class="w-2 h-2 rounded-full bg-blue-400 mr-1.5 inline-block"></span>
+            Planned <span id="rfCountPlanned" class="ml-1 text-[10px] px-1.5 py-0.2 rounded bg-slate-800 font-mono text-slate-300">0</span>
+          </button>
+          <button class="roadmap-filter-btn" data-filter="NEXT_TO_DEFINE" onclick="setRoadmapFilter('NEXT_TO_DEFINE')">
+            <span class="w-2 h-2 rounded-full bg-cyan-400 mr-1.5 inline-block"></span>
+            Next to Define <span id="rfCountNextToDefine" class="ml-1 text-[10px] px-1.5 py-0.2 rounded bg-slate-800 font-mono text-slate-300">0</span>
+          </button>
+          <button class="roadmap-filter-btn" data-filter="COMPLETE" onclick="setRoadmapFilter('COMPLETE')">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 mr-1.5 inline-block"></span>
+            Complete <span id="rfCountComplete" class="ml-1 text-[10px] px-1.5 py-0.2 rounded bg-slate-800 font-mono text-slate-300">0</span>
+          </button>
+          <button class="roadmap-filter-btn" data-filter="BACKLOG" onclick="setRoadmapFilter('BACKLOG')">
+            Backlog <span id="rfCountBacklog" class="ml-1 text-[10px] px-1.5 py-0.2 rounded bg-slate-800 font-mono text-slate-300">0</span>
+          </button>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
+                <th class="py-3 px-4">Sprint</th>
+                <th class="py-3 px-4">Scope & Objectives</th>
+                <th class="py-3 px-4">Cards</th>
+                <th class="py-3 px-4">Status</th>
+                <th class="py-3 px-4 text-right">Spec / Doc</th>
+              </tr>
+            </thead>
+            <tbody id="sprintRoadmapTable" class="divide-y divide-slate-800/60">
+              <!-- Sprints rendered here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. AGENT ACTIVITY & GIT TAB -->
+    <section id="tab-activity" class="tab-content hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Working Tree Status -->
+        <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-800">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h3 class="font-bold text-sm text-slate-200 flex items-center">
+              <i data-lucide="file-diff" class="w-4 h-4 text-purple-400 mr-2"></i>
+              Active Agent Work (Uncommitted Changes)
+            </h3>
+            <span id="activityFileCount" class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">0 files</span>
+          </div>
+          <div class="mt-4 font-mono text-xs text-slate-300 space-y-1.5 max-h-96 overflow-y-auto" id="activityFileList">
+            <p class="text-slate-500 italic">Working directory is clean.</p>
+          </div>
+        </div>
+
+        <!-- Recent Git Commits -->
+        <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-800">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h3 class="font-bold text-sm text-slate-200 flex items-center">
+              <i data-lucide="git-commit" class="w-4 h-4 text-emerald-400 mr-2"></i>
+              Recent Commits on Branch
+            </h3>
+          </div>
+          <div class="mt-4 space-y-3 max-h-96 overflow-y-auto" id="activityCommitList">
+            <!-- Commits rendered here -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SPRINT SPEC / DOCUMENT MODAL -->
+    <div id="sprintDocModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm transition-opacity">
+      <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+        <!-- Modal Header -->
+        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 sticky top-0 z-10">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <i data-lucide="book-open" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 id="sprintDocTitle" class="text-sm font-bold text-white">Sprint Spec</h3>
+                <span id="sprintDocSource" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono border border-slate-700">PLAN.md</span>
+              </div>
+              <p id="sprintDocSubtitle" class="text-xs text-slate-400">Settled design decisions and definition of done</p>
+            </div>
+          </div>
+          <button onclick="closeSprintDoc()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <!-- Modal Content Body -->
+        <div id="sprintDocBody" class="p-6 overflow-y-auto max-h-[calc(90vh-8rem)] text-xs leading-relaxed text-slate-300 doc-content">
+          <!-- Rendered markdown inserted here -->
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs text-slate-400">
+          <span class="font-mono text-[11px] text-slate-500">Press ESC or click close to dismiss</span>
+          <button onclick="closeSprintDoc()" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CARD DETAILS MODAL -->
+    <div id="cardModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm transition-opacity">
+      <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 sticky top-0 z-10">
+          <div class="flex items-center space-x-2">
+            <span id="cardModalId" class="text-sm font-mono font-bold text-emerald-400"></span>
+            <span id="cardModalSprint" class="text-xs px-2.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700"></span>
+            <span id="cardModalType" class="text-xs px-2.5 py-0.5 rounded"></span>
+            <button id="cardModalViewSpecBtn" onclick="onCardModalViewSpec()" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 text-xs font-medium transition ml-2 group">
+              <i data-lucide="book-open" class="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform"></i>
+              <span>View Sprint Spec</span>
+            </button>
+            <button id="cardModalReviewsBtn" onclick="onCardModalViewReviews()" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-purple-950/40 hover:bg-purple-900/50 text-purple-300 border border-purple-500/30 hover:border-purple-400 text-xs font-medium transition ml-1 group">
+              <i data-lucide="shield-check" class="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform"></i>
+              <span id="cardModalReviewsBtnLabel">Reviews (0)</span>
+            </button>
+          </div>
+          <button onclick="closeCardModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+        <div class="p-6 overflow-y-auto space-y-4 text-sm text-slate-300">
+          <div>
+            <h2 id="cardModalTitle" class="text-lg font-bold text-white mb-1"></h2>
+            <div id="cardModalDates" class="flex items-center gap-4 text-xs text-slate-400 font-mono"></div>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Description</h4>
+            <div id="cardModalDesc" class="bg-slate-950/60 p-3.5 rounded-lg border border-slate-800"></div>
+          </div>
+          <div id="cardModalDodContainer">
+            <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Definition of Done</h4>
+            <div id="cardModalDodList" class="space-y-2"></div>
+          </div>
+          <div id="cardModalQaContainer" class="hidden">
+            <h4 class="text-sm font-semibold text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <i data-lucide="clipboard-check" class="w-4 h-4"></i>
+              Human QA Test &amp; Verification Instructions
+            </h4>
+            <div id="cardModalQaInstructions" class="bg-amber-950/20 p-3.5 rounded-lg border border-amber-900/30 mb-2"></div>
+            <div id="cardModalQaList" class="space-y-2"></div>
+          </div>
+          <div id="cardModalChangelogContainer">
+            <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Changelog</h4>
+            <div id="cardModalChangelog" class="space-y-1.5"></div>
+          </div>
+        </div>
+        <div class="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex justify-end">
+          <button onclick="closeCardModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition text-sm">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FAILURE DETAILS MODAL -->
+    <div id="failureDetailsModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm transition-opacity">
+      <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 sticky top-0 z-10">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+              <i data-lucide="x-circle" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 id="failureModalTitle" class="text-sm font-bold text-white">Gate 5 Failure Details</h3>
+                <span id="failureModalSprintBadge" class="text-[10px] px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/30 font-mono"></span>
+              </div>
+              <p id="failureModalSubtitle" class="text-xs text-slate-400">Failed tests extracted from heavy gate pytest run</p>
+            </div>
+          </div>
+          <button onclick="closeFailureModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+        <div id="failureModalBody" class="p-6 overflow-y-auto space-y-4 text-xs text-slate-300">
+          <!-- Populated by JS -->
+        </div>
+        <div class="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs text-slate-400">
+          <span class="font-mono text-[11px] text-slate-500">Click "Copy Command" to run targeted pytest in terminal</span>
+          <button onclick="closeFailureModal()" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- COLD REVIEW MODAL -->
+    <div id="reviewModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm transition-opacity">
+      <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 sticky top-0 z-10">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
+              <i data-lucide="shield-check" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 id="reviewModalTitle" class="text-sm font-bold text-white">Cold Definition-of-Done Review</h3>
+                <span id="reviewModalVerdictBadge" class="text-[10px] px-2 py-0.5 rounded font-bold font-mono"></span>
+                <span id="reviewModalRoundBadge" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono"></span>
+              </div>
+              <p id="reviewModalSubtitle" class="text-xs text-slate-400">Independent cold audit report and findings checklist</p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <select id="reviewRoundSelect" onchange="onReviewRoundChange(this.value)" class="hidden bg-slate-800 text-slate-200 text-xs rounded-lg px-2.5 py-1 border border-slate-700 focus:outline-none">
+            </select>
+            <button onclick="closeReviewModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition">
+              <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+          </div>
+        </div>
+        <div id="reviewModalMeta" class="px-6 py-2.5 bg-slate-950/70 border-b border-slate-800 flex flex-wrap items-center gap-4 text-[11px] font-mono text-slate-400">
+          <!-- Populated by JS -->
+        </div>
+        <div id="reviewModalChecklistSection" class="px-6 py-3 border-b border-slate-800 bg-slate-900/50 hidden">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-xs font-semibold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+              <i data-lucide="list-checks" class="w-3.5 h-3.5"></i>
+              <span>Review Findings & Action Items</span>
+            </h4>
+            <span id="reviewFindingsCountBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20"></span>
+          </div>
+          <div id="reviewFindingsList" class="space-y-1.5 max-h-40 overflow-y-auto pr-1"></div>
+        </div>
+        <div id="reviewModalBody" class="p-6 overflow-y-auto max-h-[calc(90vh-14rem)] text-xs leading-relaxed text-slate-300 doc-content">
+          <!-- Rendered markdown inserted here -->
+        </div>
+        <div class="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs text-slate-400">
+          <span id="reviewModalFooterInfo" class="font-mono text-[11px] text-slate-500">docs/reviews/</span>
+          <button onclick="closeReviewModal()" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="app.js?v=20261001-scrollfix"></script>
+</body>
+</html>
