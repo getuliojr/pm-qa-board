@@ -84,9 +84,10 @@ Run `CLI skills-status <project path>` (and `setup-plan`). States:
 `current` · `outdated` (ours and provably unedited since install → safe to upgrade on approval) ·
 `edited` (ours but changed, or not provably unedited → show the user the diff between their copy and
 the shipped one at `~/.pm-qa-cockpit/app/skills/<name>/`, e.g. `git diff --no-index <theirs> <shipped>`,
-then ask: **keep theirs** (plain id, default), **replace** (`A4=replace`), or **save the new version
-beside it** (`A4=new` → written to `<skills folder>/.pm-qa-cockpit-new/<name>/`, which agents don't
-load; merge by hand, then delete it)) · `foreign` (a same-named skill that isn't ours — never touched) ·
+then ask: **keep theirs** (plain id, default), **replace** (`A4=replace` — removes the whole skill
+folder, including any files they added there; say so), or **save the new version beside it**
+(`A4=new` → written to `<skills folder>/.pm-qa-cockpit-new/<name>/`, or a dated sibling if one already
+exists — never overwritten; agents don't load it; merge by hand, then delete it)) · `foreign` (a same-named skill that isn't ours — never touched) ·
 `missing`. The global `pm-qa-setup` itself appears as an `upgrade-bootstrap` action when outdated or
 edited, with the same choices.
 Before upgrading, the running copy should be current: `git -C ~/.pm-qa-cockpit/app pull`.

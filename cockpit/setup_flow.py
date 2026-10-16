@@ -141,10 +141,23 @@ def skill_state(installed: Path, source: Path) -> dict[str, Any]:
     return {"state": "edited", **base}
 
 
+NEW_DIR = ".pm-qa-cockpit-new"
+
+
 def new_copy_dir(dest: Path) -> Path:
     """Where `--on-conflict new` puts the shipped version: beside the skills root, in a dot-folder two
-    levels deep so agents never load it as a second skill with the same name."""
-    return dest.parent / ".pm-qa-cockpit-new" / dest.name
+    levels deep so agents never load it as a second skill with the same name. An existing copy (maybe
+    half-merged by the user) is never overwritten: a dated sibling is used instead."""
+    base = dest.parent / NEW_DIR / dest.name
+    if not base.exists():
+        return base
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    candidate = base.with_name(f"{dest.name}-{stamp}")
+    n = 1
+    while candidate.exists():
+        n += 1
+        candidate = base.with_name(f"{dest.name}-{stamp}-{n}")
+    return candidate
 
 
 def install_skill(source: Path, dest: Path, on_conflict: str = "abort") -> str:
@@ -155,7 +168,8 @@ def install_skill(source: Path, dest: Path, on_conflict: str = "abort") -> str:
     """
     state = skill_state(dest, source)["state"]
     if state == "current":
-        if not read_manifest(dest).get("sha256"):
+        # content is identical to shipped, so (re)recording its hash can't launder an edit
+        if read_manifest(dest).get("sha256") != content_hash(dest):
             _write_manifest(dest, source)
         return "current"
     if state == "foreign":
@@ -164,8 +178,6 @@ def install_skill(source: Path, dest: Path, on_conflict: str = "abort") -> str:
         return "skipped-edited"
     if state == "edited" and on_conflict == "new":
         target = new_copy_dir(dest)
-        if target.exists():
-            shutil.rmtree(target)
         shutil.copytree(source, target)
         return f"wrote-new:{target}"
     if dest.exists():
@@ -396,8 +408,10 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
                 continue
             verb = {"missing": "Install", "outdated": "Upgrade", "edited": "Resolve local edits in"}[st["state"]]
             add("install-skill", f"{verb} {skill} for {label} ({rel}/{skill})", agent=label, dir=rel, skill=skill,
-                state=st["state"], writes=[str(dest)],
-                detail=f"edited: keep / replace / new (shipped copy: {TOOL_ROOT / 'skills' / skill})"
+                state=st["state"],
+                writes=[str(dest)] + ([str(code / rel / NEW_DIR)] if st["state"] == "edited" else []),
+                detail=(f"edited: keep (default) / replace (removes the whole folder, including files you added)"
+                        f" / new (shipped copy saved under {rel}/{NEW_DIR}/; compare with {TOOL_ROOT / 'skills' / skill})")
                 if st["state"] == "edited" else f"{st['installed_version'] or '-'} -> {st['available_version']}")
 
     # 4. Pointer section in the orchestration file(s) — appended between markers, never rewriting text
@@ -420,7 +434,8 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
 
     # 5. Keep installed skills out of git when docs are external / stealth (exact paths only)
     if exclude_skills and not register_only:
-        paths = sorted(f"{rel}/{s}/" for rel in skill_dirs for s in PROJECT_SKILLS)
+        paths = sorted([f"{rel}/{s}/" for rel in skill_dirs for s in PROJECT_SKILLS]
+                       + [f"{rel}/{NEW_DIR}/" for rel in skill_dirs])
         missing = [p for p in paths if not _is_ignored(code, p)]
         exclude = exclude_file(code)
         if missing and exclude:
@@ -441,10 +456,15 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
                 notes.append(f"Global {r / s} looks like a cockpit skill but is {'edited' if status == 'ours-edited' else 'not provably ours'}"
                              " — left for you to review, never removed automatically.")
     if legacy:
-        relying = [p for p in projects_relying_on_globals() if p != project.get("slug")]
+        relying = projects_relying_on_globals()
+        here_needs = not register_only and any(
+            a["kind"] == "install-skill" and a["state"] == "missing" for a in actions
+        )
+        if here_needs and project.get("slug") not in relying:
+            relying.append(f"{project['slug']} (this project, unless you also approve its skill installs)")
         add("cleanup-global", "Remove the old global copies of the project skills (now installed per project)",
             paths=legacy, writes=legacy,
-            detail=("Still relying on them (run setup there first): " + ", ".join(relying)) if relying
+            detail=("Still relying on them (set those up first): " + ", ".join(relying)) if relying
             else "No registered full-mode project still relies on them.")
 
     # 7. The global bootstrap skill itself (upgrade only where it is installed; never create here)

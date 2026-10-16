@@ -177,3 +177,24 @@ def test_exclude_works_in_a_worktree(cockpit_home, fake_globals, tmp_path):  # n
     setup_flow.apply_actions(plan, [exclude["id"]])
     target = setup_flow.exclude_file(wt)
     assert target and ".claude/skills/pm-sync/" in target.read_text(encoding="utf-8")
+
+
+def test_second_new_copy_never_overwrites_a_half_merged_one(tmp_path):
+    """Round 2 #1: answering `new` twice keeps the first (possibly user-edited) copy."""
+    dest = tmp_path / "skills" / "pm-sync"
+    setup_flow.install_skill(SKILLS / "pm-sync", dest)
+    (dest / "SKILL.md").write_text((dest / "SKILL.md").read_text(encoding="utf-8") + "\nMine\n", encoding="utf-8")
+    first = setup_flow.install_skill(SKILLS / "pm-sync", dest, on_conflict="new").split(":", 1)[1]
+    from pathlib import Path
+
+    (Path(first) / "SKILL.md").write_text("half merged", encoding="utf-8")
+    second = setup_flow.install_skill(SKILLS / "pm-sync", dest, on_conflict="new").split(":", 1)[1]
+    assert second != first and (Path(first) / "SKILL.md").read_text(encoding="utf-8") == "half merged"
+
+
+def test_current_copy_refreshes_a_stale_hash(tmp_path):
+    """Round 2 #2: identical content with a stale recorded hash is re-stamped, so later releases upgrade cleanly."""
+    dest = tmp_path / "pm-sync"
+    _ps_style_install(SKILLS / "pm-sync", dest, version="0.2.0", sha="0" * 64)
+    assert setup_flow.install_skill(SKILLS / "pm-sync", dest) == "current"
+    assert setup_flow.read_manifest(dest)["sha256"] == setup_flow.content_hash(dest)
