@@ -158,6 +158,18 @@ def build(root: Path, *, dev_first: bool = False, running_copy: Path | None = No
     _write(code / "CLAUDE.md", "# money-nest\n\nRun the money-nest-orchestrate loop. Never push.\n")
     _write(code / "AGENTS.md", "# money-nest agents\n\nCards live in docs/cards. Never push.\n")
     _write(code / "GEMINI.md", "# money-nest (Antigravity)\n\nSee AGENTS.md.\n")
+    # money-nest's own rosters (read and reported, never written): Claude 3 roles (alias pins), Cursor 5, Antigravity 4.
+    for tool_dir, role, name, model in (
+        (".claude/agents", "advisor", "money-nest-advisor", "opus"), (".claude/agents", "builder", "money-nest-builder", "sonnet"),
+        (".claude/agents", "retrieval", "money-nest-retrieval", "claude-haiku-5-5"),
+        (".cursor/agents", "advisor", "advisor", "grok-4.6[fast=false]"), (".cursor/agents", "builder", "builder", "grok-4.6[fast=false]"),
+        (".cursor/agents", "reviewer", "reviewer", "grok-4.7[fast=false]"), (".cursor/agents", "retrieval", "retrieve", "composer-2.5[fast=false]"),
+        (".cursor/agents", "pm-sync", "pm-sync", "composer-2.5[fast=false]"),
+        (".agents/subagents", "advisor", "advisor", "pro"), (".agents/subagents", "builder", "builder", "pro"),
+        (".agents/subagents", "reviewer", "reviewer", "pro"), (".agents/subagents", "retrieval", "retrieve", "flash"),
+    ):
+        _write(code / tool_dir / f"{name}.md",
+               f"---\nname: {name}\ndescription: money-nest {role} agent.\nmodel: {model}\n---\n\nmoney-nest {role} rules.\n")
     _write(code / "scripts" / "pm.ps1", PM_PS1_DEV_FIRST if dev_first else PM_PS1_RUNNING_FIRST)
     _write(code / "docs" / "cards" / "MN-1.1 - A money-nest card.md", CARD)
     _write(code / "PLAN.md", PLAN)

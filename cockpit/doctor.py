@@ -2,7 +2,7 @@
 doctor.py - `cli.py doctor <project>`: is this project's cockpit setup correct? (Story 2.1, R2-Q7)
 
 Strictly read-only: no registry writes, no plan file, no exclude edits, no server, no network. Each of
-the 9 checks is pass / warn / fail with a one-line fix for anything that isn't a pass; any fail makes
+the 10 checks is pass / warn / fail with a one-line fix for anything that isn't a pass; any fail makes
 the command exit 1. `pm-qa-setup` ends with it, and the user can re-run it anytime.
 
 Standard library only.
@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import projects
+import roster
 import setup_flow
 import wiring
 from setup_flow import BOOTSTRAP_SKILL, GENERIC_SKILLS, PROJECT_SKILLS, TOOL_LABELS, TOOL_ORDER
@@ -211,6 +212,31 @@ def run(target: str) -> dict[str, Any]:
     else:
         checks.append(_check(9, "Hooks", "pass", f"{len(hooks)} hook command(s), none calls a missing cockpit path or the dev clone"
                              if hooks else "no hooks"))
+
+    # 10. every loop role has an agent and a sound model pin per tool used (warn only: a model name never fails)
+    reg_only = bool(loop)
+    gaps, pins, extra_lines = [], [], []
+    for t in tools:
+        state = roster.detect_tool(code, t)
+        for role in state["missing"]:
+            gaps.append(f"{labels[t]} {role}")
+        for role, have in state["roles"].items():
+            if have:
+                why = roster.check_pin(t, role, have["model"])
+                if why:
+                    pins.append(f"{have['file']} ({role}): {why}")
+    if gaps or pins:
+        detail = "; ".join(([f"no agent for {', '.join(gaps)}"] if gaps else []) + pins)
+        fix = []
+        if gaps:
+            fix.append("your project keeps its own loop, so add those agents by hand if you want them" if reg_only
+                       else f"{setup_cmd} (it adds the missing roles and never edits yours)")
+        if pins:
+            fix.append("edit the model line in the file named (setup never edits your agent files)")
+        checks.append(_check(10, "Roster: every role has an agent", "warn", detail, "; ".join(fix)))
+    else:
+        checks.append(_check(10, "Roster: every role has an agent", "pass",
+                             f"all {len(roster.FILE_ROLES)} delegated roles have an agent with a known pinned model for {', '.join(labels.values())}"))
 
     counts = {s: sum(1 for c in checks if c["status"] == s) for s in ("pass", "warn", "fail")}
     return {"project": project["slug"], "name": project["name"], "code_path": str(code), "checks": checks,

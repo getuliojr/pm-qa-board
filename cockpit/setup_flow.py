@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import projects
+import roster
 import wiring
 from onboarding import inspect_project
 
@@ -453,6 +454,19 @@ def pointer_text(project: dict[str, Any], register_only: bool) -> str:
     return "\n".join(lines) + "\n"
 
 
+def read_roster(code: Path, project: dict[str, Any], tools: list[str]) -> dict[str, Any]:
+    """Read-only: each used tool's agent files mapped to roles, plus the lead row from ORCHESTRATION.md."""
+    orch = Path(project["docs_path"]) / "ORCHESTRATION.md"
+    try:
+        text = orch.read_text(encoding="utf-8", errors="replace") if orch.is_file() else ""
+    except OSError:
+        text = ""
+    return {"orchestration": str(orch), "orchestration_exists": orch.is_file(),
+            "has_section": roster.ROSTER_START in text,
+            "lead": roster.parse_lead(text, TOOL_LABELS),
+            "tools": {t: roster.detect_tool(code, t) for t in tools}}
+
+
 def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | None = None,
                docs_path: str | Path | None = None, stealth: bool | None = None,
                force_full: bool = False) -> dict[str, Any]:
@@ -581,10 +595,23 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
         add("pointer", f"Add a PM & QA Cockpit section to {fname}", file=fname, writes=[str(code / fname)],
             preview=pointer_text(project, register_only))
 
+    # 4b. Roster (Story 2.2): who does each step. Read for every project; written only in full mode,
+    #     only for missing roles, never over an existing agent file.
+    roster_state = read_roster(code, project, tools)
+    roster_files: list[str] = []
+    if not register_only and any(r["missing"] for r in roster_state["tools"].values()):
+        files = [{"tool": t, "role": role, "path": f"{roster.WRITE_DIR[t]}/{roster.PREFIX}{role}.md", **roster.recommended(t, role)}
+                 for t in tools for role in roster_state["tools"][t]["missing"]]
+        lead = {t: roster_state["lead"].get(t) or roster.recommended(t, "lead") for t in tools}
+        roster_files = [f["path"] for f in files]
+        add("roster", "Add agent files for the missing roles and record the roster", files=files, lead=lead,
+            writes=[str(code / f) for f in roster_files] + [roster_state["orchestration"]],
+            detail="new files only, each pinned by full model ID; an existing agent file is never edited")
+
     # 5. Keep installed skills out of git when docs are external / stealth (exact paths only)
     if exclude_skills and not register_only:
         paths = sorted([f"{rel}/{s}/" for rel in skill_dirs for s in PROJECT_SKILLS]
-                       + [f"{rel}/{NEW_DIR}/" for rel in skill_dirs])
+                       + [f"{rel}/{NEW_DIR}/" for rel in skill_dirs] + roster_files)
         missing = [p for p in paths if not _is_ignored(code, p)]
         exclude = exclude_file(code)
         if missing and exclude:
@@ -659,11 +686,13 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
         "tools": tools,
         "launchers": launchers,
         "hooks": hooks,
+        "roster": roster_state,
     }
     for t in machine_tools():
         if t not in tools:
             notes.append(f"{TOOL_LABELS[t]} is installed on this machine but this project doesn't use it: nothing is planned for it.")
     plan["inventory"] = build_inventory(plan, code, reach, sources)
+    plan["roster_table"] = build_roster_table(plan)
     plan["decisions"] = build_decisions(plan)
     plan["target"] = build_target(plan)
     return plan
@@ -678,13 +707,14 @@ THEMES = (
     ("skills", "Where skills live"),
     ("wiring", "Launcher wiring"),
     ("gates", "Gates"),
+    ("roster", "Who does each step"),
 )
 THEME_OF = {
     "register": "pm-data", "pointer": "pm-data",
     "clone-running-copy": "skills", "fetch-grill-me": "skills", "copy-generic": "skills",
     "install-skill": "skills", "exclude": "skills", "cleanup-global": "skills",
     "upgrade-bootstrap": "skills", "install-bootstrap": "skills",
-    "launcher-edit": "wiring", "profile-gates": "gates",
+    "launcher-edit": "wiring", "profile-gates": "gates", "roster": "roster",
 }
 
 
@@ -799,6 +829,37 @@ def build_inventory(plan: dict[str, Any], code: Path, reach: dict[str, dict[str,
             groups.append({"group": f"Global folder: {TOOL_LABELS[t]}" + ("" if t in plan["tools"] else " (not used by this project)"),
                            "items": items})
 
+    # -- roster (Story 2.2)
+    items = []
+    action = next((a for a in plan["actions"] if a["kind"] == "roster"), None)
+    for t in plan["tools"]:
+        rs = plan["roster"]["tools"][t]
+
+        def say_role(r: str) -> str:
+            have = rs["roles"][r]
+            if not have:
+                return f"{r}: missing"
+            return f"{r}: {have['model'] or 'no model'}" + ("" if have["ours"] else " (yours)")
+
+        now = "; ".join(say_role(r) for r in roster.FILE_ROLES)
+        if rs["extra"]:
+            now += f"; other agents left alone: {', '.join(rs['extra'])}"
+        if not rs["missing"]:
+            status, belongs = "ok", "stays as it is"
+        elif not full:
+            status, belongs = "review", "stays as your project has it (reported only: its own loop decides)"
+        else:
+            status, belongs = "change", f"the missing roles ({', '.join(rs['missing'])}) get a cockpit agent; yours stay"
+        items.append(_item(f"Agents for {TOOL_LABELS[t]}", now, belongs,
+                           "each loop step is done by an agent pinned to a full model ID",
+                           status, [action["id"]] if action and status == "change" else []))
+        lead = plan["roster"]["lead"].get(t)
+        rec = roster.recommended(t, "lead")
+        items.append(_item(f"Lead for {TOOL_LABELS[t]}", f"{lead['model']} ({lead['effort']})" if lead else "not recorded",
+                           f"recommended: {rec['model']}, effort {rec['effort']} (you pick it per session; setup records it)",
+                           "the lead is your session's model, so it has no agent file", "ok" if lead or not full else "info"))
+    groups.append({"group": "Roster", "items": items})
+
     # -- launchers
     items = []
     for lw in plan["launchers"]:
@@ -886,6 +947,9 @@ def _say(a: dict[str, Any], plan: dict[str, Any]) -> str:
         return f"install {BOOTSTRAP_SKILL} in the {TOOL_LABELS[a['agent']]} global folder"
     if k == "launcher-edit":
         return f"change {a['file']} line {a['edit']['line']} to call the running copy"
+    if k == "roster":
+        roles = sorted({f"{TOOL_LABELS[f['tool']]} {f['role']}" for f in a["files"]})
+        return f"add cockpit agents for the missing roles ({_join(roles)}) and record the roster in ORCHESTRATION.md"
     if k == "profile-gates":
         return "time the test suite once (it runs the whole suite) to choose fast or heavy gates"
     return a["title"]
@@ -925,6 +989,9 @@ def build_decisions(plan: dict[str, Any]) -> list[dict[str, Any]]:
         acts = [a for a in plan["actions"] if THEME_OF.get(a["kind"]) == theme and a not in edited]
         if not acts:
             continue
+        if theme == "roster":
+            out.append(roster_decision(plan, acts[0]))
+            continue
         said = _merge_skill_installs(acts, plan)
         ids = [a["id"] for a in acts]
         extra = ""
@@ -960,6 +1027,56 @@ def build_decisions(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def build_roster_table(plan: dict[str, Any]) -> list[dict[str, str]]:
+    """Rows for the "use the recommended roster?" question: role -> model, effort, per tool."""
+    action = next((a for a in plan["actions"] if a["kind"] == "roster"), None)
+    new = {(f["tool"], f["role"]): f for f in (action["files"] if action else [])}
+    rows = []
+    for t in plan["tools"]:
+        lead = (action["lead"].get(t) if action else None) or plan["roster"]["lead"].get(t) or roster.recommended(t, "lead")
+        rows.append({"tool": TOOL_LABELS[t], "role": "lead", "model": lead["model"], "effort": lead["effort"], "who": "your session pick"})
+        for r in roster.FILE_ROLES:
+            if (t, r) in new:
+                rows.append({"tool": TOOL_LABELS[t], "role": r, "model": new[(t, r)]["model"], "effort": new[(t, r)]["effort"], "who": "new"})
+            else:
+                have = plan["roster"]["tools"][t]["roles"][r]
+                if have:
+                    rows.append({"tool": TOOL_LABELS[t], "role": r, "model": have["model"] or "-", "effort": have["effort"] or "-", "who": "yours"})
+    return rows
+
+
+def roster_questions(plan: dict[str, Any], action: dict[str, Any]) -> list[dict[str, Any]]:
+    """The per-role questions behind "customise": the recommendation first, then the known models."""
+    out = []
+    rows = [("lead", t, action["lead"][t]) for t in plan["tools"]] + [(f["role"], f["tool"], f) for f in action["files"]]
+    for role, t, cur in sorted(rows, key=lambda x: (plan["tools"].index(x[1]), roster.ROLES.index(x[0]))):
+        models = [cur["model"]] + [m for m in roster.KNOWN_MODELS[t] if m != roster.base_model(t, cur["model"])]
+        out.append({"tool": t, "role": role, "question": f"{TOOL_LABELS[t]}: which model for the {role}?",
+                    "recommendation": f"{cur['model']}, effort {cur['effort']}",
+                    "models": models, "efforts": list(roster.EFFORTS), "default_effort": cur["effort"]})
+    return out
+
+
+def roster_decision(plan: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    lines = [f"{TOOL_LABELS[t]}: " + ", ".join(
+        f"{r['role']} {r['model']} ({r['effort']})" + ("" if r["who"] == "new" else f" - {r['who']}")
+        for r in plan["roster_table"] if r["tool"] == TOOL_LABELS[t]) for t in plan["tools"]]
+    return {
+        "theme": "roster",
+        "title": "Who does each step",
+        "question": "Who does each step: use the recommended roster?",
+        "recommendation": "Yes: the missing roles get a cockpit agent on the recommended model; your own agents stay as they are.",
+        "options": [
+            {"label": "Yes, use the recommended roster (recommended)", "description": " | ".join(lines), "approve": [action["id"]]},
+            {"label": "Customise", "description": "pick the model and effort per role (one question each), then apply",
+             "approve": [action["id"]], "customise": True},
+            {"label": "Not now", "description": "No agent files are written; setup can offer it again later.", "approve": []},
+        ],
+        "actions": [action["id"]],
+        "questions": roster_questions(plan, action),
+    }
+
+
 def build_target(plan: dict[str, Any]) -> list[str]:
     """The recommended end state in sentences."""
     p = plan["project"]
@@ -969,6 +1086,8 @@ def build_target(plan: dict[str, Any]) -> list[str]:
         out.append(f"The cockpit skills live in this project's own skill folder and are current ({plan['tool_version']}).")
     else:
         out.append("No cockpit skills in this project: its own loop and rules stay in charge; the dashboard only shows its cards.")
+    if plan["mode"] == "full":
+        out.append("Every loop role has an agent per tool (yours are kept, missing ones added), recorded in the Roster of ORCHESTRATION.md.")
     out.append(f"grill-me and {BOOTSTRAP_SKILL} are in the global folder of every tool this project uses ({tools}).")
     if any(a["kind"] == "cleanup-global" for a in plan["actions"]):
         out.append("The old global copies of the cockpit skills are gone.")
@@ -1006,7 +1125,67 @@ def _readable_utf8(path: Path) -> bool:
         return False
 
 
-def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | dict[str, str] = "abort") -> list[dict[str, str]]:
+def _roster_overrides(plan: dict[str, Any], approved_roster: list[dict[str, Any]], overrides: dict[str, Any]) -> None:
+    """Validate the "customise" answers before anything is written: only a tool this project uses, only a
+    role the roster action would add (or the lead), a well-formed model and a known effort."""
+    allowed: dict[tuple[str, str], bool] = {}
+    for a in approved_roster:
+        for f in a["files"]:
+            allowed[(f["tool"], f["role"])] = True
+        for t in a["lead"]:
+            allowed[(t, "lead")] = True
+    for tool, roles in overrides.items():
+        for role, val in (roles or {}).items():
+            if (tool, role) not in allowed:
+                raise ValueError(f"roster choice for {tool}/{role} is not part of the approved roster; nothing was changed.")
+            for key in ("model", "effort"):
+                if key in val and not roster.valid_value(key, str(val[key])):
+                    raise ValueError(f"roster choice {tool}/{role} {key}={val[key]!r} is not valid; nothing was changed.")
+            if set(val) - {"model", "effort"}:
+                raise ValueError(f"roster choice for {tool}/{role} may only set model and effort; nothing was changed.")
+
+
+def apply_roster(code: Path, plan: dict[str, Any], a: dict[str, Any], overrides: dict[str, Any]) -> str:
+    """Write the missing roles' thin agent files (never over an existing file), then the Roster section."""
+    done = []
+    for f in a["files"]:
+        pick = {**f, **(overrides.get(f["tool"], {}).get(f["role"], {}))}
+        dest = code / f["path"]
+        if dest.exists():
+            done.append(f"{f['path']}: already there, kept")
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(roster.render_agent(f["tool"], f["role"], pick["model"], pick["effort"]).encode("utf-8"))
+        done.append(f"{f['path']}: written")
+    rows: dict[str, dict[str, Any]] = {}
+    for t in plan["tools"]:
+        lead = {**a["lead"][t], **overrides.get(t, {}).get("lead", {})}
+        rows[t] = {"lead": {"agent": "(session pick)", **lead}}
+        for role, have in roster.detect_tool(code, t)["roles"].items():
+            if have:
+                rows[t][role] = {"agent": have["name"], "model": have["model"] or "-", "effort": have["effort"] or "-"}
+    orch = Path(plan["roster"]["orchestration"])
+    if not orch.is_file():
+        done.append("ORCHESTRATION.md is not there yet: re-run setup after registering to record the roster table")
+    elif not _readable_utf8(orch):
+        done.append("ORCHESTRATION.md is not UTF-8: roster table not written")
+    else:
+        section = roster.render_section(rows, TOOL_LABELS)
+        data = orch.read_bytes()
+        eol = b"\r\n" if b"\r\n" in data else b"\n"
+        start, end = roster.ROSTER_START.encode(), roster.ROSTER_END.encode()
+        i, j = data.find(start), data.find(end)
+        if 0 <= i < j:  # our own markers: refresh only the block between them
+            block = section.rstrip("\n").replace("\n", "\n" if eol == b"\n" else "\r\n").encode("utf-8")
+            orch.write_bytes(data[:i] + block + data[j + len(end):])
+        else:
+            append_bytes(orch, section)
+        done.append("ORCHESTRATION.md: roster table written")
+    return "; ".join(done)
+
+
+def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | dict[str, str] = "abort",
+                  roster_overrides: dict[str, Any] | None = None) -> list[dict[str, str]]:
     """Run only the approved action ids. Registration / gates / clone / grill-me fetch are left to
     their own commands (returned as `run` instructions) so the agent shows their output.
 
@@ -1031,6 +1210,9 @@ def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | 
             n = a["edit"]["line"]
             if n > len(lines) or lines[n - 1] != a["edit"]["old"]:
                 raise ValueError(f"{a['file']}:{n} changed since the plan was shown; nothing was changed.")
+
+    overrides = roster_overrides or {}
+    _roster_overrides(plan, [by_id[i] for i in approved if by_id[i]["kind"] == "roster"], overrides)
 
     def choice(aid: str) -> str:
         return on_conflict.get(aid, "abort") if isinstance(on_conflict, dict) else on_conflict
@@ -1073,6 +1255,8 @@ def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | 
                 else:
                     done.append(f"{c['skill']}: source gone, skipped")
             results.append({"id": aid, "result": "; ".join(done)})
+        elif kind == "roster":
+            results.append({"id": aid, "result": apply_roster(code, plan, a, overrides)})
         elif kind == "launcher-edit":
             wiring.apply_launcher_edit(code, a["file"], a["edit"])
             results.append({"id": aid, "result": "written"})

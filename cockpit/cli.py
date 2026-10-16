@@ -333,6 +333,17 @@ def cmd_setup(args: argparse.Namespace) -> int:
         stealth=seen["stealth"],
         force_full=seen["mode"] == "full" and bool(seen["own_loop_skills"]),
     )
+    overrides: dict = {}
+    if args.roster:
+        raw = args.roster
+        try:
+            overrides = json.loads(Path(raw[1:]).read_text(encoding="utf-8-sig") if raw.startswith("@") else raw)
+        except (OSError, json.JSONDecodeError) as err:
+            print(f"Error: --roster is not valid JSON ({err}).")
+            return 1
+        if not isinstance(overrides, dict):
+            print('Error: --roster must be an object like {"claude": {"advisor": {"model": "claude-opus-5-5", "effort": "high"}}}.')
+            return 1
     ids, conflicts = [], {}
     for token in args.ids:
         aid, _, how = token.partition("=")
@@ -354,7 +365,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print(f"Error: the plan changed since it was shown ({', '.join(changed)}). Re-run setup-plan and ask again.")
         return 1
     try:
-        results = setup_flow.apply_actions(fresh, ids, on_conflict=conflicts)
+        results = setup_flow.apply_actions(fresh, ids, on_conflict=conflicts, roster_overrides=overrides)
     except ValueError as err:
         print(f"Error: {err}")
         return 1
@@ -437,6 +448,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Approved action ids, e.g. A2 A3. For an edited skill add its choice: A4=replace or A5=new "
              "(plain id = keep the user's copy)",
     )
+
+    p_apply.add_argument(
+        "--roster", help='The "customise" answers as JSON (or @file): {"claude": {"advisor": {"model": "...", "effort": "high"}}}; '
+                         "only for roles the approved roster action adds, plus the lead")
 
     p_status = sub.add_parser("skills-status", help="Read-only: installed vs available skill versions")
     p_status.add_argument("code_path", nargs="?", help="Also report a project's installed skills")

@@ -49,6 +49,12 @@ Cards: `{cards}` with prefix `{prefix}-<story>`. Dashboard: `pm-qa-cockpit` on h
 7. **Close** — card to `qa`, write the interactive Story Close-Out artifact
    `artifacts/<PREFIX>-<story>-closeout.html`, hand the user the Human QA steps. Only the user's
    confirmation sets `completed`. **Never push** — pushing is always the user's call.
+
+<!-- pm-qa-cockpit:roster:start -->
+## Roster
+
+Who does each step. Not recorded yet: ask your agent to run `pm-qa-setup`, which fills this in.
+<!-- pm-qa-cockpit:roster:end -->
 """
 
 

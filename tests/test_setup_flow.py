@@ -125,8 +125,10 @@ def test_full_setup_applies_only_approved_and_keeps_user_text(cockpit_home, fake
     assert all(a["dir"] == ".claude/skills" for a in by_kind["install-skill"]), "Cursor reads .claude/skills; no 2nd copy"
     assert sorted(a["file"] for a in by_kind["pointer"]) == ["AGENTS.md", "CLAUDE.md"]
     (exclude,) = by_kind["exclude"]
+    (ros,) = by_kind["roster"]
     assert exclude["paths"] == sorted(
         [f".claude/skills/{s}/" for s in setup_flow.PROJECT_SKILLS] + [".claude/skills/.pm-qa-cockpit-new/"]
+        + [f["path"] for f in ros["files"]]
     )
 
     approved = [a["id"] for a in by_kind["install-skill"]] + [a["id"] for a in by_kind["pointer"] if a["file"] == "CLAUDE.md"]
