@@ -163,7 +163,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         orch.write_text(
             ORCHESTRATION_TEMPLATE.format(
                 name=project["name"],
-                cards=Path(project["docs_path"], "cards").as_posix(),
+                cards="cards/ (next to this file)",
                 prefix=project["prefix"],
                 gate_mode=mode,
                 gate_note=note,
