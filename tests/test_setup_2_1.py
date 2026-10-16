@@ -127,6 +127,16 @@ def test_a_line_is_rewritten_whole_or_not_at_all():
     assert len(refs) == 2 and refs[1]["segment"] is None  # the bare Join-Path name can't be rewritten
 
 
+def test_relative_path_in_join_path_or_single_quotes_is_not_rewritten():
+    joined = '$Dev = Join-Path $PSScriptRoot "..\\..\\pm-qa-cockpit"'
+    quoted = "$Dev = '..\\..\\pm-qa-cockpit\\cockpit'"
+    plain = '$Dev = "..\\..\\pm-qa-cockpit\\cockpit"'
+    for line, expect_rewrite in ((joined, False), (quoted, False), (plain, True)):
+        refs = [r for r in wiring.classify_line(line) if r["kind"] == "dev" and r["segment"] is not None]
+        assert refs, line
+        assert (wiring.proposed_line(line, refs[0], ".ps1") is not None) == expect_rewrite, line
+
+
 def test_docs_folder_named_like_the_tool_is_not_a_dev_clone(tmp_path):
     (tmp_path / "pm-qa-docs" / "pm-qa-cockpit").mkdir(parents=True)
     code = tmp_path / "tool"

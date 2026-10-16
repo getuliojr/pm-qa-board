@@ -123,9 +123,11 @@ def proposed_line(line: str, ref: dict[str, Any], ext: str) -> str | None:
     exact, safe rewrite exists (single-quoted strings don't expand $HOME / %USERPROFILE%)."""
     if ref["segment"] is None or ext not in RUNNING_EXPR:
         return None
-    if ref["start"] and line[ref["start"] - 1] == "'":
+    if line[: ref["start"]].count("'") % 2:
         return None
     tok = ref["token"]
+    if tok.startswith("..") and re.search(r"join-path|join\(", line, re.IGNORECASE):
+        return None  # a relative child handed to Join-Path / path.join would become <base>\C:\...
     seps = re.findall(r"[\\/]", tok)
     sep = seps[0] if seps else "\\"
     rest = [p for p in re.split(r"[\\/]", tok) if p != ""][ref["segment"] + 1:]
