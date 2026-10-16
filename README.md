@@ -3,29 +3,48 @@
 A local, zero-dependency dashboard and CLI for running agent-built work as **stories**: markdown cards,
 Definition of Done, cold-review verdicts, Human QA checks, heavy gates and interactive close-out
 artifacts, across any number of projects. It reads markdown on disk; there is no database and no board
-to keep in sync. It plus a small skill suite (`pm-qa-cockpit`, `pm-orchestrate`, `pm-sync`, `pm-review`)
+to keep in sync. It plus a small skill suite (`pm-qa-setup`, `pm-qa-cockpit`, `pm-orchestrate`, `pm-sync`, `pm-review`)
 gives Claude Code, Cursor and similar agents one shared working loop.
 
-**It never pushes.** Agents commit locally; `git push` is always the user's call.
+**It never pushes, and it never overwrites your rules.** Agents commit locally; `git push` is always the
+user's call. Setup is done by an agent that inspects your project and changes only what you approve.
 
 ## Quick start
 
 ```powershell
-# 1. Install the skills (preview first, then for real)
-powershell -NoProfile -File install.ps1 -DryRun
-powershell -NoProfile -File install.ps1            # add -Force to overwrite changed files
+# 1. Get the running copy (once per machine)
+git clone https://github.com/getuliojr/pm-qa-cockpit $HOME\.pm-qa-cockpit\app
 
-# 2. Register a project (report only; add --apply to write)
-uv run python cockpit\cli.py init C:\path\to\app --name "My App" --prefix APP
-uv run python cockpit\cli.py init C:\path\to\app --name "My App" --prefix APP --apply
+# 2. Install the bootstrap skill (only pm-qa-setup; never overwrites anything)
+powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1 -DryRun
+powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1
 
-# 3. Launch the dashboard (http://localhost:3333)
-powershell -File cockpit.ps1 [-Project my-app] [-Port 3333]
+# 3. In each project, ask your agent (Claude Code, Cursor, Antigravity):
+#      "set up PM & QA Cockpit in this project"
+
+# 4. Launch the dashboard (http://localhost:3333)
+powershell -File $HOME\.pm-qa-cockpit\app\cockpit.ps1 [-Project my-app] [-Port 3333]
 ```
 
-`install.ps1` copies the skills into `~/.claude/skills`, `~/.agents/skills` and `~/.cursor/skills-cursor`,
-and fetches `grill-me` from mattpocock/skills if neither `grill-me` nor `grilling` is installed
-(`-RequireGrillMe` makes a failed download fatal).
+**How setup works** (`skills/pm-qa-setup`): the agent checks prerequisites (uv, git, the running copy,
+grill-me — offered once per machine, source shown), then runs `cli.py setup-plan <project>`, which is
+read-only and lists numbered actions with the exact files each would write:
+
+- the cockpit skills, copied into the project's own agent folders (`.claude/skills`, `.agents/skills`)
+  only for agents detected there — Cursor is pointed at them through `AGENTS.md` instead of a copy;
+- a short "PM & QA Cockpit" section appended (between markers) to `CLAUDE.md` / `AGENTS.md` /
+  `GEMINI.md`, saying **the project's own rules win** on conflict;
+- `.git/info/exclude` entries (exact paths) when the project keeps its PM docs outside the repo;
+- registration (`cli.py init`) and gate profiling (`profile-gates`).
+
+A project that already runs its **own loop** (e.g. its own `*-orchestrate` skill) is **register-only**:
+no cockpit skills, one informational note. The agent asks which actions to apply and runs
+`cli.py setup-apply <project> A1 A3 …`, which refuses if the plan changed since you saw it.
+
+**Upgrades:** every skill carries `metadata.version` (from `VERSION`) and an installed copy keeps a
+`.pm-qa-cockpit.json` manifest, so `cli.py skills-status` / `setup-plan` can tell *outdated* (safe to
+upgrade on approval) from *edited by you* (keep / replace / save `*.new` beside it) and from a
+same-named skill that isn't ours (never touched). Line endings are ignored in every comparison.
 
 ## Registry
 
@@ -52,24 +71,27 @@ Resolution order: `--project`, then the project containing the current directory
 | Running copy (projects use it) | `~/.pm-qa-cockpit/app`, a clone of this repo on `main` | `git -C ~/.pm-qa-cockpit/app pull` |
 | PM data (cards, PLAN, reviews, close-outs) | each project's own repo, or a private docs repo such as `pm-qa-docs/<slug>/` | that repo |
 | Registry | `~/.pm-qa-cockpit/projects.json` (absolute paths, per machine) | not synced: re-run `cli.py init` |
-| Installed skills | `~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills-cursor` | `install.ps1` per machine |
+| Bootstrap skill `pm-qa-setup` | `~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills-cursor` | `install.ps1` once per machine; upgraded by the skill |
+| Project skills | each project's `.claude/skills` / `.agents/skills` | committed with the project (in-repo docs) or git-excluded (external/stealth) |
 
 **This repo never holds PM data.** Its own cards live in the private docs repo (`.gitignore` blocks
 `docs/`, `PLAN.md` and friends here as a safety net).
 
-**Release flow:** develop and test in the dev clone → merge to `main` and push → update the running copy
-and skills:
+**Release flow:** develop and test in the dev clone → bump `VERSION` (and every skill's
+`metadata.version`) when skills change → merge to `main` and push → update the running copy, then let
+each project's agent upgrade its skills with your approval:
 
 ```powershell
 git -C $HOME\.pm-qa-cockpit\app pull
-powershell -File $HOME\.pm-qa-cockpit\app\install.ps1 -Force
+# then, in a project: "check for PM & QA Cockpit upgrades"
 ```
 
 Projects find the cockpit through `$env:PM_QA_COCKPIT_REPO`, else `~/.pm-qa-cockpit/app`, else a sibling
 `pm-qa-cockpit` folder — so a half-finished edit in the dev clone never breaks a project's dashboard.
 
 **New machine:** clone this repo (dev), clone it again into `~/.pm-qa-cockpit/app` (running copy), clone
-your projects and the private docs repo, run `install.ps1`, then `cli.py init ... --apply` once per project.
+your projects and the private docs repo, run `install.ps1`, then ask your agent to "set up PM & QA
+Cockpit" in each project (on a new machine that mostly means re-registering it).
 
 ## Story schema
 

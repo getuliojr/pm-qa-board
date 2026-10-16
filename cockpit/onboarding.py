@@ -172,6 +172,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
         created.append(str(orch))
     if args.stealth:
+        project["stealth"] = True
         added = apply_stealth(code, project)
         if added:
             print(f"Stealth: excluded {', '.join(added)}")

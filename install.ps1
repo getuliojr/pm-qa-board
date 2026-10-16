@@ -1,21 +1,20 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Installs the PM & QA Cockpit skills into the agent skill roots.
+    Bootstrap for PM & QA Cockpit: installs ONLY the `pm-qa-setup` skill. Never overwrites anything.
 
 .DESCRIPTION
-    Copies skills\* into ~\.claude\skills, ~\.agents\skills and ~\.cursor\skills-cursor.
-    Identical files are skipped; changed files are reported as "differs" unless -Force.
-    Installs grill-me (from mattpocock/skills) when neither grill-me nor grilling is present.
+    Copies skills\pm-qa-setup into ~\.claude\skills, ~\.agents\skills and ~\.cursor\skills-cursor
+    where it is missing. Where a pm-qa-setup already exists it is compared with line endings ignored:
+    identical -> left alone; different -> reported and left alone (your agent upgrades it, with your
+    approval, through the skill itself). Nothing else is installed and nothing is downloaded.
+
+    Everything else - prerequisites, grill-me, the project's skills, pointers in CLAUDE.md/AGENTS.md,
+    registration and gate profiling - is done by an agent running the pm-qa-setup skill, which
+    inspects the project and changes only what you approve.
 
 .PARAMETER DryRun
-    Print what would happen; write nothing, touch no network. Alias: -Check.
-
-.PARAMETER Force
-    Overwrite files that differ.
-
-.PARAMETER RequireGrillMe
-    Exit non-zero if grill-me is needed but could not be downloaded.
+    Print what would happen; write nothing. Alias: -Check.
 
 .EXAMPLE
     powershell -NoProfile -File install.ps1 -DryRun
@@ -23,143 +22,91 @@
 param(
     [Alias("Check")]
     [switch]$DryRun,
-    [switch]$Force,
-    [switch]$RequireGrillMe
+    # Install under another home folder (used by the test suite); defaults to your user profile.
+    [string]$TargetHome = ""
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$SkillsSrc = Join-Path $RepoRoot "skills"
-$UserHome = [Environment]::GetFolderPath("UserProfile")
-
+$Skill = "pm-qa-setup"
+$Src = Join-Path (Join-Path $RepoRoot "skills") $Skill
+$UserHome = if ($TargetHome) { $TargetHome } else { [Environment]::GetFolderPath("UserProfile") }
+$Version = (Get-Content -LiteralPath (Join-Path $RepoRoot "VERSION") -Raw).Trim()
 $Roots = @(
     (Join-Path $UserHome ".claude\skills"),
     (Join-Path $UserHome ".agents\skills"),
     (Join-Path $UserHome ".cursor\skills-cursor")
 )
-$GrillRoots = @($Roots[0], $Roots[1])
-$GrillApi = "https://api.github.com/repos/mattpocock/skills/contents/skills/productivity/grill-me"
-$GrillRawFallback = "https://raw.githubusercontent.com/mattpocock/skills/main/skills/productivity/grill-me/SKILL.md"
-$HomeDir = Join-Path $UserHome ".pm-qa-cockpit"
 
-$script:Counts = @{ copied = 0; skipped = 0; differs = 0 }
-
-function Get-FileHashSafe([string]$Path) {
-    return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash
+function Get-NormalizedText([string]$Path) {
+    # CRLF/CR -> LF so a Windows checkout never reads as "changed"
+    return ([IO.File]::ReadAllText($Path)) -replace "`r`n", "`n" -replace "`r", "`n"
 }
 
-function Install-File([string]$Src, [string]$Dest) {
-    if (-not (Test-Path -LiteralPath $Dest)) {
-        if ($DryRun) { Write-Host "  [would copy ] $Dest" -ForegroundColor Cyan }
-        else {
-            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Dest) | Out-Null
-            Copy-Item -LiteralPath $Src -Destination $Dest
-            Write-Host "  [copied     ] $Dest" -ForegroundColor Green
-        }
-        $script:Counts.copied++
-        return
+function Test-SameSkill([string]$A, [string]$B) {
+    $fa = @(Get-ChildItem -LiteralPath $A -File -Recurse | Where-Object { $_.Name -ne ".pm-qa-cockpit.json" })
+    $fb = @(Get-ChildItem -LiteralPath $B -File -Recurse | Where-Object { $_.Name -ne ".pm-qa-cockpit.json" })
+    if ($fa.Count -ne $fb.Count) { return $false }
+    foreach ($f in $fa) {
+        $rel = $f.FullName.Substring($A.Length).TrimStart('\', '/')
+        $other = Join-Path $B $rel
+        if (-not (Test-Path -LiteralPath $other)) { return $false }
+        if ((Get-NormalizedText $f.FullName) -ne (Get-NormalizedText $other)) { return $false }
     }
-    if ((Get-FileHashSafe $Src) -eq (Get-FileHashSafe $Dest)) {
-        Write-Host "  [identical  ] $Dest" -ForegroundColor DarkGray
-        $script:Counts.skipped++
-        return
+    return $true
+}
+
+function Get-InstalledVersion([string]$Dir) {
+    $m = Join-Path $Dir ".pm-qa-cockpit.json"
+    if (Test-Path -LiteralPath $m) {
+        try { return (Get-Content -LiteralPath $m -Raw | ConvertFrom-Json).version } catch {}
     }
-    if ($Force) {
-        if ($DryRun) { Write-Host "  [would overwrite] $Dest" -ForegroundColor Yellow }
-        else {
-            Copy-Item -LiteralPath $Src -Destination $Dest -Force
-            Write-Host "  [overwritten] $Dest" -ForegroundColor Yellow
+    $md = Join-Path $Dir "SKILL.md"
+    if (Test-Path -LiteralPath $md) {
+        $hit = Select-String -LiteralPath $md -Pattern '^\s+version:\s*(\S+)' | Select-Object -First 1
+        if ($hit) { return $hit.Matches[0].Groups[1].Value }
+    }
+    return "unknown"
+}
+
+Write-Host ""
+Write-Host "  PM & QA Cockpit - bootstrap ($Skill $Version)" -ForegroundColor Green
+if ($DryRun) { Write-Host "  DRY RUN: nothing will be written." -ForegroundColor Cyan }
+Write-Host ""
+
+$installed = 0; $current = 0; $differs = 0
+foreach ($root in $Roots) {
+    $dest = Join-Path $root $Skill
+    if (-not (Test-Path -LiteralPath (Join-Path $dest "SKILL.md"))) {
+        if ($DryRun) {
+            Write-Host "  [would install] $dest" -ForegroundColor Cyan
+        } else {
+            New-Item -ItemType Directory -Force -Path $root | Out-Null
+            Copy-Item -LiteralPath $Src -Destination $dest -Recurse
+            $manifest = @{ source = "pm-qa-cockpit"; version = $Version; installed = (Get-Date -Format s) } | ConvertTo-Json
+            Set-Content -LiteralPath (Join-Path $dest ".pm-qa-cockpit.json") -Value $manifest -Encoding UTF8
+            Write-Host "  [installed    ] $dest" -ForegroundColor Green
         }
-        $script:Counts.copied++
+        $installed++
+    } elseif (Test-SameSkill $Src $dest) {
+        Write-Host "  [current      ] $dest" -ForegroundColor DarkGray
+        $current++
     } else {
-        Write-Host "  [differs    ] $Dest  (use -Force to overwrite)" -ForegroundColor Yellow
-        $script:Counts.differs++
+        $v = Get-InstalledVersion $dest
+        Write-Host "  [differs      ] $dest  (installed $v, available $Version) - left untouched" -ForegroundColor Yellow
+        $differs++
     }
 }
 
 Write-Host ""
-Write-Host "  PM & QA Cockpit - skill installer" -ForegroundColor Green
-if ($DryRun) { Write-Host "  DRY RUN: nothing will be written, no network used." -ForegroundColor Cyan }
-Write-Host ""
-
-# 1. Cockpit skills
-$skillDirs = @(Get-ChildItem -LiteralPath $SkillsSrc -Directory)
-foreach ($root in $Roots) {
-    if (-not (Test-Path -LiteralPath $root)) {
-        if ($DryRun) { Write-Host "Root missing, would create: $root" -ForegroundColor Cyan }
-        else { New-Item -ItemType Directory -Force -Path $root | Out-Null }
-    }
-    Write-Host "Root: $root" -ForegroundColor White
-    foreach ($dir in $skillDirs) {
-        $files = @(Get-ChildItem -LiteralPath $dir.FullName -File -Recurse)
-        foreach ($f in $files) {
-            $rel = $f.FullName.Substring($dir.FullName.Length).TrimStart('\', '/')
-            $dest = Join-Path (Join-Path $root $dir.Name) $rel
-            Install-File $f.FullName $dest
-        }
-    }
-    Write-Host ""
-}
-
-# 2. grill-me
-$grillPresent = $false
-foreach ($root in $Roots) {
-    foreach ($name in @("grill-me", "grilling")) {
-        if (Test-Path -LiteralPath (Join-Path (Join-Path $root $name) "SKILL.md")) { $grillPresent = $true }
-    }
-}
-$grillFailed = $false
-if ($grillPresent) {
-    Write-Host "grill-me: already present (grill-me or grilling found) - not fetching." -ForegroundColor Green
-} elseif ($DryRun) {
-    Write-Host "grill-me: NOT present - would download from mattpocock/skills (skills/productivity/grill-me) into:" -ForegroundColor Cyan
-    foreach ($r in $GrillRoots) { Write-Host "  $(Join-Path $r 'grill-me')" -ForegroundColor Cyan }
-} else {
-    Write-Host "grill-me: not present - downloading from mattpocock/skills..." -ForegroundColor White
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $items = @()
-        try {
-            $listing = Invoke-RestMethod -Uri $GrillApi -Headers @{ "User-Agent" = "pm-qa-cockpit-installer" }
-            $items = @($listing | Where-Object { $_.type -eq "file" } |
-                ForEach-Object { @{ name = $_.name; url = $_.download_url } })
-        } catch {
-            Write-Host "  API listing failed ($($_.Exception.Message)); falling back to SKILL.md only." -ForegroundColor Yellow
-        }
-        if ($items.Count -eq 0) { $items = @(@{ name = "SKILL.md"; url = $GrillRawFallback }) }
-        foreach ($r in $GrillRoots) {
-            $target = Join-Path $r "grill-me"
-            New-Item -ItemType Directory -Force -Path $target | Out-Null
-            foreach ($it in $items) {
-                Invoke-WebRequest -Uri $it.url -OutFile (Join-Path $target $it.name) -UseBasicParsing
-                Write-Host "  [downloaded ] $(Join-Path $target $it.name)" -ForegroundColor Green
-            }
-        }
-    } catch {
-        $grillFailed = $true
-        Write-Host "  WARNING: could not download grill-me: $($_.Exception.Message)" -ForegroundColor Yellow
-        Write-Host "  Install it manually from https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me" -ForegroundColor Yellow
-    }
+Write-Host ("Summary: {0} {1}, {2} current, {3} left untouched" -f $installed, $(if ($DryRun) { "to install" } else { "installed" }), $current, $differs)
+if ($differs -gt 0) {
+    Write-Host "A different $Skill is already installed. Nothing was overwritten. To upgrade it, ask your agent:" -ForegroundColor Yellow
+    Write-Host '  "check for PM & QA Cockpit upgrades"' -ForegroundColor Yellow
 }
 Write-Host ""
-
-# 3. Cockpit home
-if (Test-Path -LiteralPath $HomeDir) {
-    Write-Host "Registry home exists: $HomeDir" -ForegroundColor DarkGray
-} elseif ($DryRun) {
-    Write-Host "Would create registry home: $HomeDir" -ForegroundColor Cyan
-} else {
-    New-Item -ItemType Directory -Force -Path $HomeDir | Out-Null
-    Write-Host "Created registry home: $HomeDir" -ForegroundColor Green
-}
-
+Write-Host "Next: open a project with your agent (Claude Code, Cursor, Antigravity) and ask:" -ForegroundColor White
+Write-Host '  "set up PM & QA Cockpit in this project"' -ForegroundColor White
+Write-Host "It inspects the project's own rules and hooks first and changes only what you approve."
 Write-Host ""
-Write-Host ("Summary: {0} to copy/copied, {1} identical, {2} differ" -f $script:Counts.copied, $script:Counts.skipped, $script:Counts.differs)
-Write-Host ""
-Write-Host "Register a project (report first, then add --apply):" -ForegroundColor White
-Write-Host "  uv run python $RepoRoot\cockpit\cli.py init <code_path> --name <Name> --prefix <PREFIX> [--docs-path <external docs>] [--stealth]"
-Write-Host "Launch:  powershell -File $RepoRoot\cockpit.ps1"
-Write-Host ""
-
-if ($grillFailed -and $RequireGrillMe) { exit 1 }
 exit 0

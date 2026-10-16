@@ -1,6 +1,9 @@
 ---
 name: pm-qa-cockpit
 description: Use when creating, reading or updating story cards, PLAN.md, reviews or close-out artifacts for a project tracked by the PM & QA Cockpit (local dashboard on :3333), or when asked to launch/register the Cockpit. Defines card schema, project resolution, docs layout and the CLI.
+metadata:
+  version: 0.2.0
+  source: pm-qa-cockpit
 ---
 
 # PM & QA Cockpit

@@ -238,6 +238,94 @@ def cmd_projects(args: argparse.Namespace) -> int:
     return 0
 
 
+def _plan_file(code_path: str) -> Path:
+    import hashlib
+
+    key = hashlib.sha1(str(Path(code_path).resolve()).lower().encode()).hexdigest()[:12]
+    return projects.cockpit_home() / "plans" / f"{key}.json"
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    """setup-plan / setup-apply / skills-status — the commands the pm-qa-setup skill drives."""
+    import json
+
+    import setup_flow
+
+    if args.command == "skills-status":
+        status = setup_flow.skills_status(args.code_path)
+        if args.json:
+            print(json.dumps(status, indent=2))
+            return 0
+        print(f"Tool version: {status['tool_version']}")
+        for group in ("global", "project"):
+            for row in status[group]:
+                print(f"  [{row['state']:<8}] {group:<7} {row['agent']:<11} {row['path']} "
+                      f"({row['installed_version'] or '-'} / {row['available_version']})")
+        return 0
+
+    if args.command == "setup-plan":
+        plan = setup_flow.build_plan(
+            args.code_path, name=args.name, prefix=args.prefix, docs_path=args.docs_path, stealth=args.stealth
+        )
+        pf = _plan_file(args.code_path)
+        pf.parent.mkdir(parents=True, exist_ok=True)
+        pf.write_text(json.dumps(plan, indent=2), encoding="utf-8")
+        if args.json:
+            print(json.dumps(plan, indent=2))
+            return 0
+        p = plan["project"]
+        print(f"Project: {p['name']} [{p['prefix']}] {'(registered)' if plan['registered'] else '(not registered)'}")
+        print(f"Code:    {plan['code_path']}")
+        print(f"Docs:    {p['docs_path']} ({p['docs_mode']}{', stealth' if plan['stealth'] else ''})")
+        print(f"Agents:  {', '.join(plan['agents']) or 'none detected'}")
+        print(f"Mode:    {plan['mode']}" + (f" — own loop: {', '.join(plan['own_loop_skills'])}" if plan["own_loop_skills"] else ""))
+        print("Prerequisites: " + ", ".join(f"{k}={'ok' if v else 'MISSING'}" for k, v in plan["prerequisites"].items()))
+        if not plan["actions"]:
+            print("\nNothing to do — this project is set up and current.")
+        for a in plan["actions"]:
+            print(f"\n  {a['id']}  {a['title']}")
+            for w in a.get("writes", []):
+                print(f"       writes: {w}")
+            if a.get("detail"):
+                print(f"       {a['detail']}")
+            if a.get("preview"):
+                print("       adds:\n" + "\n".join("         | " + line for line in a["preview"].splitlines()))
+        print("\nNothing has been changed. Approve ids with: cli.py setup-apply <code_path> A1 A2 ...")
+        return 0
+
+    # setup-apply: re-plan and refuse if the approved actions no longer match what the user saw
+    pf = _plan_file(args.code_path)
+    if not pf.exists():
+        print("Error: no saved plan for this project — run `cli.py setup-plan` first and show it to the user.")
+        return 1
+    seen = json.loads(pf.read_text(encoding="utf-8"))
+    fresh = setup_flow.build_plan(
+        args.code_path,
+        name=seen["project"]["name"],
+        prefix=seen["project"]["prefix"],
+        docs_path=seen["project"]["docs_path"] if seen["project"]["docs_mode"] == "external" else None,
+        stealth=seen["stealth"],
+    )
+    seen_by_id = {a["id"]: (a["kind"], a["title"]) for a in seen["actions"]}
+    fresh_by_id = {a["id"]: (a["kind"], a["title"]) for a in fresh["actions"]}
+    changed = [i for i in args.ids if seen_by_id.get(i) != fresh_by_id.get(i)]
+    if changed:
+        print(f"Error: the plan changed since it was shown ({', '.join(changed)}). Re-run setup-plan and ask again.")
+        return 1
+    try:
+        results = setup_flow.apply_actions(fresh, args.ids, on_conflict=args.on_conflict)
+    except ValueError as err:
+        print(f"Error: {err}")
+        return 1
+    for r in results:
+        line = f"  {r['id']}: {r['result']}"
+        if r.get("command"):
+            line += f"  -> run: {r['command']}"
+        print(line)
+    pf.unlink(missing_ok=True)
+    return 0
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PM & QA Cockpit — story card CLI")
     parser.add_argument("--project", help="Registered project slug (default: resolved from the current directory)")
@@ -291,6 +379,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--stealth", action="store_true", help="Keep cockpit files out of git via .git/info/exclude")
     p_init.add_argument("--apply", action="store_true", help="Write changes (default: report only)")
 
+    p_plan = sub.add_parser("setup-plan", help="Read-only: what pm-qa-setup would do in a project (numbered actions)")
+    p_plan.add_argument("code_path", nargs="?", default=".", help="Project code repo (default: current dir)")
+    p_plan.add_argument("--name")
+    p_plan.add_argument("--prefix")
+    p_plan.add_argument("--docs-path", help="External docs folder for a new project")
+    p_plan.add_argument("--stealth", action="store_true", default=None)
+    p_plan.add_argument("--json", action="store_true", help="Machine-readable output")
+
+    p_apply = sub.add_parser("setup-apply", help="Apply ONLY the approved action ids from the last setup-plan")
+    p_apply.add_argument("code_path", nargs="?", default=".")
+    p_apply.add_argument("ids", nargs="+", help="Approved action ids, e.g. A2 A3")
+    p_apply.add_argument(
+        "--on-conflict", choices=("abort", "replace", "new"), default="abort",
+        help="For locally edited skills: abort (keep yours), replace, or write *.new beside them",
+    )
+
+    p_status = sub.add_parser("skills-status", help="Read-only: installed vs available skill versions")
+    p_status.add_argument("code_path", nargs="?", help="Also report a project's installed skills")
+    p_status.add_argument("--json", action="store_true")
+
     p_prof = sub.add_parser("profile-gates", help="Detect the stack, time the suite, pick Fast vs Heavy gate mode")
     p_prof.add_argument("--fast-cmd", help="Override the detected fast/static gate command")
     p_prof.add_argument("--full-cmd", help="Override the detected full test command")
@@ -309,6 +417,8 @@ def main(argv: list[str] | None = None) -> int:
         from onboarding import cmd_init
 
         return cmd_init(args)
+    if args.command in ("setup-plan", "setup-apply", "skills-status"):
+        return cmd_setup(args)
     if args.command == "profile-gates":
         from gate_profiler import cmd_profile_gates
 

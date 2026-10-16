@@ -1,6 +1,9 @@
 ---
 name: pm-orchestrate
 description: Use at the start of any new feature, story or nontrivial change in a project tracked by the PM & QA Cockpit, before writing code or spawning agents; also when onboarding a project (cli.py init), choosing gate mode (profile-gates), or closing a story (close-out artifact).
+metadata:
+  version: 0.2.0
+  source: pm-qa-cockpit
 ---
 
 # PM orchestrate - the 7-step story loop
@@ -57,6 +60,9 @@ test suite, stores the mode in the registry). Threshold default 360 s.
 Never run a whole slow suite inline in heavy mode, even "to be sure".
 
 ## Onboarding a project
+Use the **`pm-qa-setup`** skill (`cli.py setup-plan` → user approves → `cli.py setup-apply`). It wraps
+the steps below and never changes the project's rules without approval.
+
 1. `cli.py init <code_path> --name N --prefix P [--docs-path D]` prints a **report only**: registry entry,
    docs layout, existing orchestration files, hooks. Review it, then re-run with `--apply`.
    `--stealth` keeps cockpit files out of git via `.git/info/exclude`.

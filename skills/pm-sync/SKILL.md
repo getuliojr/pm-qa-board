@@ -1,6 +1,9 @@
 ---
 name: pm-sync
 description: Use during a story build, after every phase commit, lane merge, gate result or review milestone, to keep the card's DoD checkboxes and PLAN.md in step. Never batch the ticking at the end.
+metadata:
+  version: 0.2.0
+  source: pm-qa-cockpit
 ---
 
 # PM sync - incremental DoD during build
