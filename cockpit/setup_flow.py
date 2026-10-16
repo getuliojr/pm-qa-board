@@ -752,7 +752,10 @@ def build_inventory(plan: dict[str, Any], code: Path, reach: dict[str, dict[str,
                                         "here", "a generic skill: global, so every project has it"))
         else:
             copied = [a for a in plan["actions"] if a["id"] in ids and a["kind"] == "copy-generic"]
-            src = f"; found in {', '.join(_home_short(c['from']) for c in copied[0]['copies'])}" if copied else ""
+            def shown(p: str) -> str:
+                return Path(p).relative_to(code).as_posix() if Path(p).is_relative_to(code) else _home_short(p)
+
+            src = f"; found in {', '.join(shown(c['from']) for c in copied[0]['copies'])}" if copied else ""
             covered = not ids and any(r2 in {Path(c["to"]).parent for a in plan["actions"] if a["kind"] == "copy-generic"
                                              for c in a["copies"]} for r2 in global_read_roots(t))
             tool_groups[t].append(_item(
