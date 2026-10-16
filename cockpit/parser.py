@@ -129,16 +129,21 @@ class PMParser:
         if top is None or top == self.root_dir or self.root_dir.is_relative_to(top):
             return False
         rels = [Path(f).resolve().relative_to(top).as_posix() for f in files]
-        add = subprocess.run(["git", "add", "--", *rels], cwd=str(top), capture_output=True, check=False)
-        if add.returncode != 0:
-            return False
-        res = subprocess.run(
-            ["git", "commit", "-q", "-m", message, "--", *rels],
-            cwd=str(top),
-            capture_output=True,
-            check=False,
-        )
-        return res.returncode == 0
+        # Windows antivirus/indexer locks make git object writes fail now and then
+        # ("unable to write file .git/objects/... Permission denied"); a short retry clears it.
+        for attempt in range(3):
+            add = subprocess.run(["git", "add", "--", *rels], cwd=str(top), capture_output=True, check=False)
+            if add.returncode == 0:
+                res = subprocess.run(
+                    ["git", "commit", "-q", "-m", message, "--", *rels],
+                    cwd=str(top),
+                    capture_output=True,
+                    check=False,
+                )
+                if res.returncode == 0:
+                    return True
+            time.sleep(0.3 * (attempt + 1))
+        return False
 
     def get_closeout_artifact(self, card_id: str) -> dict[str, str] | None:
         """The interactive Story Close-Out artifact for a card, if one exists on disk."""

@@ -60,9 +60,11 @@ def test_edited_and_foreign_are_never_overwritten(tmp_path):
     assert setup_flow.skill_state(dest, SKILLS / "pm-review")["state"] == "edited"
     assert setup_flow.install_skill(SKILLS / "pm-review", dest) == "skipped-edited"
     assert "My own rule." in (dest / "SKILL.md").read_text(encoding="utf-8")
-    assert setup_flow.install_skill(SKILLS / "pm-review", dest, on_conflict="new") == "wrote-new"
+    new_dir = setup_flow.new_copy_dir(dest)
+    assert setup_flow.install_skill(SKILLS / "pm-review", dest, on_conflict="new") == f"wrote-new:{new_dir}"
     assert "My own rule." in (dest / "SKILL.md").read_text(encoding="utf-8")
-    assert (dest / "SKILL.md.new").is_file()
+    assert (new_dir / "SKILL.md").is_file() and new_dir.parent.name.startswith(".")
+    assert setup_flow.skill_state(dest, SKILLS / "pm-review")["state"] == "edited"  # .new lives outside
 
     foreign = tmp_path / "pm-sync"
     foreign.mkdir()
@@ -117,7 +119,7 @@ def test_full_setup_applies_only_approved_and_keeps_user_text(cockpit_home, fake
     for a in plan["actions"]:
         by_kind.setdefault(a["kind"], []).append(a)
     assert {a["skill"] for a in by_kind["install-skill"]} == set(setup_flow.PROJECT_SKILLS)
-    assert all(a["agent"] == "claude" for a in by_kind["install-skill"]), "Cursor gets a pointer, not a copy"
+    assert all(a["dir"] == ".claude/skills" for a in by_kind["install-skill"]), "Cursor reads .claude/skills; no 2nd copy"
     assert sorted(a["file"] for a in by_kind["pointer"]) == ["AGENTS.md", "CLAUDE.md"]
     (exclude,) = by_kind["exclude"]
     assert exclude["paths"] == sorted(f".claude/skills/{s}/" for s in setup_flow.PROJECT_SKILLS)

@@ -63,10 +63,48 @@ function Get-InstalledVersion([string]$Dir) {
     }
     $md = Join-Path $Dir "SKILL.md"
     if (Test-Path -LiteralPath $md) {
-        $hit = Select-String -LiteralPath $md -Pattern '^\s+version:\s*(\S+)' | Select-Object -First 1
-        if ($hit) { return $hit.Matches[0].Groups[1].Value }
+        # only the frontmatter (between the first two --- lines)
+        $text = Get-NormalizedText $md
+        if ($text -match '(?s)^---\n(.*?)\n---') {
+            if ($Matches[1] -match '(?m)^\s+version:\s*(\S+)') { return $Matches[1] }
+        }
     }
     return "unknown"
+}
+
+function Get-NormalizedBytes([string]$Path) {
+    $b = [IO.File]::ReadAllBytes($Path)
+    $out = New-Object System.Collections.Generic.List[byte] ($b.Length)
+    for ($i = 0; $i -lt $b.Length; $i++) {
+        if ($b[$i] -eq 13) {
+            $out.Add(10)
+            if ($i + 1 -lt $b.Length -and $b[$i + 1] -eq 10) { $i++ }
+        } else { $out.Add($b[$i]) }
+    }
+    return ,$out.ToArray()
+}
+
+function Get-SkillHash([string]$Dir) {
+    # Same as setup_flow.content_hash: per file (ordinal order of the relative posix path):
+    # path bytes, NUL, LF-normalised content, NUL. The manifest itself is excluded.
+    $root = (Resolve-Path -LiteralPath $Dir).Path
+    $map = @{}
+    foreach ($f in Get-ChildItem -LiteralPath $root -File -Recurse) {
+        if ($f.Name -eq ".pm-qa-cockpit.json") { continue }
+        $rel = $f.FullName.Substring($root.Length).TrimStart('\', '/') -replace '\\', '/'
+        $map[$rel] = $f.FullName
+    }
+    [string[]]$keys = @($map.Keys)
+    [Array]::Sort($keys, [StringComparer]::Ordinal)
+    $ms = New-Object IO.MemoryStream
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    foreach ($k in $keys) {
+        $p = $utf8.GetBytes($k); $ms.Write($p, 0, $p.Length); $ms.WriteByte(0)
+        $c = Get-NormalizedBytes $map[$k]; $ms.Write($c, 0, $c.Length); $ms.WriteByte(0)
+    }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $hash = $sha.ComputeHash($ms.ToArray())
+    return (($hash | ForEach-Object { $_.ToString("x2") }) -join "")
 }
 
 Write-Host ""
@@ -77,14 +115,22 @@ Write-Host ""
 $installed = 0; $current = 0; $differs = 0
 foreach ($root in $Roots) {
     $dest = Join-Path $root $Skill
-    if (-not (Test-Path -LiteralPath (Join-Path $dest "SKILL.md"))) {
+    if ((Test-Path -LiteralPath $dest) -and -not (Test-Path -LiteralPath (Join-Path $dest "SKILL.md"))) {
+        # a folder of the same name that isn't a skill: not ours to fill in
+        Write-Host "  [differs      ] $dest  (folder exists without SKILL.md) - left untouched" -ForegroundColor Yellow
+        $differs++
+    } elseif (-not (Test-Path -LiteralPath $dest)) {
         if ($DryRun) {
             Write-Host "  [would install] $dest" -ForegroundColor Cyan
         } else {
             New-Item -ItemType Directory -Force -Path $root | Out-Null
             Copy-Item -LiteralPath $Src -Destination $dest -Recurse
-            $manifest = @{ source = "pm-qa-cockpit"; version = $Version; installed = (Get-Date -Format s) } | ConvertTo-Json
-            Set-Content -LiteralPath (Join-Path $dest ".pm-qa-cockpit.json") -Value $manifest -Encoding UTF8
+            $manifest = [ordered]@{
+                source = "pm-qa-cockpit"; version = $Version; sha256 = (Get-SkillHash $dest)
+                installed = (Get-Date -Format s)
+            } | ConvertTo-Json
+            # UTF-8 without BOM (Python's json reader rejects a BOM)
+            [IO.File]::WriteAllText((Join-Path $dest ".pm-qa-cockpit.json"), $manifest, (New-Object Text.UTF8Encoding($false)))
             Write-Host "  [installed    ] $dest" -ForegroundColor Green
         }
         $installed++

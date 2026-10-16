@@ -265,7 +265,8 @@ def cmd_setup(args: argparse.Namespace) -> int:
 
     if args.command == "setup-plan":
         plan = setup_flow.build_plan(
-            args.code_path, name=args.name, prefix=args.prefix, docs_path=args.docs_path, stealth=args.stealth
+            args.code_path, name=args.name, prefix=args.prefix, docs_path=args.docs_path, stealth=args.stealth,
+            force_full=args.full,
         )
         pf = _plan_file(args.code_path)
         pf.parent.mkdir(parents=True, exist_ok=True)
@@ -280,6 +281,8 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print(f"Agents:  {', '.join(plan['agents']) or 'none detected'}")
         print(f"Mode:    {plan['mode']}" + (f" — own loop: {', '.join(plan['own_loop_skills'])}" if plan["own_loop_skills"] else ""))
         print("Prerequisites: " + ", ".join(f"{k}={'ok' if v else 'MISSING'}" for k, v in plan["prerequisites"].items()))
+        for note in plan.get("notes", []):
+            print(f"Note: {note}")
         if not plan["actions"]:
             print("\nNothing to do — this project is set up and current.")
         for a in plan["actions"]:
@@ -305,15 +308,30 @@ def cmd_setup(args: argparse.Namespace) -> int:
         prefix=seen["project"]["prefix"],
         docs_path=seen["project"]["docs_path"] if seen["project"]["docs_mode"] == "external" else None,
         stealth=seen["stealth"],
+        force_full=seen["mode"] == "full" and bool(seen["own_loop_skills"]),
     )
-    seen_by_id = {a["id"]: (a["kind"], a["title"]) for a in seen["actions"]}
-    fresh_by_id = {a["id"]: (a["kind"], a["title"]) for a in fresh["actions"]}
-    changed = [i for i in args.ids if seen_by_id.get(i) != fresh_by_id.get(i)]
+    ids, conflicts = [], {}
+    for token in args.ids:
+        aid, _, how = token.partition("=")
+        if how and how not in ("abort", "replace", "new"):
+            print(f"Error: {token}: the choice must be abort, replace or new.")
+            return 1
+        ids.append(aid)
+        if how:
+            conflicts[aid] = how
+
+    def canon(a: dict | None) -> str:
+        return json.dumps(a, sort_keys=True)
+
+    # Every detail the user saw (title, writes, paths, preview text, state) must be unchanged.
+    seen_by_id = {a["id"]: canon(a) for a in seen["actions"]}
+    fresh_by_id = {a["id"]: canon(a) for a in fresh["actions"]}
+    changed = [i for i in ids if seen_by_id.get(i) != fresh_by_id.get(i)]
     if changed:
         print(f"Error: the plan changed since it was shown ({', '.join(changed)}). Re-run setup-plan and ask again.")
         return 1
     try:
-        results = setup_flow.apply_actions(fresh, args.ids, on_conflict=args.on_conflict)
+        results = setup_flow.apply_actions(fresh, ids, on_conflict=conflicts)
     except ValueError as err:
         print(f"Error: {err}")
         return 1
@@ -385,14 +403,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--prefix")
     p_plan.add_argument("--docs-path", help="External docs folder for a new project")
     p_plan.add_argument("--stealth", action="store_true", default=None)
+    p_plan.add_argument("--full", action="store_true",
+                        help="Install the cockpit skills even if the project has its own loop (default: register only)")
     p_plan.add_argument("--json", action="store_true", help="Machine-readable output")
 
     p_apply = sub.add_parser("setup-apply", help="Apply ONLY the approved action ids from the last setup-plan")
-    p_apply.add_argument("code_path", nargs="?", default=".")
-    p_apply.add_argument("ids", nargs="+", help="Approved action ids, e.g. A2 A3")
+    p_apply.add_argument("code_path")
     p_apply.add_argument(
-        "--on-conflict", choices=("abort", "replace", "new"), default="abort",
-        help="For locally edited skills: abort (keep yours), replace, or write *.new beside them",
+        "ids", nargs="+",
+        help="Approved action ids, e.g. A2 A3. For an edited skill add its choice: A4=replace or A5=new "
+             "(plain id = keep the user's copy)",
     )
 
     p_status = sub.add_parser("skills-status", help="Read-only: installed vs available skill versions")

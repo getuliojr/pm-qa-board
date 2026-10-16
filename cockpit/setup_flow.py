@@ -68,11 +68,14 @@ def normalized(data: bytes) -> bytes:
 
 
 def content_hash(skill_dir: Path) -> str:
+    """SHA-256 over (relative posix path, NUL, LF-normalised bytes, NUL) for every file except the
+    manifest, ordered by the relative path string. install.ps1 computes the identical hash."""
     h = hashlib.sha256()
-    for f in sorted(p for p in skill_dir.rglob("*") if p.is_file() and p.name != MANIFEST):
-        h.update(f.relative_to(skill_dir).as_posix().encode())
+    files = {p.relative_to(skill_dir).as_posix(): p for p in skill_dir.rglob("*") if p.is_file() and p.name != MANIFEST}
+    for rel in sorted(files):
+        h.update(rel.encode("utf-8"))
         h.update(b"\0")
-        h.update(normalized(f.read_bytes()))
+        h.update(normalized(files[rel].read_bytes()))
         h.update(b"\0")
     return h.hexdigest()
 
@@ -102,7 +105,8 @@ def skill_metadata(skill_md: Path) -> dict[str, str]:
 
 def read_manifest(skill_dir: Path) -> dict[str, Any]:
     try:
-        return json.loads((skill_dir / MANIFEST).read_text(encoding="utf-8"))
+        # utf-8-sig: Windows PowerShell 5.1 writes a BOM that json.loads rejects
+        return json.loads((skill_dir / MANIFEST).read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return {}
 
@@ -112,8 +116,10 @@ def skill_state(installed: Path, source: Path) -> dict[str, Any]:
 
     missing  - not installed
     current  - same content as shipped (line endings ignored)
-    outdated - ours, unedited since install, older version than shipped -> safe to upgrade on approval
-    edited   - ours, but changed since install -> ask: keep / replace / save .new
+    outdated - ours, provably unedited since install (manifest hash matches), differs from shipped
+               -> safe to upgrade on approval
+    edited   - ours, but changed since install OR not provably unedited (no recorded hash)
+               -> ask: keep / replace / save a .new copy
     foreign  - a same-named skill that is not ours -> never touched
     """
     src_version = skill_metadata(source / "SKILL.md").get("version", "")
@@ -129,36 +135,39 @@ def skill_state(installed: Path, source: Path) -> dict[str, Any]:
     ours = manifest.get("source") == SOURCE or meta.get("source") == SOURCE
     if not ours:
         return {"state": "foreign", **base}
-    if manifest.get("sha256") and manifest["sha256"] != here:
-        return {"state": "edited", **base}
-    if not manifest and meta.get("version") == src_version:
-        return {"state": "edited", **base}  # same version, different content, no manifest: hand-edited
-    if _vtuple(inst_version or "0") < _vtuple(src_version):
+    # Only a recorded hash that still matches proves the user never touched it.
+    if manifest.get("sha256") and manifest["sha256"] == here:
         return {"state": "outdated", **base}
     return {"state": "edited", **base}
+
+
+def new_copy_dir(dest: Path) -> Path:
+    """Where `--on-conflict new` puts the shipped version: beside the skills root, in a dot-folder two
+    levels deep so agents never load it as a second skill with the same name."""
+    return dest.parent / ".pm-qa-cockpit-new" / dest.name
 
 
 def install_skill(source: Path, dest: Path, on_conflict: str = "abort") -> str:
     """Copy a shipped skill into ``dest`` and write its manifest. Returns what happened.
 
-    on_conflict applies to 'edited'/'foreign': abort (default) | replace | new (write SKILL.md.new etc.).
-    'foreign' can never be replaced.
+    on_conflict applies to 'edited': abort (default, keep the user's) | replace | new (shipped copy
+    written to ``new_copy_dir``). 'foreign' can never be replaced.
     """
     state = skill_state(dest, source)["state"]
     if state == "current":
-        _write_manifest(dest, source)
+        if not read_manifest(dest).get("sha256"):
+            _write_manifest(dest, source)
         return "current"
     if state == "foreign":
         return "skipped-foreign"
     if state == "edited" and on_conflict == "abort":
         return "skipped-edited"
     if state == "edited" and on_conflict == "new":
-        for f in source.rglob("*"):
-            if f.is_file():
-                target = dest / f.relative_to(source)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(f, target.with_name(target.name + ".new"))
-        return "wrote-new"
+        target = new_copy_dir(dest)
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(source, target)
+        return f"wrote-new:{target}"
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(source, dest)
@@ -215,32 +224,76 @@ def own_loop_skills(code: Path) -> list[str]:
     return sorted(set(found))
 
 
-def _is_cockpit_skill(d: Path, name: str) -> bool:
-    """A global copy of one of our skills: by manifest/metadata, or (pre-versioning copies) by its
-    frontmatter name plus a mention of the cockpit."""
-    if not (d / "SKILL.md").is_file():
-        return False
-    if read_manifest(d).get("source") == SOURCE or skill_metadata(d / "SKILL.md").get("source") == SOURCE:
-        return True
-    # Pre-versioning copy: same content as shipped once the metadata block is ignored.
-    shipped = TOOL_ROOT / "skills" / name / "SKILL.md"
-    if shipped.is_file():
-        def strip(b: bytes) -> bytes:
-            return re.sub(rb"\nmetadata:\n(?:[ \t]+[^\n]*\n)+", b"\n", normalized(b))
+def _strip_metadata(b: bytes) -> bytes:
+    return re.sub(rb"\nmetadata:\n(?:[ \t]+[^\n]*\n)+", b"\n", normalized(b))
 
-        if strip((d / "SKILL.md").read_bytes()) == strip(shipped.read_bytes()):
-            return True
-    text = (d / "SKILL.md").read_text(encoding="utf-8", errors="replace")
-    return bool(re.search(rf"^name:\s*{re.escape(name)}\s*$", text, re.MULTILINE)) and "cockpit" in text.lower()
+
+def global_copy_status(d: Path, name: str) -> str | None:
+    """Classify a global copy of one of the project skill names (cleanup is a deletion, so be strict).
+
+    'ours'        - provably ours and unedited -> may be offered for deletion
+    'ours-edited' - ours but changed by the user -> never offered; reported for review
+    'maybe'       - same name and mentions the cockpit, but not provably ours -> reported only
+    None          - absent or not ours
+    """
+    md = d / "SKILL.md"
+    if not md.is_file():
+        return None
+    files = [p for p in d.rglob("*") if p.is_file() and p.name != MANIFEST]
+    shipped = TOOL_ROOT / "skills" / name / "SKILL.md"
+    same_as_shipped = (
+        len(files) == 1 and shipped.is_file() and _strip_metadata(md.read_bytes()) == _strip_metadata(shipped.read_bytes())
+    )
+    manifest = read_manifest(d)
+    if manifest.get("source") == SOURCE or skill_metadata(md).get("source") == SOURCE:
+        if manifest.get("sha256"):
+            return "ours" if manifest["sha256"] == content_hash(d) else "ours-edited"
+        return "ours" if same_as_shipped else "ours-edited"
+    if same_as_shipped:
+        return "ours"  # a pre-versioning copy, byte-for-byte the shipped skill apart from metadata
+    text = md.read_text(encoding="utf-8", errors="replace")
+    if re.search(rf"^name:\s*{re.escape(name)}\s*$", text, re.MULTILINE) and "cockpit" in text.lower():
+        return "maybe"
+    return None
 
 
 def _which(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
-def _is_ignored(code: Path, rel: str) -> bool:
-    res = subprocess.run(["git", "check-ignore", "-q", rel], cwd=str(code), capture_output=True, check=False)
-    return res.returncode == 0
+def _git(code: Path, *args: str) -> subprocess.CompletedProcess | None:
+    if not _which("git"):
+        return None
+    return subprocess.run(["git", *args], cwd=str(code), capture_output=True, text=True, check=False)
+
+
+def _is_ignored(code: Path, rel_dir: str) -> bool:
+    # Probe a file inside the folder: a `dir/` pattern can't match a folder that doesn't exist yet.
+    res = _git(code, "check-ignore", "-q", f"{rel_dir.rstrip('/')}/SKILL.md")
+    return bool(res and res.returncode == 0)
+
+
+def exclude_file(code: Path) -> Path | None:
+    """The repo's info/exclude, also when .git is a file (worktree / submodule)."""
+    res = _git(code, "rev-parse", "--git-path", "info/exclude")
+    if not res or res.returncode != 0 or not res.stdout.strip():
+        return None
+    p = Path(res.stdout.strip())
+    return p if p.is_absolute() else (code / p).resolve()
+
+
+def projects_relying_on_globals() -> list[str]:
+    """Registered full-mode projects with no local cockpit skills: removing the global copies would
+    leave them without the skills until setup is run there."""
+    out = []
+    for proj in projects.load_registry()["projects"].values():
+        code = Path(proj.get("code_path", ""))
+        if not code.is_dir() or own_loop_skills(code):
+            continue
+        local = any((code / rel / "pm-orchestrate" / "SKILL.md").is_file() for rel in AGENT_SKILL_DIRS.values())
+        if not local:
+            out.append(proj["slug"])
+    return sorted(out)
 
 
 def pointer_text(project: dict[str, Any], register_only: bool) -> str:
@@ -268,7 +321,8 @@ def pointer_text(project: dict[str, Any], register_only: bool) -> str:
 
 
 def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | None = None,
-               docs_path: str | Path | None = None, stealth: bool | None = None) -> dict[str, Any]:
+               docs_path: str | Path | None = None, stealth: bool | None = None,
+               force_full: bool = False) -> dict[str, Any]:
     """Read-only. Everything the agent shows the user before asking for approval."""
     code = Path(code_path).expanduser().resolve()
     registered = projects.find_project_for_path(code)
@@ -282,8 +336,16 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
     report = inspect_project(code)
     agents = detect_agents(code)
     loop = own_loop_skills(code)
-    register_only = bool(loop)
+    # A project's own loop wins (register-only) unless the user explicitly asks for the full install.
+    register_only = bool(loop) and not force_full
     exclude_skills = project["docs_mode"] == "external" or stealth
+    notes: list[str] = []
+    if loop and force_full:
+        notes.append("Full install forced although the project has its own loop skills: " + ", ".join(loop))
+    # Skill folders to install into: Claude Code and Antigravity read their own; Cursor reads
+    # .claude/skills (through AGENTS.md), so a Cursor-only project still gets .claude/skills.
+    skill_dirs = sorted({AGENT_SKILL_DIRS[a] for a in agents if a in AGENT_SKILL_DIRS}
+                        | ({AGENT_SKILL_DIRS["claude"]} if "cursor" in agents else set()))
 
     actions: list[dict[str, Any]] = []
 
@@ -315,25 +377,28 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
             + (" --stealth" if stealth else "") + " --apply")
     if (project.get("gates") or {}).get("mode") in (None, "unprofiled"):
         add("profile-gates", "Profile the test suite (fast <= 6 min runs inline; heavy splits out)",
-            writes=[str(projects.registry_path())], detail="cli.py profile-gates --measure --apply")
+            writes=[str(projects.registry_path())],
+            detail=f"cli.py --project {project['slug']} profile-gates --measure --apply")
 
     # 3. Skills per detected agent (none when the project runs its own loop)
     skills_status: list[dict[str, Any]] = []
-    for agent in agents:
-        rel = AGENT_SKILL_DIRS.get(agent)
-        if not rel:
-            continue
+    dir_agents = {rel: [a for a in agents if AGENT_SKILL_DIRS.get(a) == rel or (a == "cursor" and rel == AGENT_SKILL_DIRS["claude"])]
+                  for rel in skill_dirs}
+    for rel in skill_dirs:
+        label = "+".join(dir_agents[rel])
         for skill in PROJECT_SKILLS:
             dest = code / rel / skill
             st = skill_state(dest, TOOL_ROOT / "skills" / skill)
-            skills_status.append({"agent": agent, "skill": skill, "path": f"{rel}/{skill}", **st})
+            skills_status.append({"agent": label, "skill": skill, "path": f"{rel}/{skill}", **st})
             if register_only or st["state"] in ("current", "foreign"):
+                if st["state"] == "foreign":
+                    notes.append(f"{rel}/{skill} is someone else's skill with the same name — never touched.")
                 continue
             verb = {"missing": "Install", "outdated": "Upgrade", "edited": "Resolve local edits in"}[st["state"]]
-            add("install-skill", f"{verb} {skill} for {agent} ({rel}/{skill})", agent=agent, skill=skill,
+            add("install-skill", f"{verb} {skill} for {label} ({rel}/{skill})", agent=label, dir=rel, skill=skill,
                 state=st["state"], writes=[str(dest)],
-                detail="edited: choose keep / replace / new" if st["state"] == "edited" else
-                f"{st['installed_version'] or '-'} -> {st['available_version']}")
+                detail=f"edited: keep / replace / new (shipped copy: {TOOL_ROOT / 'skills' / skill})"
+                if st["state"] == "edited" else f"{st['installed_version'] or '-'} -> {st['available_version']}")
 
     # 4. Pointer section in the orchestration file(s) — appended between markers, never rewriting text
     existing = [f for f, ok in report["orchestration_files"].items() if ok]
@@ -355,17 +420,32 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
 
     # 5. Keep installed skills out of git when docs are external / stealth (exact paths only)
     if exclude_skills and not register_only:
-        paths = sorted({f"{AGENT_SKILL_DIRS[a]}/{s}/" for a in agents if a in AGENT_SKILL_DIRS for s in PROJECT_SKILLS})
-        missing = [p for p in paths if not _is_ignored(code, p.rstrip("/"))]
-        if missing:
-            add("exclude", "Keep the installed cockpit skills out of git (.git/info/exclude)",
-                paths=missing, writes=[str(code / ".git" / "info" / "exclude")])
+        paths = sorted(f"{rel}/{s}/" for rel in skill_dirs for s in PROJECT_SKILLS)
+        missing = [p for p in paths if not _is_ignored(code, p)]
+        exclude = exclude_file(code)
+        if missing and exclude:
+            add("exclude", "Keep the installed cockpit skills out of git (info/exclude)",
+                paths=missing, writes=[str(exclude)])
+        elif missing:
+            notes.append("Not a git repository (or git missing): installed skills can't be excluded from git.")
 
-    # 6. Legacy global copies of the project skills (installed before Story 2)
-    legacy = [str(r / s) for r in GLOBAL_ROOTS.values() for s in PROJECT_SKILLS if _is_cockpit_skill(r / s, s)]
+    # 6. Legacy global copies of the project skills (installed before Story 2). Only provably ours and
+    #    unedited copies are offered for deletion; anything else is listed for the user to review.
+    legacy: list[str] = []
+    for r in GLOBAL_ROOTS.values():
+        for s in PROJECT_SKILLS:
+            status = global_copy_status(r / s, s)
+            if status == "ours":
+                legacy.append(str(r / s))
+            elif status in ("ours-edited", "maybe"):
+                notes.append(f"Global {r / s} looks like a cockpit skill but is {'edited' if status == 'ours-edited' else 'not provably ours'}"
+                             " — left for you to review, never removed automatically.")
     if legacy:
+        relying = [p for p in projects_relying_on_globals() if p != project.get("slug")]
         add("cleanup-global", "Remove the old global copies of the project skills (now installed per project)",
-            paths=legacy, writes=legacy)
+            paths=legacy, writes=legacy,
+            detail=("Still relying on them (run setup there first): " + ", ".join(relying)) if relying
+            else "No registered full-mode project still relies on them.")
 
     # 7. The global bootstrap skill itself (upgrade only where it is installed; never create here)
     for agent, root in GLOBAL_ROOTS.items():
@@ -387,6 +467,7 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
         "prerequisites": prereq,
         "inspection": report,
         "skills": skills_status,
+        "notes": notes,
         "actions": actions,
     }
 
@@ -396,51 +477,92 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
 # ---------------------------------------------------------------------------
 
 
-def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str = "abort") -> list[dict[str, str]]:
+def append_bytes(path: Path, block: str) -> None:
+    """Append ``block`` to a text file without touching a single existing byte: the block is written in
+    the file's own line ending (CRLF if it already uses CRLF) and encoded as UTF-8."""
+    data = path.read_bytes() if path.exists() else b""
+    eol = b"\r\n" if b"\r\n" in data else b"\n"
+    body = block.replace("\r\n", "\n").encode("utf-8").replace(b"\n", eol)
+    if not data or data.endswith(eol + eol):
+        sep = b""
+    elif data.endswith(eol) or data.endswith(b"\n"):
+        sep = eol
+    else:
+        sep = eol + eol
+    with path.open("ab") as fh:
+        fh.write(sep + body)
+
+
+def _readable_utf8(path: Path) -> bool:
+    if not path.exists():
+        return True
+    try:
+        path.read_bytes().decode("utf-8-sig")
+        return True
+    except UnicodeDecodeError:
+        return False
+
+
+def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | dict[str, str] = "abort") -> list[dict[str, str]]:
     """Run only the approved action ids. Registration / gates / clone / grill-me fetch are left to
-    their own commands (returned as `run` instructions) so the agent shows their output."""
+    their own commands (returned as `run` instructions) so the agent shows their output.
+
+    ``on_conflict`` is one choice for every edited skill, or a per-id mapping ({"A4": "replace"});
+    ids not in the mapping default to "abort" (keep the user's copy).
+    """
     code = Path(plan["code_path"])
     by_id = {a["id"]: a for a in plan["actions"]}
     unknown = [a for a in approved if a not in by_id]
     if unknown:
         raise ValueError(f"unknown action id(s): {', '.join(unknown)}")
+    # Check every target before writing anything, so a bad file can't leave a half-applied setup.
+    for aid in approved:
+        a = by_id[aid]
+        if a["kind"] == "pointer" and not _readable_utf8(code / a["file"]):
+            raise ValueError(f"{a['file']} is not UTF-8; nothing was changed. Convert it or decline {aid}.")
+        if a["kind"] == "exclude" and exclude_file(code) is None:
+            raise ValueError(f"cannot locate this repo's info/exclude; nothing was changed. Decline {aid}.")
+
+    def choice(aid: str) -> str:
+        return on_conflict.get(aid, "abort") if isinstance(on_conflict, dict) else on_conflict
+
     results: list[dict[str, str]] = []
     for aid in approved:
         a = by_id[aid]
         kind = a["kind"]
         if kind == "install-skill":
-            dest = code / AGENT_SKILL_DIRS[a["agent"]] / a["skill"]
-            outcome = install_skill(TOOL_ROOT / "skills" / a["skill"], dest, on_conflict)
+            dest = code / a["dir"] / a["skill"]
+            outcome = install_skill(TOOL_ROOT / "skills" / a["skill"], dest, choice(aid))
             results.append({"id": aid, "result": outcome})
         elif kind == "pointer":
             f = code / a["file"]
-            text = f.read_text(encoding="utf-8") if f.exists() else ""
+            text = f.read_bytes().decode("utf-8-sig") if f.exists() else ""
             if POINTER_START not in text:
-                sep = "" if not text or text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
-                f.write_text(text + sep + a["preview"], encoding="utf-8")
+                append_bytes(f, a["preview"])
             results.append({"id": aid, "result": "written"})
         elif kind == "exclude":
-            exclude = code / ".git" / "info" / "exclude"
-            existing = exclude.read_text(encoding="utf-8").splitlines() if exclude.exists() else []
+            exclude = exclude_file(code)
+            existing = exclude.read_text(encoding="utf-8", errors="replace").splitlines() if exclude.exists() else []
             add = [p for p in a["paths"] if p not in existing]
             if add:
                 exclude.parent.mkdir(parents=True, exist_ok=True)
-                with exclude.open("a", encoding="utf-8") as fh:
-                    if existing and existing[-1].strip():
-                        fh.write("\n")
-                    fh.write("# PM & QA Cockpit skills (installed per project)\n" + "\n".join(add) + "\n")
+                append_bytes(exclude, "# PM & QA Cockpit skills (installed per project)\n" + "\n".join(add) + "\n")
             results.append({"id": aid, "result": f"excluded {len(add)} path(s)"})
         elif kind == "upgrade-bootstrap":
             dest = GLOBAL_ROOTS[a["agent"]] / BOOTSTRAP_SKILL
-            results.append({"id": aid, "result": install_skill(TOOL_ROOT / "skills" / BOOTSTRAP_SKILL, dest, on_conflict)})
+            results.append({"id": aid, "result": install_skill(TOOL_ROOT / "skills" / BOOTSTRAP_SKILL, dest, choice(aid))})
         elif kind == "cleanup-global":
-            removed = 0
+            removed, kept = 0, []
             for p in a["paths"]:
                 d = Path(p)
-                if d.is_dir():
+                # re-check at deletion time: only provably ours and unedited
+                if d.is_dir() and global_copy_status(d, d.name) == "ours":
                     shutil.rmtree(d)
                     removed += 1
-            results.append({"id": aid, "result": f"removed {removed} folder(s)"})
+                elif d.is_dir():
+                    kept.append(str(d))
+            msg = f"removed {removed} folder(s)" + (f"; kept (changed since the plan): {', '.join(kept)}" if kept else "")
+            results.append({"id": aid, "result": msg})
         else:
             results.append({"id": aid, "result": "run", "command": a.get("detail", "")})
     return results
@@ -454,11 +576,11 @@ def skills_status(code_path: str | Path | None = None) -> dict[str, Any]:
         out["global"].append({"agent": agent, "skill": BOOTSTRAP_SKILL, "path": str(root / BOOTSTRAP_SKILL), **st})
     if code_path:
         code = Path(code_path).resolve()
-        for agent in detect_agents(code):
-            rel = AGENT_SKILL_DIRS.get(agent)
-            if not rel:
-                continue
+        agents = detect_agents(code)
+        dirs = sorted({AGENT_SKILL_DIRS[a] for a in agents if a in AGENT_SKILL_DIRS}
+                      | ({AGENT_SKILL_DIRS["claude"]} if "cursor" in agents else set()))
+        for rel in dirs:
             for skill in PROJECT_SKILLS:
                 st = skill_state(code / rel / skill, TOOL_ROOT / "skills" / skill)
-                out["project"].append({"agent": agent, "skill": skill, "path": f"{rel}/{skill}", **st})
+                out["project"].append({"agent": rel.split("/")[0].lstrip("."), "skill": skill, "path": f"{rel}/{skill}", **st})
     return out
