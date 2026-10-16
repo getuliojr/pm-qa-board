@@ -346,7 +346,7 @@ class PMParser:
         self._normalize_story_frontmatter(frontmatter)
         mn_id = frontmatter.get("mn-id")
         if not mn_id:
-            id_match = re.search(r"^([A-Z][A-Z0-9]*-\d[\w.-]*)", file_path.stem)
+            id_match = re.search(r"^([A-Z][A-Z0-9]*-[A-Z0-9][\w.-]*)", file_path.stem)
             mn_id = id_match.group(1) if id_match else file_path.stem
 
         # Extract Description
@@ -2997,13 +2997,15 @@ class PMParser:
         self.invalidate_cache()
 
         # 4. Git commit locally if requested
+        commit_note = ""
         if do_commit:
             import sys
             commit_msg = f"docs(qa): validate {mn_id} - {target_card['title']}"
             git_commit_script = self.root_dir / "scripts" / "git-commit.ps1"
             if self.docs_external:
                 # External docs keep their own history; never touch the code repo.
-                self.commit_docs([file_path], commit_msg)
+                if not self.commit_docs([file_path], commit_msg):
+                    commit_note = " (card saved, but the docs-repo commit failed — check its git identity)"
             elif git_commit_script.exists():
                 ps_cmd = "powershell" if sys.platform == "win32" else "pwsh"
                 try:
@@ -3022,4 +3024,4 @@ class PMParser:
                 except Exception:
                     pass
 
-        return True, f"Card {mn_id} validated as completed on {today}"
+        return True, f"Card {mn_id} validated as completed on {today}{commit_note}"

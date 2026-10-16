@@ -333,8 +333,10 @@ class CockpitState:
         with self.lock:
             self.project = project
             self.parser = new_parser
-            # One worker per project so a running heavy gate keeps its own log across switches.
-            if project["slug"] not in self.workers:
+            # One worker per project so a running heavy gate keeps its own log across switches;
+            # an idle worker is rebuilt so a reconfigured docs_path / gate script takes effect.
+            current = self.workers.get(project["slug"])
+            if current is None or current.status != "running":
                 self.workers[project["slug"]] = HeavyGateWorker(new_parser)
 
     @property
@@ -364,16 +366,29 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(payload)
 
     def do_OPTIONS(self) -> None:
+        # The UI is same-origin; no cross-origin access is granted (no Access-Control-Allow-* headers).
         self.send_response(HTTPStatus.NO_CONTENT)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
+
+    def post_allowed(self) -> bool:
+        """CSRF guard for state-changing calls.
+
+        A web page the user visits can POST to localhost with a "simple" text/plain body that skips
+        the CORS preflight. Requiring a JSON content type forces a preflight (which we never grant),
+        and a present Origin must be this server's own.
+        """
+        ctype = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            return False
+        origin = self.headers.get("Origin")
+        if origin is None:
+            return True  # non-browser clients (CLI, tests) send no Origin
+        port = self.server.server_address[1]
+        return origin in (f"http://127.0.0.1:{port}", f"http://localhost:{port}")
 
     def do_GET(self) -> None:
         parsed_url = urllib.parse.urlparse(self.path)
@@ -595,6 +610,12 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 body = json.loads(raw_body)
             except Exception:
                 pass
+        if not isinstance(body, dict):
+            body = {}
+
+        if not self.post_allowed():
+            self.send_json({"success": False, "error": "Rejected: JSON body from this origin required"}, status=403)
+            return
 
         # ----------------------------------------------------------------------
         # Project registry: switch / configure
@@ -614,6 +635,11 @@ class PMRequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/projects/configure":
+            # Gate commands are never taken from a request body (they choose what the heavy-gate
+            # runner executes); only `cli.py profile-gates --apply` sets them. Reconfiguring an
+            # existing project keeps its saved profile.
+            slug = body.get("slug") or projects.slugify(str(body.get("name", "")))
+            existing = projects.load_registry()["projects"].get(slug) or {}
             try:
                 project = projects.build_project(
                     body.get("name", ""),
@@ -622,7 +648,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                     prefix=body.get("prefix") or None,
                     docs_path=body.get("docs_path") or None,
                     docs_mode=body.get("docs_mode") or None,
-                    gates=body.get("gates") or None,
+                    gates=existing.get("gates"),
                 )
             except ValueError as err:
                 self.send_json({"success": False, "error": str(err)}, status=400)

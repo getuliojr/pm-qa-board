@@ -103,3 +103,24 @@ def test_build_project_rejects_external_inside_code(legacy_project):
         projects.build_project("X", legacy_project, docs_mode="external", docs_path=legacy_project / "pm")
     with pytest.raises(ValueError):
         projects.build_project("X", legacy_project, prefix="bad-prefix")
+
+
+def test_filename_id_fallback_keeps_backlog_style_ids(legacy_project):
+    """Review round 1 #5: MN-BACKLOG-003 style stems still yield their id without frontmatter."""
+    cards = legacy_project / "docs" / "cards"
+    (cards / "MN-BACKLOG-009 - No frontmatter.md").write_text("# Loose idea\n", encoding="utf-8")
+    (cards / "APP-4.2 - New prefix.md").write_text("# Another\n", encoding="utf-8")
+    ids = {c["mn_id"] for c in PMParser(legacy_project).get_all_cards()}
+    assert {"MN-BACKLOG-009", "APP-4.2", "MN-1.2"} <= ids
+
+
+def test_validate_reports_failed_docs_commit(cockpit_home, external_project, monkeypatch):
+    """Review round 1 #7: a docs-repo commit failure is surfaced, not swallowed."""
+    code, docs = external_project
+    project = projects.build_project("Story App", code, prefix="APP", docs_path=docs)
+    projects.ensure_docs_root(project)
+    seed_external_docs(docs)
+    p = PMParser(project=project)
+    monkeypatch.setattr(p, "commit_docs", lambda *_a: False)
+    ok, msg = p.validate_card("APP-3.1", do_commit=True)
+    assert ok and "commit failed" in msg

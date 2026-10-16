@@ -199,8 +199,11 @@ def cmd_profile_gates(project: dict[str, Any], args: argparse.Namespace) -> int:
         if gates["mode"] == "heavy" and not detected.get("declared_heavy"):
             script = write_heavy_script(project, gates)
             if script:
-                gates["heavy_script"] = str(script)
                 print(f"Wrote Heavy Gate script: {script}")
+            target = heavy_script_path(project)
+            if target.exists():
+                # Also on re-profile, when the script already exists and was not rewritten.
+                gates["heavy_script"] = str(target)
         elif detected.get("declared_heavy"):
             gates["heavy_script"] = "scripts/finalgates.ps1"
         project = {**project, "gates": gates}

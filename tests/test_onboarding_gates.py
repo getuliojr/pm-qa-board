@@ -106,3 +106,21 @@ def test_heavy_script_goes_to_docs_for_external(cockpit_home, external_project):
     assert path == docs / "gates" / "finalgates.ps1"
     assert "uv run pytest -q" in path.read_text(encoding="utf-8")
     assert git(code, "status", "--porcelain") == ""
+
+
+def test_reprofile_keeps_existing_heavy_script(cockpit_home, external_project, monkeypatch):
+    """Review round 1 #2: a second `profile-gates --apply` must not drop heavy_script."""
+    code, docs = external_project
+    project = projects.build_project("Story App", code, prefix="APP", docs_path=docs)
+    projects.upsert_project(project)
+    monkeypatch.setattr(
+        gate_profiler, "detect_stack",
+        lambda _p: {"stacks": ["python (.)"], "fast_cmd": "f", "full_cmd": "uv run pytest -q", "declared_heavy": False},
+    )
+    monkeypatch.setattr(gate_profiler, "measure", lambda *_a: {"seconds": 400.0, "timed_out": False, "exit_code": 0})
+    args = argparse.Namespace(fast_cmd=None, full_cmd=None, threshold_seconds=360, measure=True, apply=True)
+    for _ in range(2):
+        assert gate_profiler.cmd_profile_gates(projects.load_registry()["projects"]["story-app"], args) == 0
+        saved = projects.load_registry()["projects"]["story-app"]["gates"]
+        assert saved["mode"] == "heavy"
+        assert saved["heavy_script"] == str(docs / "gates" / "finalgates.ps1")
