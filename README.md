@@ -26,25 +26,36 @@ powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1
 powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 [-Project my-app] [-Port 3333]
 ```
 
-**How setup works** (`skills/pm-qa-setup`): the agent checks prerequisites (uv, git, the running copy,
-grill-me — offered once per machine, source shown), then runs `cli.py setup-plan <project>`, which is
-read-only and lists numbered actions with the exact files each would write:
+**How setup works** (`skills/pm-qa-setup`): the agent runs `cli.py setup-plan <project>`, which is
+read-only. Its first reply is in plain words: **what you have** (this project, each used tool's global
+folder, launchers, PM data, hooks; each item with where it is now, where it belongs and why), the
+**recommended target**, and **at most 4 questions** in fixed themes (PM data, where skills live,
+launcher wiring, gates), plus one per skill you edited. Behind them the plan holds the exact changes:
 
 - the cockpit skills, copied into the project's own agent folders (`.claude/skills`, `.agents/skills`)
   only for agents detected there — Cursor is pointed at them through `AGENTS.md` instead of a copy;
 - a short "PM & QA Cockpit" section appended (between markers) to `CLAUDE.md` / `AGENTS.md` /
   `GEMINI.md`, saying **the project's own rules win** on conflict;
 - `.git/info/exclude` entries (exact paths) when the project keeps its PM docs outside the repo;
+- grill-me copied (never moved) to the global folder of each tool the project uses, old global
+  cockpit copies removed (only exact, unedited past releases), `pm-qa-setup` upgraded;
+- a launcher that prefers the dev clone pointed at the running copy (one exact line, shown first);
 - registration (`cli.py init`) and gate profiling (`profile-gates`).
 
 A project that already runs its **own loop** (e.g. its own `*-orchestrate` skill) is **register-only**:
-no cockpit skills, one informational note. The agent asks which actions to apply and runs
-`cli.py setup-apply <project> A1 A3 …`, which refuses if the plan changed since you saw it.
+no cockpit skills, one informational note. The agent maps your answers to `cli.py setup-apply`, which
+refuses if the plan changed since you saw it, and ends with **`cli.py doctor <project>`**: a read-only
+pass / warn / fail checklist (registration, the dashboard can load the cards, running copy, launchers,
+skills, grill-me and `pm-qa-setup` per tool, gate mode, hooks) you can re-run anytime; exit 1 on a fail.
 
 **Upgrades:** every skill carries `metadata.version` (from `VERSION`) and an installed copy keeps a
 `.pm-qa-cockpit.json` manifest, so `cli.py skills-status` / `setup-plan` can tell *outdated* (safe to
 upgrade on approval) from *edited by you* (keep / replace / save `*.new` beside it) and from a
 same-named skill that isn't ours (never touched). Line endings are ignored in every comparison.
+`skills/RELEASES.json` lists every hash each skill shipped with, so a copy from any past release (even
+one with no manifest) is recognised as ours and unedited. Releasing a skill change: bump `VERSION` and
+every skill's `metadata.version`, then `uv run python scripts/skill_ledger.py record` (a test fails
+otherwise). `scripts/setup_sandbox.py` rebuilds a fake HOME + project to try setup without touching yours.
 
 ## Registry
 

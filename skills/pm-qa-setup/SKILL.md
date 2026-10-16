@@ -1,111 +1,126 @@
 ---
 name: pm-qa-setup
-description: Use when the user asks to set up, install, onboard, register, upgrade or check PM & QA Cockpit in a project (or on this machine), or to clean up old cockpit skills. Inspects the project's existing orchestration and hooks, proposes exactly what to add, and changes only what the user approves — never overwrites a user's rules or skills.
+description: Use when the user asks to set up, install, onboard, register, upgrade or check PM & QA Cockpit in a project (or on this machine), or to clean up old cockpit skills. Inspects what the project and this machine already have, says in plain words where each thing belongs, asks a few plain questions, and changes only what the user approves; never overwrites a user's rules or skills. Ends with a read-only doctor check.
 metadata:
-  version: 0.2.1
+  version: 0.3.0
   source: pm-qa-cockpit
 ---
 
-# pm-qa-setup — guided install and upgrade of PM & QA Cockpit
+# pm-qa-setup: guided install, upgrade and check of PM & QA Cockpit
 
-You are setting up (or upgrading) the PM & QA Cockpit in **one project**, for a user who owns that
-project's rules. **The user's orchestration is theirs: you inspect, propose, and apply only what they
-approve.** Nothing here is ever done silently, and a project's own rules always win over the cockpit's.
+You are setting up (or upgrading, or checking) the PM & QA Cockpit in **one project**, for a user who
+owns that project's rules. **The user's orchestration is theirs: you inspect, explain, and apply only
+what they approve.** Nothing is ever done silently, and a project's own rules always win.
 
-All logic lives in the cockpit CLI; you run it, read its output, and talk to the user. Run it from the
+The CLI does the analysis; you present it in plain words and talk to the user. Run it from the
 **running copy**:
 
 ```
 CLI = uv run python ~/.pm-qa-cockpit/app/cockpit/cli.py      (Windows: $HOME\.pm-qa-cockpit\app\cockpit\cli.py)
 ```
 
-If `~/.pm-qa-cockpit/app` does not exist, say so and offer (step 1) — don't run the dev clone instead.
+If the environment variable `PM_QA_USER_HOME` is set (a QA sandbox), read every `~` below as that
+folder. If `~/.pm-qa-cockpit/app` does not exist, say so and offer to clone it (it appears as a
+decision in the plan); don't run a dev clone instead.
 
-## The flow
+## 1. Plan (read-only)
 
-### 1. Prerequisites (machine)
-Check `uv` and `git` are on PATH. If the running copy is missing, offer:
-`git clone https://github.com/getuliojr/pm-qa-cockpit ~/.pm-qa-cockpit/app`.
-If **grill-me** is not installed (no `grill-me` or `grilling` skill in `~/.claude/skills` /
-`~/.agents/skills`), offer to install it **once for this machine**, showing the source first:
-<https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me>. Fetch the folder's files
-(the GitHub contents API lists them; raw files are under
-`https://raw.githubusercontent.com/mattpocock/skills/main/skills/productivity/grill-me/`) into
-`~/.claude/skills/grill-me/` and `~/.agents/skills/grill-me/` only after the user says yes.
+Run `CLI setup-plan <project path>`. Add `--name`, `--prefix`, `--docs-path <external folder>`,
+`--stealth` only when the user told you; if the project isn't registered yet, ask for name, prefix and
+where the PM data should live first (recommend in-repo docs for a team repo, an external folder, e.g.
+in a private `pm-qa-docs` repo, when the user wants no PM files in the code repo).
+Use `--json` to read the details. The plan carries:
 
-### 2. Plan (read-only)
-Run `CLI setup-plan <project path>` (add `--name`, `--prefix`, `--docs-path <external folder>`,
-`--stealth` when the user has told you; ask for name/prefix/docs location if the project isn't
-registered yet — recommend in-repo docs for a team repo, external docs (e.g. a folder of a private
-`pm-qa-docs` repo) when the user wants zero PM files in the code repo).
-Use `--json` if you need to reason over details. The plan lists:
-- **Project / docs mode / detected agents** (Claude Code, Cursor, Antigravity).
-- **Mode** — `full`, or `register-only` when the project already runs its **own loop** (e.g.
-  `money-nest-orchestrate`). Register-only installs **no** cockpit skills: the project's loop wins.
-  Only if the user explicitly wants the cockpit skills anyway, re-plan with `--full`.
-- **Notes** — things the plan will not touch but the user should know (a same-named skill that isn't
-  ours, an edited old global copy, no git repo to exclude from).
-- **Numbered actions (A1, A2 …)**, each with the exact files it would write and, for orchestration
-  files, the exact text it would add (between `<!-- pm-qa-cockpit:start/end -->` markers, appended —
-  existing text is never rewritten).
+- **`inventory`**: groups *This project*, *Global folder: <tool>* (one per tool the project uses),
+  *Launchers*, *PM data*, *Hooks*. Each item: what it is, where it is now, where it belongs, why, and a
+  status (`ok` stays as is, `change` an approval changes it, `review` the user's to look at).
+- **`target`**: the recommended end state, in sentences.
+- **`decisions`**: at most one per fixed theme, in this order: where the PM data lives, where skills
+  live, launcher wiring, gates (empty themes are skipped), plus one question per skill the user has
+  edited. Each has a plain `question`, a `recommendation` and `options` whose `approve` lists hold
+  the internal action ids.
+- `actions` (the internal ids, files written, exact text added), `notes`, `mode`
+  (`full`, or `register-only` when the project runs its **own loop**, e.g. `money-nest-orchestrate`:
+  then no cockpit skills go into the project. Re-plan with `--full` only if the user insists).
 
-### 3. Show and ask
-Present a short gap checklist and the actions in plain words (what each changes and why). Then ask
-which ones to apply — use the interactive question tool if you have one, recommended set first.
-Typical recommendation: all of them, except anything touching a file the user said is off-limits.
-**Never apply an action the user did not approve. Never edit any file the plan didn't list.**
+## 2. The first reply
 
-### 4. Apply only what was approved
-`CLI setup-apply <project path> A1 A3 …` — it re-checks the plan and refuses if anything the user saw
-changed since you showed it (title, files, paths, text), then re-plan and ask again. It also refuses
-before writing anything if a target file isn't UTF-8. For a skill in state `edited`, pass the user's
-choice per action: `A4=replace`, `A5=new`; a plain id keeps the user's copy.
-If the user declines an action because it conflicts with their own rules, record that (with their OK)
-in the project's PM `WORKLOG.md`, e.g. "declined A3: AGENTS.md is generated; cockpit note kept out". Actions that are commands of their own (`register`,
-`profile-gates`, `clone-running-copy`, `fetch-grill-me`) come back as `run: …`; run them and show their
-output:
-- `register` → `CLI init … --apply` (registers in `~/.pm-qa-cockpit/projects.json`, creates the docs
-  layout; external docs get their own git repo unless inside one already).
-- `profile-gates` → `CLI --project <slug> profile-gates --measure --apply` (≤ 6 min suite = **fast**,
-  run inline before every close; longer = **heavy**, split into fast gates + an out-of-band heavy gate).
-  Tell the user it will run the full suite once to time it.
+In this order, in plain words:
+1. **What you have**: the inventory, grouped as above, one line per item ("grill-me: in this project
+   only, missing for Claude Code; belongs in ~/.claude/skills too; the project copy stays").
+   Mention the notes.
+2. **Recommended target**: the `target` sentences.
+3. **The decisions**: ask them with the interactive question tool if you have one (one question per
+   decision, the recommended option first), otherwise as a short numbered list of questions. That is
+   at most 4 questions, plus one per edited skill.
 
-Do not commit or push in the user's project; leave changes for them to review (offer a local commit
-only if they ask).
+**Never show action ids (A1, A3 …) as the thing to decide.** They are for you: map each answer to its
+option's `approve` list. Show ids only if the user asks for them.
+For a launcher change, show the exact old and new line. For an edited skill, first show the diff
+between their copy and the shipped one (`git diff --no-index <theirs> ~/.pm-qa-cockpit/app/skills/<name>`).
 
-### 5. Confirm
-Re-run `CLI setup-plan` — it should show nothing left (or only what the user declined). Tell the user
-how to open the dashboard: `powershell -File ~/.pm-qa-cockpit/app/dashboard.ps1 -Project <slug>` →
-<http://localhost:3333>, and that design work starts with `grill-me` then the `pm-orchestrate` loop
-(full mode) or the project's own loop (register-only).
+## 3. Apply only what was approved
+
+`CLI setup-apply <project path> <ids…>`, with the ids from the approved options, in order. `A4=new`
+or `A4=replace` carry an edited skill's choice; a plain id keeps the user's copy. It re-plans and
+refuses if anything the user saw changed (title, files, text, a launcher line); then re-plan and ask
+again. It also refuses, before writing anything, if a target file isn't UTF-8.
+Some results come back as `run: …` (`register`, `profile-gates`, `clone-running-copy`,
+`fetch-grill-me`). Run them and show their output:
+- `register` → `CLI init … --apply` (registry entry, docs layout; external docs get their own git repo
+  unless they sit inside one already).
+- `profile-gates` → `CLI --project <slug> profile-gates --measure --apply`. Say first that it runs the
+  full suite once to time it (≤ 6 min = **fast**, run inline before every close; longer = **heavy**).
+- `fetch-grill-me` → show the source (<https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me>);
+  after a yes, fetch the folder's files (GitHub contents API, or the raw files under
+  `https://raw.githubusercontent.com/mattpocock/skills/main/skills/productivity/grill-me/`) into each
+  folder the action lists.
+
+If the user declines something because it conflicts with their own rules, record that (with their OK)
+in the project's PM `WORKLOG.md`, e.g. "declined the AGENTS.md section: AGENTS.md is generated".
+Don't commit or push in the user's project; leave the changes for them (commit locally only if asked).
+
+## 4. End with doctor
+
+Run `CLI doctor <project path or slug>` and show its checklist. Every line should be `pass`, or `warn`
+with its reason and fix. A `fail` (exit 1) means setup isn't done: say what the fix line says. Tell
+the user they can re-run doctor anytime, and how to open the dashboard:
+`powershell -File ~/.pm-qa-cockpit/app/dashboard.ps1 -Project <slug>` → <http://localhost:3333>.
+Design work starts with `grill-me`, then the `pm-orchestrate` loop (full mode) or the project's own
+loop (register-only).
+
+## Where things belong (what the plan recommends)
+
+- **Generic skills** (`grill-me`, `grilling`): in the global folder of every tool the project uses.
+  One found only in a project or another tool's folder is **copied**, never moved; the project copy
+  stays (it is the project's, and teammates use it).
+- **Cockpit skills** (`pm-qa-cockpit`, `pm-orchestrate`, `pm-sync`, `pm-review`): in the project's own
+  skill folder (full mode) or nowhere (register-only). With external or stealth docs they are kept
+  out of git via `.git/info/exclude` (exact paths only).
+- **`pm-qa-setup`**: the one global cockpit skill, reachable for every tool used.
+- **Old global copies** of the cockpit skills (installed before per-project skills): removed, but only
+  copies provably ours and unedited (an exact past release counts); edited or uncertain ones are
+  listed for the user and never deleted.
+- **Launchers** (`scripts/*.ps1`, root scripts, `package.json` scripts) call the running copy
+  `~/.pm-qa-cockpit/app` first; a fallback to the dev clone after it is fine. A launcher that
+  prefers the dev clone gets an exact one-line fix, written only on approval.
+- **The user's own loop, rules files, hooks and orchestration**: stay. A rules file only ever gets a
+  short section appended between `<!-- pm-qa-cockpit:start/end -->` markers.
+
+Tools: Claude Code reads `~/.claude/skills` and the project's `.claude/skills`; Antigravity
+`~/.agents/skills` and `.agents/skills`; Cursor reads `~/.cursor/skills`, `~/.agents/skills` and
+`~/.claude/skills` (and the project equivalents), so a Cursor project gets `.claude/skills` plus an
+`AGENTS.md` note, never a third copy.
 
 ## Upgrades
-Run `CLI skills-status <project path>` (and `setup-plan`). States:
-`current` · `outdated` (ours and provably unedited since install → safe to upgrade on approval) ·
-`edited` (ours but changed, or not provably unedited → show the user the diff between their copy and
-the shipped one at `~/.pm-qa-cockpit/app/skills/<name>/`, e.g. `git diff --no-index <theirs> <shipped>`,
-then ask: **keep theirs** (plain id, default), **replace** (`A4=replace` — removes the whole skill
-folder, including any files they added there; say so), or **save the new version beside it**
-(`A4=new` → written to `<skills folder>/.pm-qa-cockpit-new/<name>/`, or a dated sibling if one already
-exists — never overwritten; agents don't load it; merge by hand, then delete it)) · `foreign` (a same-named skill that isn't ours — never touched) ·
-`missing`. The global `pm-qa-setup` itself appears as an `upgrade-bootstrap` action when outdated or
-edited, with the same choices.
-Before upgrading, the running copy should be current: `git -C ~/.pm-qa-cockpit/app pull`.
-
-## Cleanup of old global copies
-Before Story 2 the four project skills (`pm-qa-cockpit`, `pm-orchestrate`, `pm-sync`, `pm-review`)
-were installed globally. The plan offers a `cleanup-global` action listing only copies that are
-provably ours and unedited (edited or uncertain ones appear as notes, never deleted). Its detail names
-registered full-mode projects that still rely on the global copies — set those up first. Remove only
-with approval, and never touch `grill-me`/`grilling` or any other skill.
+`CLI skills-status <project path>` lists installed vs available versions. States: `current` ·
+`outdated` (ours and provably unedited, by install record or an exact past release: safe to upgrade
+on approval) · `edited` (ours but changed: keep / save the new one beside it / replace, see step 2) ·
+`foreign` (a same-named skill that isn't ours: never touched) · `missing`. Before upgrading, the
+running copy should be current: `git -C ~/.pm-qa-cockpit/app pull`.
 
 ## Rules
-- Propose, then apply on approval — every write, every time. The project's rules win on conflict, and
-  the pointer text says so.
-- Skills go into the project's own agent folders (`.claude/skills/`, `.agents/skills/`), only for
-  agents detected there; Cursor reads `.claude/skills` through `AGENTS.md`, so a Cursor project gets
-  `.claude/skills` plus an `AGENTS.md` note, never a third copy.
-  With external or stealth docs the installed skill folders are excluded via `.git/info/exclude`
-  (exact paths only).
-- Compare everything with line endings normalised (the CLI does) — a CRLF checkout is not a change.
+- Propose, then apply on approval: every write, every time. The project's rules win on conflict, and
+  the appended section says so.
+- Compare everything with line endings normalised (the CLI does): a CRLF checkout is not a change.
 - Never push, never open PRs, never commit in the user's project unless asked.

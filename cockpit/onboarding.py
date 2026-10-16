@@ -139,7 +139,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"  [{'x' if n else ' '}] {event}" + (f" ({n})" if n else ""))
     print(f"\nCursor rules: {'yes' if report['cursor'] else 'no'} · .agents: {'yes' if report['agents_dir'] else 'no'}")
     grill = skill_installed("grill-me") or skill_installed("grilling")
-    print(f"grill-me skill: {'installed' if grill else 'MISSING — run install.ps1 to fetch it'}")
+    print(f"grill-me skill: {'installed' if grill else 'MISSING — ask your agent to run pm-qa-setup (it installs it)'}")
 
     missing = [label for label, ok in report["loop_signals"].items() if not ok]
     if missing:

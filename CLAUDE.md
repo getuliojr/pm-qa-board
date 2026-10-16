@@ -13,7 +13,8 @@ This repo is **public** and holds **only the tool**. Keep it short; the details 
 - **Dev clone vs running copy.** Projects run the cockpit from `~/.pm-qa-cockpit/app`, not from here.
   A change reaches them only after merge to `main`, push, then
   `git -C $HOME\.pm-qa-cockpit\app pull`; projects then upgrade their skills through `pm-qa-setup` (with the
-  user's approval). Bump `VERSION` and every skill's `metadata.version` when a skill changes. Never edit
+  user's approval). Bump `VERSION` and every skill's `metadata.version` when a skill changes,
+  then `uv run python scripts/skill_ledger.py record` as the last step (a test enforces it). Never edit
   the running copy.
 - **Install is agent-guided** (`skills/pm-qa-setup`, engine `cockpit/setup_flow.py`): `install.ps1` only
   copies that one skill and never overwrites; nothing rewrites a user's CLAUDE.md/AGENTS.md/hooks/skills
