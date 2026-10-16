@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Money-Nest • Dev PM & QA Cockpit</title>
+  <title>PM &amp; QA Cockpit</title>
   <!-- Tailwind CSS via CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons via CDN -->
@@ -45,10 +45,28 @@
         </div>
         <div>
           <div class="flex items-center space-x-2">
-            <h1 class="font-bold text-base text-white tracking-tight">Money-Nest</h1>
-            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">PM & QA Cockpit</span>
+            <h1 class="font-bold text-base text-white tracking-tight whitespace-nowrap">PM &amp; QA Cockpit</h1>
           </div>
           <p class="text-xs text-slate-400" id="headerBranch">Branch: loading...</p>
+        </div>
+
+        <!-- Project Switcher -->
+        <div class="relative ml-2 min-w-0">
+          <button id="projectSwitcherBtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="projectMenu"
+            class="flex items-center gap-2 max-w-[16rem] px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+            <i data-lucide="folder-git-2" class="w-4 h-4 shrink-0"></i>
+            <span id="headerProjectName" class="truncate">Loading project...</span>
+            <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 shrink-0 text-emerald-400/70"></i>
+          </button>
+          <div id="projectMenu" role="menu" aria-label="Switch project" class="hidden absolute left-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] z-50 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5">
+            <div id="projectMenuList" class="max-h-72 overflow-y-auto space-y-0.5"></div>
+            <div class="border-t border-slate-800 mt-1.5 pt-1.5">
+              <button type="button" onclick="openConfigureProject()" class="w-full flex items-center gap-2 px-3 py-2 text-left text-xs rounded-lg text-slate-200 hover:bg-slate-800 transition">
+                <i data-lucide="plus" class="w-3.5 h-3.5 shrink-0 text-emerald-400"></i>
+                <span>+ Configure Project</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -63,7 +81,7 @@
           <span id="headerTotalCount" class="font-bold text-slate-200">0</span>
         </div>
         <div class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60">
-          <span class="text-slate-400">Active Sprint:</span>
+          <span class="text-slate-400">Active Story:</span>
           <span id="headerActiveSprint" class="font-bold text-emerald-400">...</span>
         </div>
       </div>
@@ -94,7 +112,7 @@
       </button>
       <button class="nav-tab" data-tab="sprints">
         <i data-lucide="milestone" class="w-4 h-4 mr-2"></i>
-        <span>Sprint Roadmap & Decisions</span>
+        <span>Story Roadmap & Decisions</span>
       </button>
       <button class="nav-tab" data-tab="activity">
         <i data-lucide="activity" class="w-4 h-4 mr-2"></i>
@@ -119,12 +137,14 @@
 
     <!-- 1. PIPELINE TAB -->
     <section id="tab-pipeline" class="tab-content">
+      <!-- Quick-switch project pills (hidden with a single project) -->
+      <div id="projectPills" class="hidden flex flex-wrap items-center gap-1.5 mb-3"></div>
       <!-- Filter Bar -->
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
         <div class="flex flex-wrap items-center gap-2.5">
-          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">Sprint:</span>
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">Story:</span>
           <select id="pipelineSprintFilter" class="bg-slate-800 text-slate-200 text-xs rounded-lg px-3 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-500">
-            <option value="ALL">All Sprints</option>
+            <option value="ALL">All Stories</option>
           </select>
 
           <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider ml-2 mr-1">Type:</span>
@@ -193,7 +213,7 @@
 
     <!-- 2. ACTIVE WORK & LIVE DOD TAB (Sprint 17.11) -->
     <section id="tab-sprint-dod" class="tab-content hidden">
-      <!-- Active Sprint Header & Metrics -->
+      <!-- Active Story Header & Metrics -->
       <div class="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 mb-6 backdrop-blur">
         <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
           <div class="flex items-center space-x-3">
@@ -209,7 +229,7 @@
             </div>
           </div>
 
-          <!-- Stream Layout Toggle & Sprint Switcher & Refresh -->
+          <!-- Stream Layout Toggle & Story Switcher & Refresh -->
           <div class="flex items-center space-x-3 self-stretch md:self-auto justify-end">
             <!-- Column Toggle [ 1 Col ] [ 2 Cols ] -->
             <div id="streamColsToggleContainer" class="flex items-center space-x-1 bg-slate-800/80 p-0.5 rounded-lg border border-slate-700/80">
@@ -285,7 +305,7 @@
             <i data-lucide="check-circle-2" class="w-8 h-8 text-emerald-400"></i>
           </div>
           <h3 class="text-base font-bold text-white mb-1">No Active Work Streams</h3>
-          <p class="text-xs text-slate-400 max-w-md mx-auto mb-5">All current development stories are completed or moved to the QA tab. Ready to pick the next sprint from the backlog.</p>
+          <p class="text-xs text-slate-400 max-w-md mx-auto mb-5">All current development stories are completed or moved to the QA tab. Ready to pick the next story from the backlog.</p>
           <button onclick="switchTab('pipeline')" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20 transition cursor-pointer">
             <i data-lucide="list-plus" class="w-4 h-4"></i>
             <span>View Ready to Build</span>
@@ -306,11 +326,11 @@
             <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
               <div class="flex items-center space-x-2">
                 <i data-lucide="check-square" class="w-4 h-4 text-emerald-400"></i>
-                <h3 class="font-bold text-sm text-slate-200">Sprint DoD (PLAN.md)</h3>
+                <h3 class="font-bold text-sm text-slate-200">Story DoD (PLAN.md)</h3>
               </div>
               <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">Live Sync</span>
             </div>
-            <p class="text-xs text-slate-400 mb-3">Authoritative checklist from the sprint plan. Toggling a checkbox updates <code class="text-emerald-400 font-mono">PLAN.md</code> directly.</p>
+            <p class="text-xs text-slate-400 mb-3">Authoritative checklist from the story plan. Toggling a checkbox updates <code class="text-emerald-400 font-mono">PLAN.md</code> directly.</p>
             <div id="sprintDodList" class="space-y-2 overflow-y-auto max-h-[calc(100vh-22rem)] pr-1">
               <!-- Sprint DoD items -->
             </div>
@@ -321,7 +341,7 @@
             <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
               <div class="flex items-center space-x-2">
                 <i data-lucide="layers" class="w-4 h-4 text-blue-400"></i>
-                <h3 class="font-bold text-sm text-slate-200">Sprint Tasks & Criteria Breakdown</h3>
+                <h3 class="font-bold text-sm text-slate-200">Story Tasks & Criteria Breakdown</h3>
               </div>
               <span id="sprintCardsTotalBadge" class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">0 tasks</span>
             </div>
@@ -371,10 +391,10 @@
             </div>
             <div>
               <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
-                <span>Sprint Verification &amp; Quality Audit</span>
+                <span>Story Verification &amp; Quality Audit</span>
                 <span id="sprintAuditPendingBadge" class="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20">0 Owed</span>
               </h3>
-              <p class="text-[11px] text-slate-400 mt-0.5">Audit past sprints in isolated detached worktrees (<code class="font-mono text-[10px] text-slate-300">.gate-worktrees/</code>) and auto-record metrics to <code class="font-mono text-[10px] text-emerald-400">docs/QUALITY.md</code>.</p>
+              <p class="text-[11px] text-slate-400 mt-0.5">Audit past stories in isolated detached worktrees (<code class="font-mono text-[10px] text-slate-300">.gate-worktrees/</code>) and auto-record metrics to <code class="font-mono text-[10px] text-emerald-400">docs/QUALITY.md</code>.</p>
             </div>
           </div>
           <div class="flex items-center space-x-2">
@@ -382,13 +402,13 @@
               <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
               <span>Run All Pending</span>
             </button>
-            <button onclick="fetchSprintGateStatus()" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition" title="Refresh Sprint Audit Status">
+            <button onclick="fetchSprintGateStatus()" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition" title="Refresh Story Audit Status">
               <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
             </button>
           </div>
         </div>
 
-        <!-- Sprint Quality Audit Filter Pills -->
+        <!-- Story Quality Audit Filter Pills -->
         <div class="flex flex-wrap items-center gap-2 mb-3" id="sprintAuditFilterGroup">
           <button class="audit-filter-pill active" data-filter="needs_attention" onclick="setSprintAuditFilter('needs_attention')">
             <span class="w-2 h-2 rounded-full bg-amber-400 mr-1.5 inline-block"></span>
@@ -415,7 +435,7 @@
           <table class="w-full text-left border-collapse min-w-[650px]">
             <thead>
               <tr class="bg-slate-900/90 border-b border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                <th class="py-2 px-3">Sprint</th>
+                <th class="py-2 px-3">Story</th>
                 <th class="py-2 px-3">Target Scope</th>
                 <th class="py-2 px-3 w-24">Commit SHA</th>
                 <th class="py-2 px-3 w-28">Gate 5 Status</th>
@@ -425,7 +445,7 @@
             </thead>
             <tbody id="sprintAuditTableBody" class="divide-y divide-slate-800/60 text-xs">
               <tr>
-                <td colspan="6" class="py-4 text-center text-slate-500 font-mono text-xs">Loading sprint audit data...</td>
+                <td colspan="6" class="py-4 text-center text-slate-500 font-mono text-xs">Loading story audit data...</td>
               </tr>
             </tbody>
           </table>
@@ -448,7 +468,7 @@
                 <span id="heavyGateStatusBadge" class="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-slate-800 text-slate-400 border border-slate-700">Idle</span>
                 <span id="heavyGateTimer" class="text-[11px] font-mono text-slate-400 hidden">00:00</span>
               </div>
-              <p class="text-xs text-slate-400 mt-0.5">Runs full pytest suite, coverage threshold, and drains bespoke queued checks before sprint close.</p>
+              <p class="text-xs text-slate-400 mt-0.5">Runs full pytest suite, coverage threshold, and drains bespoke queued checks before story close.</p>
             </div>
           </div>
 
@@ -524,23 +544,23 @@
 
 
 
-    <!-- 4. SPRINT ROADMAP & DECISIONS TAB -->
+    <!-- 4. STORY ROADMAP & DECISIONS TAB -->
     <section id="tab-sprints" class="tab-content hidden">
       <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-800">
         <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 mb-4 pb-4 border-b border-slate-800/80">
           <div>
             <h2 class="text-base font-bold text-slate-100 flex items-center">
               <i data-lucide="milestone" class="w-5 h-5 text-emerald-400 mr-2"></i>
-              Sprint Roadmap & Historical Decisions
+              Story Roadmap & Historical Decisions
             </h2>
-            <p class="text-xs text-slate-400 mt-0.5">Chronological record of completed phases, active sprints, and planned work (ordered sprint desc).</p>
+            <p class="text-xs text-slate-400 mt-0.5">Chronological record of completed phases, active stories, and planned work (ordered story desc).</p>
           </div>
           <div class="relative w-full md:w-64">
             <i data-lucide="search" class="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5"></i>
             <input
               type="text"
               id="roadmapSearchInput"
-              placeholder="Filter sprint or scope..."
+              placeholder="Filter story or scope..."
               oninput="onRoadmapSearch(this.value)"
               class="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
             />
@@ -577,7 +597,7 @@
           <table class="w-full text-left text-xs border-collapse">
             <thead>
               <tr class="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
-                <th class="py-3 px-4">Sprint</th>
+                <th class="py-3 px-4">Story</th>
                 <th class="py-3 px-4">Scope & Objectives</th>
                 <th class="py-3 px-4">Cards</th>
                 <th class="py-3 px-4">Status</th>
@@ -624,7 +644,7 @@
       </div>
     </section>
 
-    <!-- SPRINT SPEC / DOCUMENT MODAL -->
+    <!-- STORY SPEC / DOCUMENT MODAL -->
     <div id="sprintDocModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm transition-opacity">
       <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         <!-- Modal Header -->
@@ -635,7 +655,7 @@
             </div>
             <div>
               <div class="flex items-center gap-2">
-                <h3 id="sprintDocTitle" class="text-sm font-bold text-white">Sprint Spec</h3>
+                <h3 id="sprintDocTitle" class="text-sm font-bold text-white">Story Spec</h3>
                 <span id="sprintDocSource" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono border border-slate-700">PLAN.md</span>
               </div>
               <p id="sprintDocSubtitle" class="text-xs text-slate-400">Settled design decisions and definition of done</p>
@@ -661,6 +681,73 @@
       </div>
     </div>
 
+    <!-- STORY CLOSE-OUT VIEWER -->
+    <div id="closeoutModal" class="fixed inset-0 z-[60] hidden flex flex-col bg-slate-950/95 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="closeoutTitle">
+      <div class="px-4 py-2.5 border-b border-slate-800 bg-slate-900 flex items-center justify-between gap-3">
+        <h3 id="closeoutTitle" class="text-sm font-bold text-white truncate min-w-0">Story Close-Out</h3>
+        <div class="flex items-center gap-2 shrink-0">
+          <a id="closeoutNewTab" href="#" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition">
+            <i data-lucide="external-link" class="w-3.5 h-3.5"></i><span>Open in new tab</span>
+          </a>
+          <button id="closeoutCloseBtn" type="button" onclick="closeCloseout()" aria-label="Close close-out viewer" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+      <div class="relative flex-1 min-h-0">
+        <iframe id="closeoutFrame" title="Story Close-Out report" class="w-full h-full bg-white" onload="onCloseoutFrameLoad()"></iframe>
+        <div id="closeoutFallback" class="hidden absolute inset-0 flex items-center justify-center text-center p-6">
+          <div class="max-w-sm text-xs text-slate-400">
+            <p class="text-sm font-semibold text-slate-200 mb-1">Close-out report not found</p>
+            <p>The file may have been moved or removed. Refresh the cockpit to re-scan, or try opening it in a new tab.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONFIGURE PROJECT MODAL -->
+    <div id="configureProjectModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="configureProjectTitle">
+      <form id="configureProjectForm" class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl overflow-hidden" autocomplete="off">
+        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+          <h3 id="configureProjectTitle" class="text-sm font-bold text-white">Configure Project</h3>
+          <button type="button" onclick="closeConfigureProject()" aria-label="Close" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+        <div class="p-6 space-y-4 overflow-y-auto text-xs text-slate-300">
+          <label class="block">
+            <span class="font-semibold text-slate-300">Name</span>
+            <input id="cfgName" type="text" required maxlength="80" class="mt-1 w-full bg-slate-800 text-slate-200 rounded-lg px-3 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-500">
+          </label>
+          <label class="block">
+            <span class="font-semibold text-slate-300">Code path</span>
+            <input id="cfgCodePath" type="text" required placeholder="C:\path\to\repo" class="mt-1 w-full bg-slate-800 text-slate-200 font-mono rounded-lg px-3 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-500">
+          </label>
+          <fieldset>
+            <legend class="font-semibold text-slate-300 mb-1">Docs storage</legend>
+            <label class="flex items-center gap-2 py-1 cursor-pointer">
+              <input type="radio" name="cfgDocsMode" value="in-repo" checked class="text-emerald-500 bg-slate-800 border-slate-600">
+              <span>In-repo <code class="font-mono text-emerald-400">&lt;code&gt;/docs</code></span>
+            </label>
+            <label class="flex items-center gap-2 py-1 cursor-pointer">
+              <input type="radio" name="cfgDocsMode" value="external" class="text-emerald-500 bg-slate-800 border-slate-600">
+              <span>External folder</span>
+            </label>
+            <input id="cfgDocsPath" type="text" disabled placeholder="Docs folder path (required for external)" class="mt-1 w-full bg-slate-800 text-slate-200 font-mono rounded-lg px-3 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-500 disabled:cursor-not-allowed">
+          </fieldset>
+          <label class="block">
+            <span class="font-semibold text-slate-300">Prefix <span class="font-normal text-slate-500">(optional, 1-8 characters)</span></span>
+            <input id="cfgPrefix" type="text" maxlength="8" pattern="[A-Z0-9]{1,8}" placeholder="MN" class="mt-1 w-32 bg-slate-800 text-slate-200 font-mono uppercase rounded-lg px-3 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-500">
+          </label>
+          <div id="configureProjectError" role="alert" class="hidden p-3 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-200 break-words"></div>
+        </div>
+        <div class="px-6 py-3 border-t border-slate-800 bg-slate-900/90 flex justify-end gap-2">
+          <button type="button" onclick="closeConfigureProject()" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition">Cancel</button>
+          <button id="cfgSubmit" type="submit" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition disabled:opacity-50 disabled:cursor-not-allowed">Configure</button>
+        </div>
+      </form>
+    </div>
+
     <!-- CARD DETAILS MODAL -->
     <div id="cardModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm transition-opacity">
       <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
@@ -671,7 +758,11 @@
             <span id="cardModalType" class="text-xs px-2.5 py-0.5 rounded"></span>
             <button id="cardModalViewSpecBtn" onclick="onCardModalViewSpec()" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 text-xs font-medium transition ml-2 group">
               <i data-lucide="book-open" class="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform"></i>
-              <span>View Sprint Spec</span>
+              <span>View Story Spec</span>
+            </button>
+            <button id="cardModalCloseoutBtn" type="button" data-action="open-closeout" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border border-emerald-500/30 hover:border-emerald-400 text-xs font-medium transition ml-1">
+              <i data-lucide="file-check" class="w-3.5 h-3.5"></i>
+              <span>Story Close-Out</span>
             </button>
             <button id="cardModalReviewsBtn" onclick="onCardModalViewReviews()" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-purple-950/40 hover:bg-purple-900/50 text-purple-300 border border-purple-500/30 hover:border-purple-400 text-xs font-medium transition ml-1 group">
               <i data-lucide="shield-check" class="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform"></i>

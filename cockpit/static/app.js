@@ -1,4 +1,4 @@
-// app.js - Controller for Money-Nest PM & QA Cockpit
+// app.js - Controller for PM & QA Cockpit
 
 let state = {
   cards: [],
@@ -18,6 +18,10 @@ let state = {
   changelogSortOrder: 'asc',
   roadmapFilter: 'ALL',
   roadmapSearch: '',
+  projects: [],
+  currentProject: null,
+  activeProjectSlug: null,
+  projectsError: null,
   filters: {
     sprint: 'ALL',
     type: 'ALL',
@@ -130,6 +134,7 @@ async function fetchAll() {
 // Header & Metrics
 // -----------------------------------------------------------------------------
 function updateHeader() {
+  renderProjectHeader();
   document.getElementById('headerBranch').textContent = `Branch: ${state.activity.branch || 'unknown'}`;
   document.getElementById('headerTotalCount').textContent = state.cards.length;
 
@@ -163,7 +168,7 @@ function updateHeader() {
         ? state.sprints[state.sprints.length - 1].sprint
         : 'None';
   }
-  document.getElementById('headerActiveSprint').textContent = activeSprintTitle;
+  document.getElementById('headerActiveSprint').textContent = storyLabel(activeSprintTitle);
 }
 
 function populateSprintFilter() {
@@ -174,13 +179,13 @@ function populateSprintFilter() {
     if (c.sprint) sprints.add(c.sprint);
   });
 
-  select.innerHTML = '<option value="ALL">All Sprints</option>';
+  select.innerHTML = '<option value="ALL">All Stories</option>';
   Array.from(sprints)
     .sort()
     .forEach((s) => {
       const opt = document.createElement('option');
       opt.value = s;
-      opt.textContent = `Sprint ${s}`;
+      opt.textContent = `Story ${s}`;
       select.appendChild(opt);
     });
 
@@ -291,7 +296,7 @@ function createCardElement(card) {
     <div class="flex items-center justify-between gap-1 mb-1.5">
       <span class="text-xs font-mono font-bold text-slate-400">${escId}</span>
       <div class="flex items-center gap-1">
-        ${card.sprint ? `<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Sprint ${escSprint}</span>` : ''}
+        ${card.sprint ? `<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Story ${escSprint}</span>` : ''}
         <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded ${typeClass}">${escType}</span>
       </div>
     </div>
@@ -301,7 +306,9 @@ function createCardElement(card) {
       <span class="flex items-center"><i data-lucide="calendar" class="w-3.5 h-3.5 mr-1 text-slate-500"></i>${escDate}</span>
       ${card.validated ? `<span class="text-emerald-400 flex items-center"><i data-lucide="check" class="w-3.5 h-3.5 mr-0.5"></i>Done</span>` : ''}
     </div>
+    ${closeoutButtonHtml(card, 'mt-2 w-full justify-center')}
   `;
+  bindCloseoutButton(div, card);
 
   return div;
 }
@@ -370,7 +377,7 @@ function renderQaStation() {
     item.innerHTML = `
       <div class="flex items-center justify-between mb-1.5">
         <span class="font-mono font-bold text-amber-400 text-xs">${escId}</span>
-        <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700/60">Sprint ${escSprint}</span>
+        <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700/60">Story ${escSprint}</span>
       </div>
       <p class="font-semibold text-slate-200 text-sm line-clamp-1">${escTitle}</p>
       <div class="mt-2.5 flex items-center justify-between text-xs text-slate-400 font-mono">
@@ -378,7 +385,9 @@ function renderQaStation() {
         ${displayDate ? `<span class="text-slate-400 flex items-center gap-1" title="Completed: ${escapeHtml(displayDate)}"><i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-500"></i>${escapeHtml(displayDate)}</span>` : ''}
         <span class="text-amber-400 flex items-center"><i data-lucide="clock" class="w-3.5 h-3.5 mr-1"></i> Ready for QA</span>
       </div>
+      ${closeoutButtonHtml(card, 'mt-2')}
     `;
+    bindCloseoutButton(item, card);
 
     container.appendChild(item);
   });
@@ -466,7 +475,7 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
       <div>
         <div class="flex items-center space-x-2 mb-2 flex-wrap gap-y-1">
           <span class="text-sm font-mono font-bold px-2.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">${escId}</span>
-          <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-slate-800 text-slate-300">Sprint ${escSprint}</span>
+          <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-slate-800 text-slate-300">Story ${escSprint}</span>
           <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">${escType}</span>
           <span class="text-xs font-mono px-2.5 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/60 flex items-center gap-1">
             <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-500"></i>
@@ -476,10 +485,11 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
             card.sprint
               ? `<button data-action="open-sprint-doc" data-sprint="${escSprint}" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 text-xs font-medium transition ml-1 group">
                   <i data-lucide="book-open" class="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform"></i>
-                  <span>View Sprint Spec</span>
+                  <span>View Story Spec</span>
                 </button>`
               : ''
           }
+          ${closeoutButtonHtml(card, '', true)}
           ${
             (card.review_count > 0 || (card.reviews && card.reviews.length > 0))
               ? `<button onclick="openReviewModal('${escId}')" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-purple-950/40 hover:bg-purple-900/50 text-purple-300 border border-purple-500/30 hover:border-purple-400 text-xs font-medium transition ml-1 group">
@@ -709,7 +719,7 @@ function parseSprintTokens(sprintStr) {
   if (/backlog/i.test(s) || /unscheduled/i.test(s)) return { type: 1, tokens: [] };
   const mPhase = s.match(/^Phase\s+(\d+)/i);
   if (mPhase) return { type: 2, tokens: [parseInt(mPhase[1], 10)] };
-  const mSprint = s.replace(/^Sprint\s+/i, '');
+  const mSprint = s.replace(/^(?:Sprint|Story)\s+/i, '');
   const rawTokens = mSprint.match(/(\d+|[a-zA-Z]+)/g) || [];
   const tokens = rawTokens.map((t) => (/^\d+$/.test(t) ? parseInt(t, 10) : t.toLowerCase()));
   return { type: 3, tokens };
@@ -777,7 +787,7 @@ function renderRoadmap() {
   state.sprints.forEach((s) => {
     const sName = (s.sprint || '').toLowerCase();
     const isBacklog = sName.includes('backlog') || sName.includes('unscheduled');
-    const sprintIdNum = s.sprint.replace(/^(?:Sprint|Phase)\s+/i, '').trim();
+    const sprintIdNum = s.sprint.replace(/^(?:Sprint|Story|Phase)\s+/i, '').trim();
     const assignedCards = state.cards.filter((c) => c.sprint === sprintIdNum || c.sprint === s.sprint);
     const hasActiveCards = assignedCards.some((c) => c.status === 'in-progress' || c.status === 'qa');
     const hasSprintBacklogCards = assignedCards.some((c) => c.status === 'sprint-backlog');
@@ -816,7 +826,7 @@ function renderRoadmap() {
   const filtered = state.sprints.filter((sprint) => {
     const sName = (sprint.sprint || '').toLowerCase();
     const isBacklog = sName.includes('backlog') || sName.includes('unscheduled');
-    const sprintIdNum = sprint.sprint.replace(/^(?:Sprint|Phase)\s+/i, '').trim();
+    const sprintIdNum = sprint.sprint.replace(/^(?:Sprint|Story|Phase)\s+/i, '').trim();
     const assignedCards = state.cards.filter((c) => c.sprint === sprintIdNum || c.sprint === sprint.sprint);
     const hasActiveCards = assignedCards.some((c) => c.status === 'in-progress' || c.status === 'qa');
 
@@ -854,7 +864,7 @@ function renderRoadmap() {
     tr.innerHTML = `
       <td colspan="5" class="py-8 text-center text-slate-500 text-xs">
         <i data-lucide="filter" class="w-6 h-6 mx-auto mb-2 text-slate-600"></i>
-        No sprints match the current filter or search criteria.
+        No stories match the current filter or search criteria.
       </td>
     `;
     table.appendChild(tr);
@@ -869,7 +879,7 @@ function renderRoadmap() {
 
     const sName = (sprint.sprint || '').toLowerCase();
     const isBacklog = sName.includes('backlog') || sName.includes('unscheduled');
-    const sprintIdNum = sprint.sprint.replace(/^(?:Sprint|Phase)\s+/i, '').trim();
+    const sprintIdNum = sprint.sprint.replace(/^(?:Sprint|Story|Phase)\s+/i, '').trim();
     const assignedCards = state.cards.filter((c) => c.sprint === sprintIdNum || c.sprint === sprint.sprint);
     const hasActiveCards = assignedCards.some((c) => c.status === 'in-progress' || c.status === 'qa');
     const hasSprintBacklogCards = assignedCards.some((c) => c.status === 'sprint-backlog');
@@ -908,7 +918,7 @@ function renderRoadmap() {
     const escScope = escapeHtml(sprint.scope);
 
     tr.innerHTML = `
-      <td class="py-3 px-4 font-bold text-slate-200 whitespace-nowrap">${escSprint}</td>
+      <td class="py-3 px-4 font-bold text-slate-200 whitespace-nowrap">${escapeHtml(storyLabel(sprint.sprint))}</td>
       <td class="py-3 px-4 text-slate-300 max-w-md leading-relaxed">${escScope}</td>
       <td class="py-3 px-4 whitespace-nowrap">${cardsHtml}</td>
       <td class="py-3 px-4 whitespace-nowrap">${badge}</td>
@@ -1111,7 +1121,7 @@ function renderActiveSprintDod() {
     data.available_sprints.forEach((s) => {
       const opt = document.createElement('option');
       opt.value = s;
-      opt.textContent = `Sprint ${s}`;
+      opt.textContent = `Story ${s}`;
       if (s === data.sprint_id && currentVal !== 'ACTIVE') {
         opt.selected = true;
       }
@@ -1197,7 +1207,7 @@ function renderActiveSprintDod() {
               ? '<span class="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30 flex items-center gap-1"><i data-lucide="flame" class="w-3.5 h-3.5 text-purple-400"></i>Design Grill</span>'
               : '<span class="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>In Progress</span>';
 
-            const sprintBadgeHtml = `<span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono font-medium">Sprint ${escSprint}</span>`;
+            const sprintBadgeHtml = `<span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono font-medium">Story ${escSprint}</span>`;
 
             const agentAct = s.latest_activity || {};
             const agentName = escapeHtml(agentAct.agent || (isGrill ? 'Lead (Grill)' : 'Lead'));
@@ -1403,7 +1413,7 @@ function renderActiveSprintDod() {
     // -------------------------------------------------------------------------
     // Mode B: Historical Single Sprint Audit View
     // -------------------------------------------------------------------------
-    if (titleEl) titleEl.textContent = data.sprint_name || `Sprint ${data.sprint_id}`;
+    if (titleEl) titleEl.textContent = storyLabel(data.sprint_name) || `Story ${data.sprint_id}`;
     if (scopeEl) scopeEl.textContent = data.scope || 'No explicit scope defined in PLAN.md.';
 
     if (statusBadge) {
@@ -1420,7 +1430,7 @@ function renderActiveSprintDod() {
       navBadge.className = 'ml-2 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
     }
 
-    // Sprint DoD progress bar
+    // Story DoD progress bar
     const sprintRatioEl = document.getElementById('sprintDodRatio');
     const sprintBarEl = document.getElementById('sprintDodProgressBar');
     if (sprintRatioEl) sprintRatioEl.textContent = `${data.sprint_dod_checked}/${data.sprint_dod_total} (${data.sprint_dod_pct}%)`;
@@ -1444,14 +1454,14 @@ function renderActiveSprintDod() {
     if (activeStreamsViewEl) activeStreamsViewEl.classList.add('hidden');
     if (historicalSprintViewEl) historicalSprintViewEl.classList.remove('hidden');
 
-    // Render Sprint DoD items (Left Column)
+    // Render Story DoD items (Left Column)
     const sprintDodListEl = document.getElementById('sprintDodList');
     if (sprintDodListEl) {
       if (!data.sprint_dod || data.sprint_dod.length === 0) {
         sprintDodListEl.innerHTML = `
           <div class="p-6 text-center text-slate-500 text-xs">
             <i data-lucide="info" class="w-6 h-6 mx-auto mb-2 text-slate-600"></i>
-            No explicit Definition of Done checklist found in PLAN.md for Sprint ${escapeHtml(data.sprint_id)}.
+            No explicit Definition of Done checklist found in PLAN.md for Story ${escapeHtml(data.sprint_id)}.
           </div>
         `;
       } else {
@@ -1479,7 +1489,7 @@ function renderActiveSprintDod() {
         cardsContainerEl.innerHTML = `
           <div class="p-8 text-center text-slate-500 text-xs">
             <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-600"></i>
-            No cards assigned to Sprint ${escapeHtml(data.sprint_id)} yet.
+            No cards assigned to Story ${escapeHtml(data.sprint_id)} yet.
           </div>
         `;
       } else {
@@ -1547,11 +1557,11 @@ async function toggleSprintDodItem(sprintId, itemIndex, checked) {
     if (res.success) {
       await fetchActiveSprint();
     } else {
-      alert(`Error updating Sprint DoD: ${res.error || 'Server error'}`);
+      alert(`Error updating Story DoD: ${res.error || 'Server error'}`);
     }
   } catch (err) {
     console.error('Failed to toggle sprint DoD:', err);
-    alert('Failed to update Sprint DoD.');
+    alert('Failed to update Story DoD.');
   }
 }
 
@@ -1853,7 +1863,7 @@ async function fetchSprintGateStatus() {
           <td colspan="6" class="text-center py-6 text-rose-400 text-xs">
             <div class="flex items-center justify-center gap-2">
               <i data-lucide="alert-circle" class="w-4 h-4 text-rose-400"></i>
-              <span>Failed to fetch sprint audit status. If server is stale, restart <code class="bg-slate-900 px-1.5 py-0.5 rounded font-mono">scripts/pm.ps1</code>.</span>
+              <span>Failed to fetch story audit status. If server is stale, restart <code class="bg-slate-900 px-1.5 py-0.5 rounded font-mono">scripts/pm.ps1</code>.</span>
             </div>
           </td>
         </tr>
@@ -1940,7 +1950,7 @@ function renderSprintAuditTable() {
   });
 
   if (sprints.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-slate-500 font-mono text-xs">No completed roadmap sprints found.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-slate-500 font-mono text-xs">No completed roadmap stories found.</td></tr>`;
     if (toggleEl) toggleEl.innerHTML = '';
     return;
   }
@@ -1948,12 +1958,12 @@ function renderSprintAuditTable() {
   if (displaySprints.length === 0) {
     const emptyMsg =
       filterKey === 'needs_attention'
-        ? 'All sprints verified — nothing needs attention ✅'
+        ? 'All stories verified — nothing needs attention ✅'
         : filterKey === 'failed'
-        ? 'No failed sprints found ✅'
+        ? 'No failed stories found ✅'
         : filterKey === 'owed'
-        ? 'No owed sprints found ✅'
-        : 'No sprints found matching filter';
+        ? 'No owed stories found ✅'
+        : 'No stories found matching filter';
     tbody.innerHTML = `
       <tr>
         <td colspan="6" class="py-6 text-center">
@@ -1962,7 +1972,7 @@ function renderSprintAuditTable() {
             <span class="text-xs font-semibold">${emptyMsg}</span>
             ${countPassed > 0 ? `
               <div class="mt-2 text-xs text-slate-400">
-                <span>All ${countPassed} past roadmap sprints verified.</span>
+                <span>All ${countPassed} past roadmap stories verified.</span>
                 <button onclick="setSprintAuditFilter('passed')" class="text-emerald-400 hover:text-emerald-300 underline font-semibold ml-1 cursor-pointer">View Passed (${countPassed})</button>
                 <span class="mx-1 text-slate-600">•</span>
                 <button onclick="setSprintAuditFilter('all')" class="text-slate-300 hover:text-white underline font-semibold cursor-pointer">View All (${countAll})</button>
@@ -1997,7 +2007,7 @@ function renderSprintAuditTable() {
           const titleTip = s.subsumed_by
             ? (/^[0-9a-f]{7,40}$/i.test(s.subsumed_by)
                 ? `Verified via cumulative Gate 5 run on commit ${escapeHtml(s.subsumed_by)}`
-                : `Verified via cumulative Gate 5 run on Sprint ${escapeHtml(s.subsumed_by)}`)
+                : `Verified via cumulative Gate 5 run on Story ${escapeHtml(s.subsumed_by)}`)
             : 'Verified Gate 5 run';
           const priorFailNotice = s.prior_failure
             ? `<span class="ml-1 text-[9px] text-amber-300 font-mono" title="Prior failure on earlier commit was resolved by descendant Gate 5 pass">⚠️</span>`
@@ -2050,7 +2060,7 @@ function renderSprintAuditTable() {
         return `
           <tr class="hover:bg-slate-900/40 transition ${rowOpacity}">
             <td class="py-2 px-3 font-mono font-bold text-slate-200">
-              Sprint ${escapeHtml(s.sprint)}
+              Story ${escapeHtml(s.sprint)}
             </td>
             <td class="py-2 px-3 text-slate-300 max-w-xs truncate" title="${escapeHtml(s.scope)}">
               ${escapeHtml(s.scope)}
@@ -2085,8 +2095,8 @@ async function openFailureModal(sprintId, runId) {
   const badgeEl = document.getElementById('failureModalSprintBadge');
   const bodyEl = document.getElementById('failureModalBody');
 
-  if (titleEl) titleEl.textContent = `Gate 5 Failures — Sprint ${sprintId}`;
-  if (badgeEl) badgeEl.textContent = runId ? `Run: ${runId}` : `Sprint ${sprintId}`;
+  if (titleEl) titleEl.textContent = `Gate 5 Failures — Story ${sprintId}`;
+  if (badgeEl) badgeEl.textContent = runId ? `Run: ${runId}` : `Story ${sprintId}`;
   if (bodyEl) {
     bodyEl.innerHTML = `
       <div class="py-8 text-center text-slate-400 font-mono text-xs">
@@ -2215,13 +2225,13 @@ function fallbackCopy(text, btn) {
 
 
 async function startRunSprintGate(sprintId, commitSha) {
-  if (!confirm(`Run Heavy Gate 5 for Sprint ${sprintId} in isolated worktree? This runs full pytest & coverage against commit ${commitSha || 'resolved SHA'}.`)) {
+  if (!confirm(`Run Heavy Gate 5 for Story ${sprintId} in isolated worktree? This runs full pytest & coverage against commit ${commitSha || 'resolved SHA'}.`)) {
     return;
   }
   try {
     const terminal = document.getElementById('heavyGateTerminal');
     if (terminal) {
-      terminal.textContent = `[Starting finalgates.ps1 for Sprint ${sprintId} in background worker...]\n[Worktree preparing & pytest suite initializing... output will stream below]\n`;
+      terminal.textContent = `[Starting finalgates.ps1 for Story ${sprintId} in background worker...]\n[Worktree preparing & pytest suite initializing... output will stream below]\n`;
     }
 
     const res = await fetch('/api/heavy-gate/start', {
@@ -2245,11 +2255,11 @@ async function startRunSprintGate(sprintId, commitSha) {
 async function startRunAllPendingSprints() {
   const unverified = (state.sprintGateStatus || []).filter((s) => !s.verified);
   if (unverified.length === 0) {
-    alert('All completed sprints have verified Gate 5 runs.');
+    alert('All completed stories have verified Gate 5 runs.');
     return;
   }
   const count = unverified.length;
-  if (!confirm(`Run full Gate 5 sequentially for ALL ${count} pending sprint(s) in isolated worktrees? This will run each sprint from oldest to newest.`)) {
+  if (!confirm(`Run full Gate 5 sequentially for ALL ${count} pending stor(ies) in isolated worktrees? This will run each story from oldest to newest.`)) {
     return;
   }
 
@@ -2316,13 +2326,16 @@ document.addEventListener('DOMContentLoaded', () => {
     renderPipeline();
   });
 
-  fetchAll();
+  initProjectUi();
+  fetchProjects().then(() => fetchAll());
   // Auto refresh every 10 seconds
   setInterval(fetchAll, 10000);
 
   // Close modals on Escape key
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (isCloseoutOpen()) { closeCloseout(); return; }
+      if (isConfigureOpen()) { closeConfigureProject(); return; }
       closeSprintDoc();
       closeCardModal();
     }
@@ -2347,7 +2360,7 @@ async function openSprintDoc(sprintId) {
   bodyEl.innerHTML = `
     <div class="py-12 text-center text-slate-500">
       <i data-lucide="loader" class="w-7 h-7 mx-auto mb-2 animate-spin text-emerald-400"></i>
-      <p class="text-xs">Loading sprint documentation...</p>
+      <p class="text-xs">Loading story documentation...</p>
     </div>
   `;
   modal.classList.remove('hidden');
@@ -2363,7 +2376,7 @@ async function openSprintDoc(sprintId) {
           <div class="py-10 text-center text-amber-400/90">
             <i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2 text-amber-400"></i>
             <p class="font-medium text-sm">Specification not found for ${escapeHtml(sprintId)}</p>
-            <p class="text-slate-500 text-xs mt-1">This sprint does not have an isolated section in PLAN.md or docs/sprints/.</p>
+            <p class="text-slate-500 text-xs mt-1">This story does not have an isolated section in PLAN.md or docs/sprints/.</p>
           </div>
         `;
         if (window.lucide) lucide.createIcons();
@@ -2392,7 +2405,7 @@ async function openSprintDoc(sprintId) {
         <div class="py-10 text-center text-amber-400/90">
           <i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2 text-amber-400"></i>
           <p class="font-medium text-sm">Specification not found for ${escapeHtml(sprintId)}</p>
-          <p class="text-slate-500 text-xs mt-1">This sprint does not have an isolated section in PLAN.md or docs/sprints/.</p>
+          <p class="text-slate-500 text-xs mt-1">This story does not have an isolated section in PLAN.md or docs/sprints/.</p>
         </div>
       `;
     }
@@ -2423,7 +2436,7 @@ function openCardModal(card) {
   if (!modal) return;
 
   document.getElementById('cardModalId').textContent = card.mn_id;
-  document.getElementById('cardModalSprint').textContent = card.sprint ? `Sprint ${card.sprint}` : 'Unassigned';
+  document.getElementById('cardModalSprint').textContent = card.sprint ? `Story ${card.sprint}` : 'Unassigned';
 
   const typeEl = document.getElementById('cardModalType');
   typeEl.textContent = card.type || 'feature';
@@ -2503,7 +2516,14 @@ function openCardModal(card) {
 
   modal.classList.remove('hidden');
 
-  // View Sprint Spec button visibility
+  // Story Close-Out button
+  const coBtn = document.getElementById('cardModalCloseoutBtn');
+  if (coBtn) {
+    coBtn.classList.toggle('hidden', !(card.closeout && card.closeout.url));
+    coBtn.dataset.cardId = card.mn_id;
+  }
+
+  // View Story Spec button visibility
   const specBtn = document.getElementById('cardModalViewSpecBtn');
   if (specBtn) {
     if (card.sprint && card.sprint !== 'Unassigned') {
@@ -2531,7 +2551,7 @@ function openCardModal(card) {
 
 function onCardModalViewSpec() {
   const sprintEl = document.getElementById('cardModalSprint');
-  const sprintText = sprintEl ? sprintEl.textContent.replace(/^Sprint\s+/i, '').trim() : '';
+  const sprintText = sprintEl ? sprintEl.textContent.replace(/^(?:Sprint|Story)\s+/i, '').trim() : '';
   if (sprintText && sprintText !== 'Unassigned') {
     closeCardModal();
     openSprintDoc(sprintText);
@@ -2541,7 +2561,7 @@ function onCardModalViewSpec() {
 function onCardModalViewReviews() {
   const cardId = document.getElementById('cardModalId').textContent.trim();
   const sprintEl = document.getElementById('cardModalSprint');
-  const sprintText = sprintEl ? sprintEl.textContent.replace(/^Sprint\s+/i, '').trim() : '';
+  const sprintText = sprintEl ? sprintEl.textContent.replace(/^(?:Sprint|Story)\s+/i, '').trim() : '';
   const target = cardId || sprintText;
   if (target) {
     openReviewModal(target);
@@ -2806,7 +2826,7 @@ function renderActiveReview(rev) {
   const bodyEl = document.getElementById('reviewModalBody');
   const footerInfo = document.getElementById('reviewModalFooterInfo');
 
-  if (titleEl) titleEl.textContent = `Cold Review — Sprint ${rev.sprint}`;
+  if (titleEl) titleEl.textContent = `Cold Review — Story ${rev.sprint}`;
   if (roundEl) roundEl.textContent = `Round ${rev.round}`;
 
   if (verdictEl) {
@@ -2898,6 +2918,9 @@ document.addEventListener('click', (e) => {
   } else if (action === 'validate-card') {
     const cardId = trigger.getAttribute('data-card-id');
     if (cardId) validateCard(cardId);
+  } else if (action === 'open-closeout') {
+    const cardId = trigger.getAttribute('data-card-id');
+    if (cardId) openCloseoutById(cardId);
   } else if (action === 'open-card-modal') {
     const cardId = trigger.getAttribute('data-card-id');
     if (cardId) openCardModalById(cardId);
@@ -2929,3 +2952,324 @@ document.addEventListener('change', (e) => {
   }
 });
 
+
+
+// -----------------------------------------------------------------------------
+// Story label helper (server sends "Sprint X"; UI says "Story X")
+// -----------------------------------------------------------------------------
+function storyLabel(str) {
+  return typeof str === 'string' ? str.replace(/^Sprint(\s|$)/, 'Story$1') : str;
+}
+
+// -----------------------------------------------------------------------------
+// Projects: switcher, pills, configure modal
+// -----------------------------------------------------------------------------
+function projectLabel(p) {
+  return p ? (p.prefix ? `${p.name} (${p.prefix})` : p.name) : '';
+}
+
+async function fetchProjects() {
+  try {
+    const res = await fetch('/api/projects');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    state.projects = data.projects || [];
+    state.currentProject = data.current || null;
+    state.activeProjectSlug = (data.current && data.current.slug) || data.active_project || null;
+    state.projectsError = null;
+  } catch (err) {
+    console.error('Failed to load projects:', err);
+    state.projectsError = err.message || 'unreachable';
+  }
+  renderProjectUi();
+}
+
+function projectChoices() {
+  // `current` may be an unregistered ad-hoc project; still offer it.
+  const list = [...state.projects];
+  const cur = state.currentProject;
+  if (cur && !list.some((p) => p.slug === cur.slug)) list.unshift(cur);
+  return list;
+}
+
+function renderProjectHeader() {
+  const nameEl = document.getElementById('headerProjectName');
+  if (!nameEl) return;
+  const cur = state.currentProject;
+  nameEl.textContent = cur ? projectLabel(cur) : (state.projectsError ? 'Projects unavailable' : 'No project');
+  nameEl.title = cur ? `${cur.name} — ${cur.code_path || ''}` : '';
+}
+
+function externalMarkerHtml(p) {
+  return p.docs_mode === 'external'
+    ? '<span class="shrink-0 text-[9px] px-1 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/30 font-semibold uppercase tracking-wide" title="Docs stored in an external folder">external docs</span>'
+    : '';
+}
+
+function renderProjectUi() {
+  renderProjectHeader();
+  const choices = projectChoices();
+
+  const menu = document.getElementById('projectMenuList');
+  if (menu) {
+    if (choices.length === 0) {
+      menu.innerHTML = `<div class="px-3 py-2 text-xs text-slate-500">${
+        state.projectsError ? 'Could not load projects.' : 'No projects yet. Configure one to get started.'
+      }</div>`;
+    } else {
+      menu.innerHTML = choices
+        .map((p) => {
+          const active = p.slug === state.activeProjectSlug;
+          return `<button role="menuitemradio" aria-checked="${active}" data-project-slug="${escapeHtml(p.slug)}" title="${escapeHtml(p.code_path || '')}"
+            class="w-full flex items-center gap-2 px-3 py-2 text-left text-xs rounded-lg transition ${
+              active ? 'bg-emerald-500/10 text-emerald-300' : 'text-slate-200 hover:bg-slate-800'
+            }">
+            <span class="w-3.5 shrink-0">${active ? '<i data-lucide="check" class="w-3.5 h-3.5"></i>' : ''}</span>
+            <span class="truncate font-semibold">${escapeHtml(p.name)}</span>
+            ${p.prefix ? `<span class="shrink-0 font-mono text-[10px] text-slate-400">${escapeHtml(p.prefix)}</span>` : ''}
+            ${externalMarkerHtml(p)}
+          </button>`;
+        })
+        .join('');
+    }
+  }
+
+  // Pipeline pills: hidden when there is only one project (or none).
+  const pills = document.getElementById('projectPills');
+  if (pills) {
+    if (choices.length < 2) {
+      pills.classList.add('hidden');
+      pills.innerHTML = '';
+    } else {
+      pills.classList.remove('hidden');
+      pills.innerHTML =
+        '<span class="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">Project:</span>' +
+        choices
+          .map((p) => {
+            const active = p.slug === state.activeProjectSlug;
+            return `<button class="type-filter-pill max-w-[12rem] truncate ${active ? 'active' : ''}" data-project-slug="${escapeHtml(p.slug)}" aria-pressed="${active}" title="${escapeHtml(projectLabel(p))}">${escapeHtml(p.name)}${p.prefix ? ` <span class="font-mono opacity-70">${escapeHtml(p.prefix)}</span>` : ''}</button>`;
+          })
+          .join('') +
+        '<button class="type-filter-pill" onclick="openConfigureProject()" title="Configure a project">+ Configure Project</button>';
+    }
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
+async function selectProject(slug) {
+  closeProjectMenu();
+  if (!slug || slug === state.activeProjectSlug) return;
+  showLoadingFeedback(true);
+  try {
+    const res = await fetch('/api/projects/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
+    resetProjectScopedState();
+    await fetchProjects();
+    await fetchAll();
+  } catch (err) {
+    alert(`Could not switch project: ${err.message}`);
+    showLoadingFeedback(false);
+  }
+}
+
+function resetProjectScopedState() {
+  state.cards = [];
+  state.sprints = [];
+  state.selectedQaId = null;
+  state.activeSprintId = 'ACTIVE';
+  state.sprintDodData = null;
+  state.filters.sprint = 'ALL';
+}
+
+function isProjectMenuOpen() {
+  const m = document.getElementById('projectMenu');
+  return !!m && !m.classList.contains('hidden');
+}
+function openProjectMenu() {
+  const m = document.getElementById('projectMenu');
+  const b = document.getElementById('projectSwitcherBtn');
+  if (!m) return;
+  m.classList.remove('hidden');
+  if (b) b.setAttribute('aria-expanded', 'true');
+  const first = m.querySelector('button');
+  if (first) first.focus();
+}
+function closeProjectMenu() {
+  const m = document.getElementById('projectMenu');
+  const b = document.getElementById('projectSwitcherBtn');
+  if (m) m.classList.add('hidden');
+  if (b) b.setAttribute('aria-expanded', 'false');
+}
+
+function initProjectUi() {
+  const btn = document.getElementById('projectSwitcherBtn');
+  const menu = document.getElementById('projectMenu');
+  if (btn && menu) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isProjectMenuOpen()) closeProjectMenu(); else openProjectMenu();
+    });
+    btn.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (!isProjectMenuOpen()) openProjectMenu(); }
+    });
+    menu.addEventListener('keydown', (e) => {
+      const items = Array.from(menu.querySelectorAll('button'));
+      const i = items.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeProjectMenu(); btn.focus(); }
+      else if (e.key === 'Tab') { closeProjectMenu(); }
+    });
+    document.addEventListener('click', (e) => {
+      if (isProjectMenuOpen() && !menu.contains(e.target) && !btn.contains(e.target)) closeProjectMenu();
+    });
+  }
+  // Menu items and pills both carry data-project-slug.
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-project-slug]');
+    if (el) selectProject(el.getAttribute('data-project-slug'));
+  });
+
+  const form = document.getElementById('configureProjectForm');
+  if (form) {
+    form.addEventListener('submit', submitConfigureProject);
+    form.querySelectorAll('input[name="cfgDocsMode"]').forEach((r) => r.addEventListener('change', syncConfigureDocsMode));
+    const prefix = document.getElementById('cfgPrefix');
+    if (prefix) prefix.addEventListener('input', () => { prefix.value = prefix.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+  }
+
+  // The close-out artifact asks the cockpit to refresh after a QA checkbox / validate.
+  window.addEventListener('message', (e) => {
+    if (e.origin === location.origin && e.data && e.data.type === 'pmqa:refresh') fetchAll();
+  });
+}
+
+// ---- Configure Project modal ----
+function isConfigureOpen() {
+  const m = document.getElementById('configureProjectModal');
+  return !!m && !m.classList.contains('hidden');
+}
+function openConfigureProject() {
+  closeProjectMenu();
+  const m = document.getElementById('configureProjectModal');
+  if (!m) return;
+  document.getElementById('configureProjectError').classList.add('hidden');
+  m.classList.remove('hidden');
+  syncConfigureDocsMode();
+  const n = document.getElementById('cfgName');
+  if (n) n.focus();
+  if (window.lucide) lucide.createIcons();
+}
+function closeConfigureProject() {
+  const m = document.getElementById('configureProjectModal');
+  if (m) m.classList.add('hidden');
+}
+function syncConfigureDocsMode() {
+  const checked = document.querySelector('input[name="cfgDocsMode"]:checked');
+  const mode = checked ? checked.value : 'in-repo';
+  const dp = document.getElementById('cfgDocsPath');
+  if (!dp) return;
+  dp.disabled = mode !== 'external';
+  dp.required = mode === 'external';
+  dp.classList.toggle('opacity-50', mode !== 'external');
+}
+async function submitConfigureProject(e) {
+  e.preventDefault();
+  const errEl = document.getElementById('configureProjectError');
+  const btn = document.getElementById('cfgSubmit');
+  const checked = document.querySelector('input[name="cfgDocsMode"]:checked');
+  const mode = checked ? checked.value : 'in-repo';
+  const body = {
+    name: document.getElementById('cfgName').value.trim(),
+    code_path: document.getElementById('cfgCodePath').value.trim(),
+    docs_mode: mode,
+    activate: true,
+  };
+  const prefix = document.getElementById('cfgPrefix').value.trim();
+  if (prefix) body.prefix = prefix;
+  if (mode === 'external') body.docs_path = document.getElementById('cfgDocsPath').value.trim();
+  errEl.classList.add('hidden');
+  if (btn) { btn.disabled = true; btn.textContent = 'Configuring...'; }
+  try {
+    const res = await fetch('/api/projects/configure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
+    closeConfigureProject();
+    document.getElementById('configureProjectForm').reset();
+    resetProjectScopedState();
+    await fetchProjects();
+    await fetchAll();
+  } catch (err) {
+    // Keep the inputs so the user can correct them.
+    errEl.textContent = err.message || 'Configuration failed.';
+    errEl.classList.remove('hidden');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Configure'; }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Story Close-Out viewer
+// -----------------------------------------------------------------------------
+function closeoutButtonHtml(card, extraClass = '', viaAction = false) {
+  if (!card || !card.closeout || !card.closeout.url) return '';
+  const attrs = viaAction ? `data-action="open-closeout" data-card-id="${escapeHtml(card.mn_id)}"` : 'data-closeout="1"';
+  return `<button type="button" ${attrs} class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border border-emerald-500/30 hover:border-emerald-400 text-xs font-medium transition ${extraClass}" title="Open the Story Close-Out report"><i data-lucide="file-check" class="w-3.5 h-3.5"></i><span>Story Close-Out</span></button>`;
+}
+function bindCloseoutButton(root, card) {
+  const b = root.querySelector('[data-closeout]');
+  if (!b) return;
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openCloseout(card);
+  });
+}
+function openCloseoutById(cardId) {
+  const card = state.cards.find((c) => c.mn_id === cardId);
+  if (card) openCloseout(card);
+}
+function isCloseoutOpen() {
+  const m = document.getElementById('closeoutModal');
+  return !!m && !m.classList.contains('hidden');
+}
+function openCloseout(card) {
+  if (!card || !card.closeout || !card.closeout.url) return;
+  const m = document.getElementById('closeoutModal');
+  if (!m) return;
+  document.getElementById('closeoutTitle').textContent = `Story Close-Out — ${card.mn_id}`;
+  document.getElementById('closeoutNewTab').href = card.closeout.url;
+  document.getElementById('closeoutFallback').classList.add('hidden');
+  const frame = document.getElementById('closeoutFrame');
+  frame.classList.remove('hidden');
+  frame.src = card.closeout.url;
+  m.classList.remove('hidden');
+  document.getElementById('closeoutCloseBtn').focus();
+}
+function closeCloseout() {
+  const m = document.getElementById('closeoutModal');
+  if (m) m.classList.add('hidden');
+  const frame = document.getElementById('closeoutFrame');
+  if (frame) frame.src = 'about:blank';
+}
+function onCloseoutFrameLoad() {
+  // A missing artifact still loads a same-origin error page; swap it for a friendly message.
+  const frame = document.getElementById('closeoutFrame');
+  if (!frame || !frame.getAttribute('src') || frame.getAttribute('src') === 'about:blank') return;
+  try {
+    const doc = frame.contentDocument;
+    const txt = doc && doc.body ? doc.body.textContent.trim() : '';
+    if (!doc || !doc.body || (txt.length < 300 && /^\{?\s*"?(404|not found|error|detail)/i.test(txt))) {
+      frame.classList.add('hidden');
+      document.getElementById('closeoutFallback').classList.remove('hidden');
+    }
+  } catch (_) { /* unreadable: leave the frame as is */ }
+}
