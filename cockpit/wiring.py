@@ -71,31 +71,50 @@ def _code_lines(text: str, ext: str) -> list[tuple[int, str]]:
     return out
 
 
-def classify_line(line: str) -> list[dict[str, Any]]:
+def _not_a_checkout(parts: list[str], bases: list[Path]) -> bool:
+    """True when the path up to its ``pm-qa-cockpit`` segment resolves to an existing folder that is
+    not a cockpit checkout (e.g. a docs folder ``pm-qa-docs/pm-qa-cockpit``). Unresolvable -> False."""
+    head = parts[: parts.index("pm-qa-cockpit") + 1]
+    if any("$" in p or "%" in p for p in head[1:]):
+        return False
+    if head[0] in ("~", "$HOME", "%USERPROFILE%"):
+        candidates = [projects.user_home().joinpath(*head[1:])]
+    elif re.fullmatch(r"[A-Za-z]:", head[0]):
+        candidates = [Path(head[0] + "\\").joinpath(*head[1:])]
+    elif "$" in head[0] or "%" in head[0]:
+        return False
+    else:
+        candidates = [b.joinpath(*head) for b in bases]
+    found = [c for c in candidates if c.is_dir()]
+    return bool(found) and not any((c / "cockpit" / "server.py").is_file() for c in found)
+
+
+def classify_line(line: str, bases: list[Path] | None = None) -> list[dict[str, Any]]:
     """Cockpit references in one line: [{kind, token, start, end, segment}] in order. ``segment`` is
     the index of the token's ``pm-qa-cockpit`` path segment when it is a full dev-clone path literal
-    (so it can be rewritten), else None."""
+    (so it can be rewritten), else None. ``bases`` resolve relative paths (project root, file folder)."""
     if any(v in line for v in OVERRIDE_VARS) or "://" in line:
         return []  # an explicit override, or a clone URL - not a launch path
     refs: list[dict[str, Any]] = []
     for m in _TOKEN.finditer(line):
         tok = m.group(0)
-        parts = re.split(r"[\\/]", tok)
+        parts = [p for p in re.split(r"[\\/]", tok) if p != ""] or [tok]
         kind, seg = None, None
         if ".pm-qa-cockpit" in parts:
             kind = "running"
         elif "pm-dashboard" in parts and len(parts) > 1:
             kind = "frozen"
-        elif "pm-qa-cockpit" in parts and len(parts) > 1:
+        elif "pm-qa-cockpit" in parts and len(parts) > 1 and not _not_a_checkout(parts, bases or []):
             kind = "dev"
             i = parts.index("pm-qa-cockpit")
             anchored = parts[0] in ("..", "~", "$HOME", "%USERPROFILE%") or re.fullmatch(r"[A-Za-z]:", parts[0])
             seg = i if i > 0 and anchored else None
         if kind:
             refs.append({"kind": kind, "token": tok, "start": m.start(), "end": m.end(), "segment": seg})
-    for m in _QUOTED_NAME.finditer(line):
-        # the bare folder name handed to Join-Path / path.join: a dev clone, but not safely rewritable
-        refs.append({"kind": "dev", "token": m.group(0), "start": m.start(), "end": m.end(), "segment": None})
+    if re.search(r"join-path|join\(", line, re.IGNORECASE):
+        for m in _QUOTED_NAME.finditer(line):
+            # the bare folder name handed to Join-Path / path.join: a dev clone, but not safely rewritable
+            refs.append({"kind": "dev", "token": m.group(0), "start": m.start(), "end": m.end(), "segment": None})
     return sorted(refs, key=lambda r: r["start"])
 
 
@@ -109,10 +128,38 @@ def proposed_line(line: str, ref: dict[str, Any], ext: str) -> str | None:
     tok = ref["token"]
     seps = re.findall(r"[\\/]", tok)
     sep = seps[0] if seps else "\\"
-    rest = re.split(r"[\\/]", tok)[ref["segment"] + 1:]
+    rest = [p for p in re.split(r"[\\/]", tok) if p != ""][ref["segment"] + 1:]
     expr = RUNNING_EXPR[ext].format(sep=sep)
     new_tok = sep.join([expr, *rest]) if rest else expr
     return line[: ref["start"]] + new_tok + line[ref["end"]:]
+
+
+_DEF = {".ps1": re.compile(r"^\s*\$(\w+)\s*=(?!\s*if\b)", re.IGNORECASE),
+        ".sh": re.compile(r"^\s*(?:export\s+|local\s+)?(\w+)=")}
+_USE = {".ps1": r"\${name}\b", ".sh": r"\$\{{?{name}\b"}
+
+
+def _ordered_refs(code_lines: list[tuple[int, str]], ext: str, bases: list[Path]) -> list[dict[str, Any]]:
+    """References in the order the script *uses* them. A variable defined with a cockpit path
+    (``$AppCopy = Join-Path $HOME ".pm-qa-cockpit\\app"``) counts where it is used, not where it is
+    assigned, so a definition above a dev-clone-first ``if`` doesn't mask it. ``src`` is the line
+    that holds the path literal."""
+    defs: dict[str, tuple[str, int]] = {}
+    out: list[dict[str, Any]] = []
+    for n, line in code_lines:
+        direct = classify_line(line, bases)
+        m = _DEF[ext].match(line) if ext in _DEF else None
+        kinds = {r["kind"] for r in direct}
+        if m and len(kinds) == 1:
+            defs[m.group(1).lower()] = (kinds.pop(), n)
+            continue
+        uses = []
+        for name, (kind, src) in defs.items():
+            for u in re.finditer(_USE[ext].format(name=re.escape(name)), line, re.IGNORECASE):
+                if not (m and m.group(1).lower() == name and u.start() < m.end()):
+                    uses.append({"kind": kind, "start": u.start(), "line": n, "src": src})
+        out += [{**r, "line": n, "src": n} for r in direct] + uses
+    return sorted(out, key=lambda r: (r["line"], r["start"]))
 
 
 def _verdict(refs: list[dict[str, Any]]) -> str:
@@ -142,16 +189,24 @@ def scan_launchers(code: Path) -> list[dict[str, Any]]:
         except (OSError, UnicodeDecodeError):
             continue
         ext = f.suffix.lower()
-        refs = [(n, line, r) for n, line in _code_lines(text, ext) for r in classify_line(line)]
+        refs = _ordered_refs(_code_lines(text, ext), ext, [code, f.parent])
         if not refs:
             continue
-        verdict = _verdict([r for _, _, r in refs])
+        verdict = _verdict(refs)
+        lines = text.splitlines()
         item = {"file": f.relative_to(code).as_posix(), "kind": "script", "verdict": verdict,
-                "refs": [{"line": n, "kind": r["kind"], "text": line.strip()} for n, line, r in refs], "edit": None}
+                "refs": [{"line": r["line"], "kind": r["kind"], "text": lines[r["line"] - 1].strip()} for r in refs],
+                "edit": None}
         if verdict == "dev-clone-first":
-            n, line, r = refs[0]
-            new = proposed_line(line, r, ext)
-            if new is not None:
+            # Fix the line that holds the path (the definition, for a variable). Rewrite every dev-clone
+            # path on it (right to left, so offsets hold) or none: a half-rewritten line could test the
+            # running copy and then launch the dev clone.
+            n = refs[0]["src"]
+            line = lines[n - 1]
+            new: str | None = line
+            for r in sorted((r for r in classify_line(line, [code, f.parent]) if r["kind"] == "dev"), key=lambda r: -r["start"]):
+                new = proposed_line(new, r, ext) if new is not None else None
+            if new is not None and new != line:
                 item["edit"] = {"line": n, "old": line, "new": new}
         out.append(item)
     pkg = code / "package.json"
@@ -160,7 +215,7 @@ def scan_launchers(code: Path) -> list[dict[str, Any]]:
             scripts = (json.loads(pkg.read_text(encoding="utf-8-sig")).get("scripts") or {})
         except (OSError, json.JSONDecodeError, AttributeError):
             scripts = {}
-        refs = [(name, r) for name, cmd in scripts.items() if isinstance(cmd, str) for r in classify_line(cmd)]
+        refs = [(name, r) for name, cmd in scripts.items() if isinstance(cmd, str) for r in classify_line(cmd, [code])]
         if refs:
             out.append({"file": "package.json", "kind": "package-scripts", "verdict": _verdict([r for _, r in refs]),
                         "refs": [{"line": None, "script": name, "kind": r["kind"], "text": scripts[name]} for name, r in refs],
@@ -170,7 +225,7 @@ def scan_launchers(code: Path) -> list[dict[str, Any]]:
         if not f.is_file():
             continue
         text = f.read_text(encoding="utf-8", errors="replace")
-        refs = [(n, line, r) for n, line in enumerate(text.splitlines(), 1) for r in classify_line(line)]
+        refs = [(n, line, r) for n, line in enumerate(text.splitlines(), 1) for r in classify_line(line, [code])]
         if refs:
             # prose: only a dev-clone path is worth a warning; mentions of frozen copies are history
             dev = [x for x in refs if x[2]["kind"] == "dev"]
@@ -192,7 +247,7 @@ def scan_hooks(code: Path) -> list[dict[str, Any]]:
             continue
         for event, entries in ((data.get("hooks") or {}) if isinstance(data, dict) else {}).items():
             for cmd in _hook_commands(entries):
-                refs = classify_line(cmd)
+                refs = classify_line(cmd, [code])
                 problem = None
                 if any(r["kind"] == "dev" for r in refs):
                     problem = "dev-clone"

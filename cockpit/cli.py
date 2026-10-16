@@ -18,6 +18,8 @@ Usage:
     uv run python cli.py projects [--select SLUG]
     uv run python cli.py init <CODE_PATH> --name NAME --prefix PFX [--docs-path DIR] [--stealth] [--apply]
     uv run python cli.py profile-gates [--measure] [--apply] [--threshold-seconds 360]
+    uv run python cli.py setup-plan [CODE_PATH] [--json] / setup-apply CODE_PATH IDS... / skills-status
+    uv run python cli.py doctor [SLUG_OR_PATH] [--json]
 """
 
 from __future__ import annotations
@@ -440,6 +442,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_status.add_argument("code_path", nargs="?", help="Also report a project's installed skills")
     p_status.add_argument("--json", action="store_true")
 
+    p_doc = sub.add_parser("doctor", help="Read-only: is this project's cockpit setup correct? (pass / warn / fail)")
+    p_doc.add_argument("target", nargs="?", default=".", help="Registered slug or a path in the project (default: here)")
+    p_doc.add_argument("--json", action="store_true")
+
     p_prof = sub.add_parser("profile-gates", help="Detect the stack, time the suite, pick Fast vs Heavy gate mode")
     p_prof.add_argument("--fast-cmd", help="Override the detected fast/static gate command")
     p_prof.add_argument("--full-cmd", help="Override the detected full test command")
@@ -460,6 +466,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_init(args)
     if args.command in ("setup-plan", "setup-apply", "skills-status"):
         return cmd_setup(args)
+    if args.command == "doctor":
+        from doctor import cmd_doctor
+
+        return cmd_doctor(args)
     if args.command == "profile-gates":
         from gate_profiler import cmd_profile_gates
 
