@@ -24,9 +24,11 @@ def fake_globals(tmp_path, monkeypatch):
              {"claude": ".claude/skills", "antigravity": ".agents/skills", "cursor": ".cursor/skills-cursor"}.items()}
     for r in roots.values():
         r.mkdir(parents=True)
-    (roots["claude"] / "grill-me").mkdir()
-    (roots["claude"] / "grill-me" / "SKILL.md").write_text("---\nname: grill-me\n---\n", encoding="utf-8")
-    monkeypatch.setattr(setup_flow, "GLOBAL_ROOTS", roots)
+    for r in ("claude", "antigravity"):
+        (roots[r] / "grill-me").mkdir()
+        (roots[r] / "grill-me" / "SKILL.md").write_text("---\nname: grill-me\n---\n", encoding="utf-8")
+    monkeypatch.setenv("PM_QA_USER_HOME", str(tmp_path / "home"))
+    assert setup_flow.global_roots() == roots
     return roots
 
 
@@ -48,7 +50,7 @@ def test_crlf_copy_is_current_not_changed(tmp_path):
 
 def test_every_shipped_skill_carries_version_and_source():
     version = setup_flow.tool_version()
-    for d in SKILLS.iterdir():
+    for d in (p for p in SKILLS.iterdir() if p.is_dir()):
         meta = setup_flow.skill_metadata(d / "SKILL.md")
         assert meta == {"version": version, "source": "pm-qa-cockpit"}, d.name
 
@@ -81,12 +83,12 @@ def test_unedited_older_version_is_outdated_and_upgrades(tmp_path):
     setup_flow.install_skill(src, dest)
     md = src / "SKILL.md"
     current = setup_flow.skill_metadata(md)["version"]
-    md.write_text(md.read_text(encoding="utf-8").replace(f"version: {current}", "version: 0.3.0") + "\nNew rule.\n",
+    md.write_text(md.read_text(encoding="utf-8").replace(f"version: {current}", "version: 9.9.9") + "\nNew rule.\n",
                   encoding="utf-8")
     assert setup_flow.skill_state(dest, src)["state"] == "outdated"
     assert setup_flow.install_skill(src, dest) == "upgraded"
     assert "New rule." in (dest / "SKILL.md").read_text(encoding="utf-8")
-    assert json.loads((dest / setup_flow.MANIFEST).read_text(encoding="utf-8"))["version"] == "0.3.0"
+    assert json.loads((dest / setup_flow.MANIFEST).read_text(encoding="utf-8"))["version"] == "9.9.9"
 
 
 # ---------------------------------------------------------------- plans

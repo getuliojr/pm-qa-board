@@ -39,11 +39,40 @@ GRILL_SOURCE = "https://github.com/mattpocock/skills/tree/main/skills/productivi
 # Where each agent reads project skills. Cursor reads AGENTS.md (+ .cursor/rules) and is pointed at
 # the Claude skills folder instead of receiving a third copy.
 AGENT_SKILL_DIRS = {"claude": ".claude/skills", "antigravity": ".agents/skills"}
-GLOBAL_ROOTS = {
-    "claude": Path.home() / ".claude" / "skills",
-    "antigravity": Path.home() / ".agents" / "skills",
-    "cursor": Path.home() / ".cursor" / "skills-cursor",
-}
+LEDGER = TOOL_ROOT / "skills" / "RELEASES.json"
+
+
+def global_roots() -> dict[str, Path]:
+    """Global skill folders the cockpit installs into, per tool. Evaluated per call (never at import)
+    so a sandbox ``PM_QA_USER_HOME`` set after import still applies."""
+    home = projects.user_home()
+    return {
+        "claude": home / ".claude" / "skills",
+        "antigravity": home / ".agents" / "skills",
+        "cursor": home / ".cursor" / "skills-cursor",
+    }
+
+
+def global_read_roots(tool: str) -> list[Path]:
+    """Every global folder a tool loads skills from. Cursor (verified in its docs, 2026-10-16) reads
+    ~/.cursor/skills, ~/.agents/skills and ~/.claude/skills; skills-cursor holds its built-ins and
+    the copies install.ps1 put there."""
+    home = projects.user_home()
+    return {
+        "claude": [home / ".claude" / "skills"],
+        "antigravity": [home / ".agents" / "skills"],
+        "cursor": [home / ".cursor" / "skills", home / ".cursor" / "skills-cursor",
+                   home / ".agents" / "skills", home / ".claude" / "skills"],
+    }[tool]
+
+
+def project_read_dirs(tool: str) -> list[str]:
+    """Project folders a tool loads skills from (Cursor also reads the Claude and Agents folders)."""
+    return {
+        "claude": [".claude/skills"],
+        "antigravity": [".agents/skills"],
+        "cursor": [".cursor/skills", ".agents/skills", ".claude/skills"],
+    }[tool]
 
 
 # ---------------------------------------------------------------------------
@@ -67,17 +96,62 @@ def normalized(data: bytes) -> bytes:
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
 
-def content_hash(skill_dir: Path) -> str:
-    """SHA-256 over (relative posix path, NUL, LF-normalised bytes, NUL) for every file except the
-    manifest, ordered by the relative path string. install.ps1 computes the identical hash."""
+def files_hash(files: dict[str, bytes]) -> str:
+    """SHA-256 over (relative posix path, NUL, LF-normalised bytes, NUL), ordered by path."""
     h = hashlib.sha256()
-    files = {p.relative_to(skill_dir).as_posix(): p for p in skill_dir.rglob("*") if p.is_file() and p.name != MANIFEST}
     for rel in sorted(files):
         h.update(rel.encode("utf-8"))
         h.update(b"\0")
-        h.update(normalized(files[rel].read_bytes()))
+        h.update(normalized(files[rel]))
         h.update(b"\0")
     return h.hexdigest()
+
+
+def content_hash(skill_dir: Path) -> str:
+    """``files_hash`` of every file in a skill folder except the manifest. install.ps1 computes the
+    identical hash."""
+    return files_hash({p.relative_to(skill_dir).as_posix(): p.read_bytes()
+                       for p in skill_dir.rglob("*") if p.is_file() and p.name != MANIFEST})
+
+
+def load_ledger(path: Path | None = None) -> dict[str, dict[str, list[str]]]:
+    """``skills/RELEASES.json``: {version: {skill: [content hashes shipped under that version]}}."""
+    try:
+        return json.loads((path or LEDGER).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def ledger_version(skill: str, digest: str, ledger: dict | None = None) -> str | None:
+    """The newest released version whose ``skill`` had exactly this content, else None."""
+    ledger = load_ledger() if ledger is None else ledger
+    hits = [v for v, skills in ledger.items() if digest in skills.get(skill, [])]
+    return max(hits, key=_vtuple) if hits else None
+
+
+def record_release(skills_root: Path, version: str, path: Path | None = None) -> dict[str, str]:
+    """Dev command: record every shipped skill's current hash under ``version``. Refuses (ValueError,
+    nothing written) to add a new hash to a version that already lists one for that skill — a changed
+    skill needs a VERSION bump. Returns {skill: "recorded" | "already recorded"}."""
+    path = path or LEDGER
+    ledger = load_ledger(path)
+    entry = ledger.setdefault(version, {})
+    out: dict[str, str] = {}
+    stale = []
+    for d in sorted(p for p in skills_root.iterdir() if (p / "SKILL.md").is_file()):
+        digest = content_hash(d)
+        known = entry.get(d.name, [])
+        if digest in known:
+            out[d.name] = "already recorded"
+        elif known:
+            stale.append(d.name)
+        else:
+            out[d.name] = "recorded"
+            entry[d.name] = [digest]
+    if stale:
+        raise ValueError(f"{', '.join(stale)} changed but {version} is already recorded with another hash: bump VERSION")
+    path.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return out
 
 
 def skill_metadata(skill_md: Path) -> dict[str, str]:
@@ -116,7 +190,8 @@ def skill_state(installed: Path, source: Path) -> dict[str, Any]:
 
     missing  - not installed
     current  - same content as shipped (line endings ignored)
-    outdated - ours, provably unedited since install (manifest hash matches), differs from shipped
+    outdated - ours and provably unedited (the install manifest's hash still matches, or the content
+               is exactly a released version in the ledger), differs from shipped
                -> safe to upgrade on approval
     edited   - ours, but changed since install OR not provably unedited (no recorded hash)
                -> ask: keep / replace / save a .new copy
@@ -132,6 +207,10 @@ def skill_state(installed: Path, source: Path) -> dict[str, Any]:
     base = {"installed_version": inst_version, "available_version": src_version}
     if here == content_hash(source):
         return {"state": "current", **base}
+    released = ledger_version(source.name, here)
+    if released:
+        # exactly what some release shipped (pre-metadata copies included): ours, never edited
+        return {"state": "outdated", "installed_version": released, "available_version": src_version}
     ours = manifest.get("source") == SOURCE or meta.get("source") == SOURCE
     if not ours:
         return {"state": "foreign", **base}
@@ -251,6 +330,8 @@ def global_copy_status(d: Path, name: str) -> str | None:
     md = d / "SKILL.md"
     if not md.is_file():
         return None
+    if ledger_version(name, content_hash(d)):
+        return "ours"  # exactly a released version (any release, pre-metadata copies included)
     files = [p for p in d.rglob("*") if p.is_file() and p.name != MANIFEST]
     shipped = TOOL_ROOT / "skills" / name / "SKILL.md"
     same_as_shipped = (
@@ -369,7 +450,7 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
         "uv": _which("uv"),
         "git": _which("git"),
         "running_copy": (projects.cockpit_home() / "app" / "cockpit" / "server.py").is_file(),
-        "grill_me": any((r / n / "SKILL.md").is_file() for r in GLOBAL_ROOTS.values() for n in ("grill-me", "grilling")),
+        "grill_me": any((r / n / "SKILL.md").is_file() for r in global_roots().values() for n in ("grill-me", "grilling")),
     }
     if not prereq["running_copy"]:
         add("clone-running-copy", "Clone the cockpit's running copy",
@@ -377,7 +458,7 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
             detail="git clone https://github.com/getuliojr/pm-qa-cockpit ~/.pm-qa-cockpit/app")
     if not prereq["grill_me"]:
         add("fetch-grill-me", "Install grill-me once for this machine (design-before-code skill)",
-            writes=[str(GLOBAL_ROOTS["claude"] / "grill-me"), str(GLOBAL_ROOTS["antigravity"] / "grill-me")],
+            writes=[str(global_roots()["claude"] / "grill-me"), str(global_roots()["antigravity"] / "grill-me")],
             detail=f"source: {GRILL_SOURCE}")
 
     # 2. Register + gates
@@ -447,7 +528,7 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
     # 6. Legacy global copies of the project skills (installed before Story 2). Only provably ours and
     #    unedited copies are offered for deletion; anything else is listed for the user to review.
     legacy: list[str] = []
-    for r in GLOBAL_ROOTS.values():
+    for r in global_roots().values():
         for s in PROJECT_SKILLS:
             status = global_copy_status(r / s, s)
             if status == "ours":
@@ -468,7 +549,7 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
             else "No registered full-mode project still relies on them.")
 
     # 7. The global bootstrap skill itself (upgrade only where it is installed; never create here)
-    for agent, root in GLOBAL_ROOTS.items():
+    for agent, root in global_roots().items():
         st = skill_state(root / BOOTSTRAP_SKILL, TOOL_ROOT / "skills" / BOOTSTRAP_SKILL)
         if st["state"] in ("outdated", "edited"):
             add("upgrade-bootstrap", f"{'Upgrade' if st['state'] == 'outdated' else 'Resolve local edits in'} the global {BOOTSTRAP_SKILL} for {agent}",
@@ -569,7 +650,7 @@ def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | 
                 append_bytes(exclude, "# PM & QA Cockpit skills (installed per project)\n" + "\n".join(add) + "\n")
             results.append({"id": aid, "result": f"excluded {len(add)} path(s)"})
         elif kind == "upgrade-bootstrap":
-            dest = GLOBAL_ROOTS[a["agent"]] / BOOTSTRAP_SKILL
+            dest = global_roots()[a["agent"]] / BOOTSTRAP_SKILL
             results.append({"id": aid, "result": install_skill(TOOL_ROOT / "skills" / BOOTSTRAP_SKILL, dest, choice(aid))})
         elif kind == "cleanup-global":
             removed, kept = 0, []
@@ -591,7 +672,7 @@ def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | 
 def skills_status(code_path: str | Path | None = None) -> dict[str, Any]:
     """Read-only: the global bootstrap skill and, for a project, its installed cockpit skills."""
     out: dict[str, Any] = {"tool_version": tool_version(), "global": [], "project": []}
-    for agent, root in GLOBAL_ROOTS.items():
+    for agent, root in global_roots().items():
         st = skill_state(root / BOOTSTRAP_SKILL, TOOL_ROOT / "skills" / BOOTSTRAP_SKILL)
         out["global"].append({"agent": agent, "skill": BOOTSTRAP_SKILL, "path": str(root / BOOTSTRAP_SKILL), **st})
     if code_path:

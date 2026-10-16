@@ -34,9 +34,17 @@ EXTERNAL_DOCS_LAYOUT = ("cards", "reviews", "artifacts", "gate-heavy-results")
 EXTERNAL_DOCS_FILES = ("PLAN.md", "WORKLOG.md", "QUALITY.md", "E2E_CANDIDATES.md")
 
 
+def user_home() -> Path:
+    """The home folder holding the global skill folders and ``.pm-qa-cockpit``. ``PM_QA_USER_HOME``
+    points it at a sandbox (QA sandbox, tests) while the agent itself keeps its real HOME and login.
+    Read on every call, never cached at import."""
+    env = os.environ.get("PM_QA_USER_HOME")
+    return Path(env).expanduser() if env else Path.home()
+
+
 def cockpit_home() -> Path:
     env = os.environ.get("PM_QA_COCKPIT_HOME")
-    return Path(env).expanduser() if env else Path.home() / ".pm-qa-cockpit"
+    return Path(env).expanduser() if env else user_home() / ".pm-qa-cockpit"
 
 
 def registry_path() -> Path:

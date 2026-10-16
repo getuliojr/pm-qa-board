@@ -84,7 +84,7 @@ def inspect_project(code: Path) -> dict[str, Any]:
 
 
 def skill_installed(name: str) -> list[str]:
-    home = Path.home()
+    home = projects.user_home()
     roots = [home / ".claude" / "skills", home / ".agents" / "skills", home / ".cursor" / "skills-cursor"]
     return [str(r / name) for r in roots if (r / name / "SKILL.md").exists()]
 

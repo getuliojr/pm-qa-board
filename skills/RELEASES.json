@@ -1,0 +1,53 @@
+{
+  "0.1.0": {
+    "pm-orchestrate": [
+      "fd5e1a6b003b31d535c2844b0c9cc5346cbdf354452a47aeb5066cb8b9b40bad"
+    ],
+    "pm-qa-cockpit": [
+      "d360c9348dc7b0f953a7e8aa012cc44159b69ff60f64e54e36b5111f67c8a38e"
+    ],
+    "pm-review": [
+      "5ea424ec4af37eb363d3d670e2fc234da0d9e04604880b766d81b9907746e6dc",
+      "299046c058971fecb99c9486f6038627d9e98816e88deff4e47d1ce8277700ec"
+    ],
+    "pm-sync": [
+      "1579c89c0ebbc72c4275ddeab7e92161736fb46625d013394c303832b978e81a"
+    ]
+  },
+  "0.2.0": {
+    "pm-orchestrate": [
+      "e93255cf27d1195a3b092961774fa62c6d6bccf35783fd52b7c21a83b83c8ade"
+    ],
+    "pm-qa-cockpit": [
+      "a22b892222eeb7128041eac10249ae77fbe90e790e578bd2cb651fedae5358ef"
+    ],
+    "pm-qa-setup": [
+      "74bc6c05db449cfa40beddb17a4bf45254e731934471c41c26fb44a01734f96b",
+      "2d9fcf7fd7f01a4269a84c0eb9236b867a4c5bd86e1f8e15742c7e645564f2e6",
+      "4590d58c7d2830a5a937005b17e82c4266f10809b63a9722f772135d1b92200b"
+    ],
+    "pm-review": [
+      "9f3dd77875737e5cac551179961d13efc5bd958a192ae143cb90e09b2286d3f0"
+    ],
+    "pm-sync": [
+      "ad31cd159183dce1020a3378de33d28dd7ae36070dfde1a6043eb3eda6e051c3"
+    ]
+  },
+  "0.2.1": {
+    "pm-orchestrate": [
+      "475a191ce9a3f87c3a546deb97a8436064ad4f21e82d38707c9c8c1bcd7555cd"
+    ],
+    "pm-qa-cockpit": [
+      "8dcea838da437f26432ba12516f8b4665aeb26bae9e155f5de7a2685f79521d6"
+    ],
+    "pm-qa-setup": [
+      "e89493acf5fbf2ef2742b5ead23f4c5016486e5e67e2e2af90e29e2d93605ea7"
+    ],
+    "pm-review": [
+      "df15fbfbaa75b97f4407917ca714aa238352884688ff6f7ab8289f7242befdc8"
+    ],
+    "pm-sync": [
+      "020fba511279488b56f3ae4cd03147d29500eff1a25ffe0030314c83e7c33862"
+    ]
+  }
+}
