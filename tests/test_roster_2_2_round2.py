@@ -22,7 +22,9 @@ def test_underscores_plurals_and_hyphens_all_separate_words():
     for name, role in (("mn_builder", "builder"), ("code_reviewer", "reviewer"), ("team_retrieval", "retrieval"),
                        ("code-reviewers", "reviewer"), ("x_advisor", "advisor")):
         assert roster.match_role(name, "") == role, name
-    assert roster.match_role("helper", "Reviews the diff cold") == "reviewer"
+    assert roster.match_role("helper", "Reviews the diff cold") is None, "prose is not an identity"
+    assert roster.match_role("coder", "Writes code; never reviews it") is None
+    assert roster.match_role("helper", "The cold reviewer for each story") == "reviewer"
     assert roster.match_role("ui-preview", "") is None and roster.match_role("db-sync-worker", "") is None
 
 
@@ -60,3 +62,7 @@ def test_a_table_outside_the_markers_does_not_count(project):
 @pytest.mark.parametrize("tool,model", [("claude", "opus[1m]"), ("cursor", "auto[fast=false]")])
 def test_bracketed_aliases_are_still_aliases(tool, model):
     assert roster.forbidden_pin(tool, "advisor", model) and roster.check_pin(tool, "advisor", model)
+
+
+def test_alias_check_ignores_case():
+    assert roster.forbidden_pin("claude", "advisor", "Opus[1m]") and roster.check_pin("claude", "advisor", "Opus")

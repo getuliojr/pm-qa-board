@@ -94,11 +94,16 @@ def base_model(tool: str, model: str) -> str:
     return model.split("[", 1)[0].strip()
 
 
+# A description is prose ("never reviews it"), so it only counts when it names the agent noun itself.
+DESC_MATCH = {"builder": MATCH["builder"], "advisor": MATCH["advisor"], "reviewer": re.compile(_L + r"reviewers?" + _R),
+              "retrieval": re.compile(_L + r"retriev(al|er|ers)" + _R), "pm-sync": MATCH["pm-sync"]}
+
+
 def roles_for(name: str, description: str) -> tuple[list[str], bool]:
     """(roles a file could fill, decided by the name). Whole words only. Name first; the description only if
     the name says nothing, and a description that names several roles is prose, not an identity."""
-    for text, by_name in ((name.lower(), True), (description.lower(), False)):
-        hits = [r for r, rx in MATCH.items() if rx.search(text)]
+    for text, by_name, table in ((name.lower(), True, MATCH), (description.lower(), False, DESC_MATCH)):
+        hits = [r for r, rx in table.items() if rx.search(text)]
         if hits:
             return hits, by_name
     return [], False
@@ -171,7 +176,7 @@ def valid_value(kind: str, value: str) -> bool:
 
 def forbidden_pin(tool: str, role: str, model: str) -> str | None:
     """Pins setup refuses to write (an unknown model only warns later, but these defeat the design)."""
-    if base_model(tool, model) in ALIASES[tool]:
+    if base_model(tool, model).lower() in ALIASES[tool]:
         return "an alias may resolve to an older model: use the full ID"
     if model == "inherit":
         return "inherit is not allowed: pin a model"
@@ -224,7 +229,7 @@ def check_pin(tool: str, role: str, model: str) -> str | None:
         return "no model line (it follows the session)"
     if model == "inherit":
         return "inherit is not allowed for this role (it must be a separate model)" if role in ("advisor", "reviewer") else None
-    if base_model(tool, model) in ALIASES[tool]:
+    if base_model(tool, model).lower() in ALIASES[tool]:
         return f"'{model}' is an alias that may resolve to an older model: pin the full ID"
     if base_model(tool, model) not in KNOWN_MODELS[tool]:
         return f"'{model}' is not in the list this cockpit version knows"

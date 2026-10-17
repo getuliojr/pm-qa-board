@@ -55,7 +55,7 @@ def _roster_action(plan):
 def test_roles_are_matched_by_name_then_description(tmp_path):
     code = tmp_path / "p"
     _agent(code / ".cursor" / "agents" / "retrieve.md", "retrieve", "composer-2.5[fast=false]")
-    _agent(code / ".cursor" / "agents" / "x.md", "x", "grok-4.7[fast=false]", "Cold review gate")
+    _agent(code / ".cursor" / "agents" / "x.md", "x", "grok-4.7[fast=false]", "The cold reviewer gate")
     _agent(code / ".cursor" / "agents" / "helper.md", "helper", "grok-4.6[fast=false]", "Does odd jobs")
     _agent(code / ".cursor" / "agents" / "builder-reviewer.md", "builder-reviewer", "grok-4.6[fast=false]", "does both")
     st = roster.detect_tool(code, "cursor")
