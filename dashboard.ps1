@@ -118,6 +118,23 @@ if ($HostName) {
     $env:PM_QA_COCKPIT_HOST = $HostName
 }
 
+# Terminate any orphaned/stale process on the port before starting tunnel or server
+try {
+    $existing = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if ($existing) {
+        $pids = $existing | Select-Object -ExpandProperty OwningProcess -Unique
+        foreach ($p in $pids) {
+            if ($p -gt 0) {
+                Write-Host "  [cleanup] Stopping existing process on port $Port (PID $p)..." -ForegroundColor Yellow
+                Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Start-Sleep -Milliseconds 400
+    }
+} catch {
+    # Non-fatal if Get-NetTCPConnection fails
+}
+
 $tunnelProcess = $null
 $tunnelUrl = $null
 if ($Tunnel -or $Public) {
@@ -139,19 +156,19 @@ if ($Tunnel -or $Public) {
     $psi.FileName = $cfExe
     $psi.Arguments = "tunnel --url http://127.0.0.1:$Port"
     $psi.RedirectStandardError = $true
-    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardOutput = $false
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $tunnelProcess = [System.Diagnostics.Process]::Start($psi)
 
-    # Watch output for trycloudflare.com URL
+    # Watch output for trycloudflare.com URL without blocking
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     while ($sw.ElapsedMilliseconds -lt 15000 -and -not $tunnelUrl) {
-        Start-Sleep -Milliseconds 300
+        Start-Sleep -Milliseconds 250
         if ($tunnelProcess.HasExited) {
             break
         }
-        while (-not $tunnelProcess.StandardError.EndOfStream) {
+        while ($tunnelProcess.StandardError.Peek() -ge 0) {
             $line = $tunnelProcess.StandardError.ReadLine()
             if ($line -match '(https://[a-zA-Z0-9-]+\.trycloudflare\.com)') {
                 $tunnelUrl = $matches[1]
@@ -204,23 +221,6 @@ if ($Project) {
         Write-Host "  [project] Could not select '$Project' (see above)." -ForegroundColor Red
         exit $LASTEXITCODE
     }
-}
-
-# Terminate any orphaned/stale process on the port
-try {
-    $existing = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-    if ($existing) {
-        $pids = $existing | Select-Object -ExpandProperty OwningProcess -Unique
-        foreach ($p in $pids) {
-            if ($p -gt 0) {
-                Write-Host "  [cleanup] Stopping existing process on port $Port (PID $p)..." -ForegroundColor Yellow
-                Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
-            }
-        }
-        Start-Sleep -Milliseconds 400
-    }
-} catch {
-    # Non-fatal if Get-NetTCPConnection fails
 }
 
 # Open browser once the server is listening

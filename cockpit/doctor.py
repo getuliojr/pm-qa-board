@@ -250,7 +250,7 @@ def run(target: str) -> dict[str, Any]:
 
     lan_ip = server.get_lan_ip()
     bin_name = "cloudflared.exe" if sys.platform == "win32" else "cloudflared"
-    custom_cf = Path.home() / ".pm-qa-cockpit" / "bin" / bin_name
+    custom_cf = projects.cockpit_home() / "bin" / bin_name
     cf_path = str(custom_cf) if custom_cf.is_file() else shutil.which("cloudflared")
     cf_detail = f"cloudflared installed ({cf_path})" if cf_path else "cloudflared not installed (optional for -Tunnel)"
 

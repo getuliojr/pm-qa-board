@@ -561,7 +561,7 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
                   const isPending = !item.checked;
                   const itemClass = isPending ? 'qa-pending-item p-2' : 'p-2 hover:bg-slate-900';
                   return `
-          <label class="flex items-start justify-between space-x-3 rounded cursor-pointer text-sm transition ${itemClass}">
+          <label class="flex items-start justify-between space-x-3 rounded cursor-pointer text-sm transition touch-target-item ${itemClass}">
             <div class="flex items-start space-x-3 flex-1">
               <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-dod" data-card-id="${escId}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500/20 bg-slate-800 cursor-pointer">
               <span class="${item.checked ? 'text-slate-200 font-medium' : 'text-amber-200 font-semibold'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
@@ -1541,7 +1541,7 @@ function renderActiveSprintDod() {
             const dodItemsHtml = (c.dod || [])
               .map((item, subIdx) => {
                 return `
-                <label class="flex items-start space-x-2 py-1 px-1.5 rounded hover:bg-slate-900 cursor-pointer text-[11px] transition">
+                <label class="flex items-start space-x-2 py-1 px-1.5 rounded hover:bg-slate-900 cursor-pointer text-[11px] transition touch-target-item">
                   <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-dod" data-card-id="${escId}" data-idx="${subIdx}" class="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500/20 bg-slate-800 cursor-pointer">
                   <span class="${item.checked ? 'text-slate-500 line-through' : 'text-slate-300'}">${formatRichText(item.text)}</span>
                 </label>
@@ -2495,7 +2495,7 @@ function openCardModal(card) {
     dodContainer.innerHTML = card.dod
       .map(
         (item, idx) => `
-      <label class="flex items-start space-x-3 p-2 rounded hover:bg-slate-950/80 cursor-pointer text-sm transition">
+      <label class="flex items-start space-x-3 p-2 rounded hover:bg-slate-950/80 cursor-pointer text-sm transition touch-target-item">
         <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-dod" data-card-id="${escId}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500/20 bg-slate-800 cursor-pointer">
         <span class="${item.checked ? 'text-slate-400 line-through' : 'text-slate-200 font-medium'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
       </label>
@@ -2526,7 +2526,7 @@ function openCardModal(card) {
         qaListEl.innerHTML = (card.qa_items || [])
           .map(
             (item, idx) => `
-          <label class="flex items-start space-x-3 p-2.5 rounded bg-slate-900/60 border border-slate-800 hover:border-amber-500/30 cursor-pointer text-sm transition">
+          <label class="flex items-start space-x-3 p-2.5 rounded bg-slate-900/60 border border-slate-800 hover:border-amber-500/30 cursor-pointer text-sm transition touch-target-item">
             <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-qa" data-card-id="${escId}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-slate-700 text-amber-500 focus:ring-amber-500/20 bg-slate-800 cursor-pointer">
             <span class="${item.checked ? 'text-emerald-400 font-medium' : 'text-amber-200 font-medium'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
           </label>
@@ -3371,14 +3371,15 @@ function generateQrSvg(text) {
   }
 
   const specs = {
-    1: [26, 19, 7, 0],
-    2: [44, 34, 10, 18],
-    3: [70, 55, 15, 22],
-    4: [100, 80, 20, 26],
-    5: [134, 108, 26, 30],
-    6: [172, 136, 36, 34],
+    1: { totalCodewords: 26, dataCodewords: 19, ecPerBlock: 7, blocks: 1, alignPos: 0 },
+    2: { totalCodewords: 44, dataCodewords: 34, ecPerBlock: 10, blocks: 1, alignPos: 18 },
+    3: { totalCodewords: 70, dataCodewords: 55, ecPerBlock: 15, blocks: 1, alignPos: 22 },
+    4: { totalCodewords: 100, dataCodewords: 80, ecPerBlock: 20, blocks: 1, alignPos: 26 },
+    5: { totalCodewords: 134, dataCodewords: 108, ecPerBlock: 13, blocks: 2, alignPos: 30 },
+    6: { totalCodewords: 172, dataCodewords: 136, ecPerBlock: 18, blocks: 2, alignPos: 34 },
   };
-  const [totalCodewords, dataCodewords, ecCount, alignPos] = specs[version];
+  const spec = specs[version];
+  const { totalCodewords, dataCodewords, ecPerBlock, blocks, alignPos } = spec;
 
   let bitBuf = 0;
   let bitLen = 0;
@@ -3428,7 +3429,7 @@ function generateQrSvg(text) {
   }
 
   let poly = [1];
-  for (let i = 0; i < ecCount; i++) {
+  for (let i = 0; i < ecPerBlock; i++) {
     const nextP = new Array(poly.length + 1).fill(0);
     const a_i = EXP[i];
     for (let j = 0; j < poly.length; j++) {
@@ -3438,16 +3439,41 @@ function generateQrSvg(text) {
     poly = nextP;
   }
 
-  const ecData = new Array(ecCount).fill(0);
-  for (let i = 0; i < data.length; i++) {
-    const factor = data[i] ^ ecData[0];
-    for (let j = 0; j < ecCount - 1; j++) {
-      ecData[j] = ecData[j + 1] ^ gfMul(poly[j + 1], factor);
+  const dataPerBlock = dataCodewords / blocks;
+  const blockData = [];
+  const blockEc = [];
+  for (let b = 0; b < blocks; b++) {
+    const bData = data.slice(b * dataPerBlock, (b + 1) * dataPerBlock);
+    blockData.push(bData);
+
+    const ecData = new Array(ecPerBlock).fill(0);
+    for (let i = 0; i < bData.length; i++) {
+      const factor = bData[i] ^ ecData[0];
+      for (let j = 0; j < ecPerBlock - 1; j++) {
+        ecData[j] = ecData[j + 1] ^ gfMul(poly[j + 1], factor);
+      }
+      ecData[ecPerBlock - 1] = gfMul(poly[ecPerBlock], factor);
     }
-    ecData[ecCount - 1] = gfMul(poly[ecCount], factor);
+    blockEc.push(ecData);
   }
 
-  const allCodewords = data.concat(ecData);
+  // Interleave data codewords
+  const interleavedData = [];
+  for (let i = 0; i < dataPerBlock; i++) {
+    for (let b = 0; b < blocks; b++) {
+      interleavedData.push(blockData[b][i]);
+    }
+  }
+
+  // Interleave error correction codewords
+  const interleavedEc = [];
+  for (let i = 0; i < ecPerBlock; i++) {
+    for (let b = 0; b < blocks; b++) {
+      interleavedEc.push(blockEc[b][i]);
+    }
+  }
+
+  const allCodewords = interleavedData.concat(interleavedEc);
   const size = version * 4 + 17;
   const matrix = Array.from({ length: size }, () => new Int8Array(size).fill(-1));
 
@@ -3497,7 +3523,8 @@ function generateQrSvg(text) {
 
   setModule(4 * version + 9, 8, 1);
 
-  const formatBits = 0x74a0;
+  // ISO/IEC 18004 standard format bits: Level L, Mask 0 ((r + c) % 2 === 0)
+  const formatBits = 0x77c4;
   for (let i = 0; i < 15; i++) {
     const bit = (formatBits >>> (14 - i)) & 1;
     if (i < 6) setModule(8, i, bit);

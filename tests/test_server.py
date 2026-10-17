@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -334,5 +335,57 @@ def test_server_keep_alive(server):
     res_off = srv.set_keep_alive(False)
     assert isinstance(res_on, bool)
     assert isinstance(res_off, bool)
+
+
+def test_post_allowed_with_tunnel_and_forwarded_host(server, legacy_project, monkeypatch):
+    base, srv = server
+    projects.upsert_project(projects.build_project("Legacy", legacy_project, prefix="MN"))
+
+    # Origin matching X-Forwarded-Host header is permitted (Cloudflare tunnel proxy)
+    req_fwd = urllib.request.Request(
+        f"{base}/api/projects/select",
+        data=json.dumps({"slug": "legacy"}).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Host": "127.0.0.1:3333",
+            "X-Forwarded-Host": "my-quick-tunnel.trycloudflare.com",
+            "Origin": "https://my-quick-tunnel.trycloudflare.com",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req_fwd) as r:
+        assert r.status == 200
+
+    # Origin matching configured TUNNEL_URL is permitted
+    monkeypatch.setattr(srv, "TUNNEL_URL", "https://custom-tunnel.trycloudflare.com")
+    req_tunnel = urllib.request.Request(
+        f"{base}/api/projects/select",
+        data=json.dumps({"slug": "legacy"}).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Host": "127.0.0.1:3333",
+            "Origin": "https://custom-tunnel.trycloudflare.com",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req_tunnel) as r:
+        assert r.status == 200
+
+
+def test_doctor_check_11_custom_cloudflared_in_cockpit_home(server, legacy_project, monkeypatch, tmp_path):
+    import doctor
+    _, srv = server
+    custom_bin = projects.cockpit_home() / "bin"
+    custom_bin.mkdir(parents=True, exist_ok=True)
+    bin_name = "cloudflared.exe" if sys.platform == "win32" else "cloudflared"
+    fake_cf = custom_bin / bin_name
+    fake_cf.write_text("fake binary")
+
+    monkeypatch.setattr(srv, "get_lan_ip", lambda: "192.168.1.150")
+    report = doctor.run(str(legacy_project))
+    check11 = [c for c in report["checks"] if c["n"] == 11][0]
+    assert check11["status"] == "pass"
+    assert "cloudflared installed" in check11["detail"]
+    assert str(fake_cf) in check11["detail"]
 
 

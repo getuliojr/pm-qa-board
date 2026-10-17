@@ -493,6 +493,17 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         if host:
             allowed.add(f"http://{host}")
             allowed.add(f"https://{host}")
+        fwd_host = self.headers.get("X-Forwarded-Host")
+        if fwd_host:
+            allowed.add(f"http://{fwd_host}")
+            allowed.add(f"https://{fwd_host}")
+        if TUNNEL_URL:
+            t_clean = TUNNEL_URL.rstrip("/")
+            allowed.add(t_clean)
+            parsed_t = urllib.parse.urlparse(t_clean)
+            if parsed_t.netloc:
+                allowed.add(f"http://{parsed_t.netloc}")
+                allowed.add(f"https://{parsed_t.netloc}")
         lan_ip = get_lan_ip()
         if lan_ip:
             allowed.add(f"http://{lan_ip}:{port}")
