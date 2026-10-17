@@ -30,8 +30,10 @@ PREFIX = "cockpit-"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 # A role is matched by file name first, then by description (heuristic, Q9).
-MATCH = {"builder": re.compile(r"\bbuilder\b"), "advisor": re.compile(r"\badvisor\b"), "reviewer": re.compile(r"\breview(er)?\b"),
-         "retrieval": re.compile(r"\bretriev(e|al|er)\b"), "pm-sync": re.compile(r"\bpm[-_ ]?sync\b")}
+_L, _R = r"(?<![a-z0-9])", r"(?![a-z0-9])"  # whole words, where "_" and "-" both separate
+MATCH = {"builder": re.compile(_L + r"builders?" + _R), "advisor": re.compile(_L + r"advisors?" + _R),
+         "reviewer": re.compile(_L + r"review(er)?s?" + _R), "retrieval": re.compile(_L + r"retriev(e|es|al|er|ers)" + _R),
+         "pm-sync": re.compile(_L + r"pm[-_ ]?sync" + _R)}
 READ_DIRS = {
     "claude": [".claude/agents"],
     "cursor": [".cursor/agents"],
@@ -92,18 +94,19 @@ def base_model(tool: str, model: str) -> str:
     return model.split("[", 1)[0].strip()
 
 
-def roles_for(name: str, description: str) -> list[str]:
-    """Roles a file could fill (whole words only). Name first; the description only if the name says nothing."""
-    for text in (name.lower(), description.lower()):
+def roles_for(name: str, description: str) -> tuple[list[str], bool]:
+    """(roles a file could fill, decided by the name). Whole words only. Name first; the description only if
+    the name says nothing, and a description that names several roles is prose, not an identity."""
+    for text, by_name in ((name.lower(), True), (description.lower(), False)):
         hits = [r for r, rx in MATCH.items() if rx.search(text)]
         if hits:
-            return hits
-    return []
+            return hits, by_name
+    return [], False
 
 
 def match_role(name: str, description: str) -> str | None:
     """The one role a file fills, or None when it fits none or several."""
-    hits = roles_for(name, description)
+    hits, _ = roles_for(name, description)
     return hits[0] if len(hits) == 1 else None
 
 
@@ -122,7 +125,9 @@ def detect_tool(code: Path, tool: str) -> dict[str, Any]:
             except OSError:
                 continue
             name = fm.get("name") or f.stem
-            hits = roles_for(f.stem if not fm.get("name") else f"{f.stem} {name}", fm.get("description", ""))
+            hits, by_name = roles_for(f.stem if not fm.get("name") else f"{f.stem} {name}", fm.get("description", ""))
+            if len(hits) > 1 and not by_name:
+                hits = []
             if len(hits) > 1:
                 for h in hits:
                     possible.setdefault(h, []).append(f"{rel}/{f.name}")
@@ -166,7 +171,7 @@ def valid_value(kind: str, value: str) -> bool:
 
 def forbidden_pin(tool: str, role: str, model: str) -> str | None:
     """Pins setup refuses to write (an unknown model only warns later, but these defeat the design)."""
-    if model in ALIASES[tool]:
+    if base_model(tool, model) in ALIASES[tool]:
         return "an alias may resolve to an older model: use the full ID"
     if model == "inherit":
         return "inherit is not allowed: pin a model"
@@ -219,7 +224,7 @@ def check_pin(tool: str, role: str, model: str) -> str | None:
         return "no model line (it follows the session)"
     if model == "inherit":
         return "inherit is not allowed for this role (it must be a separate model)" if role in ("advisor", "reviewer") else None
-    if model in ALIASES[tool]:
+    if base_model(tool, model) in ALIASES[tool]:
         return f"'{model}' is an alias that may resolve to an older model: pin the full ID"
     if base_model(tool, model) not in KNOWN_MODELS[tool]:
         return f"'{model}' is not in the list this cockpit version knows"

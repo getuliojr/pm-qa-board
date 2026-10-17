@@ -215,19 +215,24 @@ def run(target: str) -> dict[str, Any]:
 
     # 10. every loop role has an agent and a sound model pin per tool used (warn only: a model name never fails)
     reg_only = bool(loop)
-    gaps, pins = [], []
+    gaps, pins, ambiguous = [], [], []
     for t in tools:
         state = roster.detect_tool(code, t)
         for role in state["missing"]:
             gaps.append(f"{labels[t]} {role}")
+        for role, files in state["possible"].items():
+            if state["roles"][role] is None:
+                ambiguous.append(f"{labels[t]} {role}: {', '.join(files)} may fill it but is named for several roles (pin not checked)")
         for role, have in state["roles"].items():
             if have:
                 why = roster.check_pin(t, role, have["model"])
                 if why:
                     pins.append(f"{have['file']} ({role}): {why}")
-    if gaps or pins:
-        detail = "; ".join(([f"no agent for {', '.join(gaps)}"] if gaps else []) + pins)
+    if gaps or pins or ambiguous:
+        detail = "; ".join(([f"no agent for {', '.join(gaps)}"] if gaps else []) + pins + ambiguous)
         fix = []
+        if ambiguous:
+            fix.append("give each agent file a name that says one role")
         if gaps:
             fix.append("your project keeps its own loop, so add those agents by hand if you want them" if reg_only
                        else f"{setup_cmd} (it adds the missing roles and never edits yours)")

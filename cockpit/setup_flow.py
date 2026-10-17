@@ -461,8 +461,13 @@ def read_roster(code: Path, project: dict[str, Any], tools: list[str]) -> dict[s
         text = orch.read_text(encoding="utf-8", errors="replace") if orch.is_file() else ""
     except OSError:
         text = ""
+    starts, ends = text.count(roster.ROSTER_START), text.count(roster.ROSTER_END)
+    markers = "none" if not (starts or ends) else (
+        "ok" if starts == 1 and ends == 1 and text.find(roster.ROSTER_START) < text.find(roster.ROSTER_END) else "damaged")
+    block = text[text.find(roster.ROSTER_START):text.find(roster.ROSTER_END)] if markers == "ok" else ""
     return {"orchestration": str(orch), "orchestration_exists": orch.is_file(),
-            "has_section": roster.ROSTER_START in text and "| Role | Agent |" in text,
+            "readable": _readable_utf8(orch), "markers": markers,
+            "has_section": "| Role | Agent |" in block,
             "lead": roster.parse_lead(text, TOOL_LABELS),
             "tools": {t: roster.detect_tool(code, t) for t in tools}}
 
@@ -599,7 +604,8 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
     #     only for missing roles, never over an existing agent file.
     roster_state = read_roster(code, project, tools)
     roster_files: list[str] = []
-    table_only = roster_state["orchestration_exists"] and not roster_state["has_section"]
+    table_only = (roster_state["orchestration_exists"] and roster_state["readable"]
+                  and roster_state["markers"] != "damaged" and not roster_state["has_section"])
     if not register_only and (table_only or any(r["missing"] for r in roster_state["tools"].values())):
         files = [{"tool": t, "role": role, "path": f"{roster.WRITE_DIR[t]}/{roster.PREFIX}{role}.md", **roster.recommended(t, role)}
                  for t in tools for role in roster_state["tools"][t]["missing"]]
@@ -839,12 +845,12 @@ def build_inventory(plan: dict[str, Any], code: Path, reach: dict[str, dict[str,
         def say_role(r: str) -> str:
             have = rs["roles"][r]
             if not have:
-                return f"{r}: missing"
+                return f"{r}: possibly {', '.join(rs['possible'][r])}" if r in rs["possible"] else f"{r}: missing"
             return f"{r}: {have['model'] or 'no model'}" + ("" if have["ours"] else " (yours)")
 
         now = "; ".join(say_role(r) for r in roster.FILE_ROLES)
         if rs["possible"]:
-            now += "; " + "; ".join(f"possible {r}: {', '.join(fs)} (not duplicated)" for r, fs in sorted(rs["possible"].items()))
+            now += " (a file named for several roles is never duplicated)"
         if rs["extra"]:
             now += f"; other agents left alone: {', '.join(rs['extra'])}"
         if not rs["missing"]:
@@ -863,6 +869,10 @@ def build_inventory(plan: dict[str, Any], code: Path, reach: dict[str, dict[str,
         items.append(_item(f"Lead for {TOOL_LABELS[t]}", f"{lead['model']} ({lead['effort']})" if lead else "not recorded",
                            f"recommended: {rec['model']}, effort {rec['effort']} (you pick it per session; setup records it)",
                            "the lead is your session's model, so it has no agent file", "ok" if lead or not full else "info"))
+    rs0 = plan["roster"]
+    if rs0["orchestration_exists"] and (rs0["markers"] == "damaged" or not rs0["readable"]):
+        items.append(_item("Roster table in ORCHESTRATION.md", "its roster markers are damaged" if rs0["readable"] else "the file is not UTF-8",
+                           "yours to fix: exactly one start and one end marker, in order", "setup never writes a damaged file", "review"))
     groups.append({"group": "Roster", "items": items})
 
     # -- launchers

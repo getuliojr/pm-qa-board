@@ -57,12 +57,12 @@ def test_roles_are_matched_by_name_then_description(tmp_path):
     _agent(code / ".cursor" / "agents" / "retrieve.md", "retrieve", "composer-2.5[fast=false]")
     _agent(code / ".cursor" / "agents" / "x.md", "x", "grok-4.7[fast=false]", "Cold review gate")
     _agent(code / ".cursor" / "agents" / "helper.md", "helper", "grok-4.6[fast=false]", "Does odd jobs")
-    _agent(code / ".cursor" / "agents" / "both.md", "both", "grok-4.6[fast=false]", "builder and reviewer")
+    _agent(code / ".cursor" / "agents" / "builder-reviewer.md", "builder-reviewer", "grok-4.6[fast=false]", "does both")
     st = roster.detect_tool(code, "cursor")
     assert st["roles"]["retrieval"]["file"] == ".cursor/agents/retrieve.md"
     assert st["roles"]["reviewer"]["file"] == ".cursor/agents/x.md"
     assert st["extra"] == [".cursor/agents/helper.md"]
-    assert st["possible"] == {"builder": [".cursor/agents/both.md"], "reviewer": [".cursor/agents/both.md"]}
+    assert st["possible"] == {"builder": [".cursor/agents/builder-reviewer.md"], "reviewer": [".cursor/agents/builder-reviewer.md"]}
     assert set(st["missing"]) == {"advisor", "pm-sync"}, "a file that could fill a role is never duplicated"
 
 
