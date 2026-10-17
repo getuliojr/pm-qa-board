@@ -109,11 +109,11 @@ PLAN = """# Plan
 
 def _git(cwd: Path, *args: str) -> None:
     # Windows intermittently fails object writes (AV file locks -> exit 128); retry before failing.
-    for attempt in range(4):
+    for attempt in range(8):
         res = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, check=False)
         if res.returncode == 0:
             return
-        time.sleep(0.4 * (attempt + 1))
+        time.sleep(0.5 * (attempt + 1))
     raise subprocess.CalledProcessError(res.returncode, res.args, res.stdout, res.stderr)
 
 

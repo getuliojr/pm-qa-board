@@ -57,6 +57,46 @@
   border-color: rgba(16, 185, 129, 0.35);
 }
 
+/* Mobile Column Switcher Pills */
+.mobile-col-pill {
+  padding: 0.35rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  background-color: rgba(30, 41, 59, 0.8);
+  color: #94a3b8;
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.mobile-col-pill:hover {
+  background-color: #334155;
+  color: #f8fafc;
+}
+.mobile-col-pill.active {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  border-color: rgba(16, 185, 129, 0.5);
+  font-weight: 600;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 44px Touch Targets for Checkboxes */
+.touch-target-item {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
 /* Kanban Board Columns */
 .board-column {
   background: rgba(15, 23, 42, 0.5);
@@ -66,6 +106,16 @@
   flex-direction: column;
   height: calc(100vh - 15rem);
   min-height: 520px;
+}
+@media (max-width: 768px) {
+  .board-column {
+    min-width: 82vw;
+    max-width: 85vw;
+    scroll-snap-align: center;
+    flex-shrink: 0;
+    height: calc(100vh - 17.5rem);
+    min-height: 460px;
+  }
 }
 .board-column-header {
   padding: 0.75rem 1rem;

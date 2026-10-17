@@ -194,12 +194,12 @@ def test_doctor_after_the_recommended_setup_is_all_pass(sandbox, capsys):
     approve = [i for d in plan["decisions"] for i in d["options"][0]["approve"]]
     setup_flow.apply_actions(plan, [i.split("=")[0] for i in approve])
     report = doctor.run(str(sb["project"]))
-    assert [c["n"] for c in report["checks"]] == list(range(1, 11))
+    assert [c["n"] for c in report["checks"]] == list(range(1, 12))
     # money-nest keeps its own roster (Story 2.2): its gaps and alias pins are reported, never fixed by setup
-    assert report["counts"] == {"pass": 9, "warn": 1, "fail": 0}, [c for c in report["checks"] if c["status"] != "pass"]
+    assert report["counts"] == {"pass": 10, "warn": 1, "fail": 0}, [c for c in report["checks"] if c["status"] != "pass"]
     assert [c["n"] for c in report["checks"] if c["status"] != "pass"] == [10]
     assert cli.main(["doctor", "money-nest"]) == 0
-    assert "9 pass, 1 warn, 0 fail" in capsys.readouterr().out
+    assert "10 pass, 1 warn, 0 fail" in capsys.readouterr().out
     assert not setup_flow.build_plan(sb["project"])["decisions"], "nothing left to decide"
 
 

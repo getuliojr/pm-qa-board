@@ -8,6 +8,7 @@ and switching between the projects registered in ``~/.pm-qa-cockpit/projects.jso
 
 from __future__ import annotations
 
+import atexit
 import collections
 import datetime
 import json
@@ -26,8 +27,48 @@ from typing import Any
 import projects
 from parser import PMParser
 
+HOST = os.environ.get("PM_QA_COCKPIT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PM_QA_COCKPIT_PORT", "3333"))
+TOKEN = os.environ.get("PM_QA_COCKPIT_TOKEN", "")
+TUNNEL_URL = os.environ.get("PM_QA_COCKPIT_TUNNEL_URL", "")
+KEEP_ALIVE = os.environ.get("PM_QA_COCKPIT_KEEP_ALIVE", "0").lower() in ("1", "true", "yes")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+def set_keep_alive(enable: bool = True) -> bool:
+    """Prevent Windows host from sleeping while server is running (Windows API)."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        if enable:
+            res = ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+            return res != 0
+        else:
+            res = ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+            return res != 0
+    except Exception:
+        return False
+
+
+def get_lan_ip() -> str:
+    """Detect local LAN/Wi-Fi IPv4 address using standard library socket."""
+    import socket
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+atexit.register(lambda: set_keep_alive(False))
 
 
 class HeavyGateWorker:
@@ -366,6 +407,16 @@ class CockpitState:
 STATE = CockpitState()
 
 
+class _WorkerProxy:
+    """Legacy proxy so `from server import HEAVY_WORKER` works for money-nest compatibility."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(STATE.worker, name)
+
+
+HEAVY_WORKER = _WorkerProxy()
+
+
 class PMRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
         # Custom concise logging
@@ -386,6 +437,43 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.NO_CONTENT)
         self.end_headers()
 
+    def is_authenticated(self) -> bool:
+        """Check if request is authorized when session token protection is active."""
+        if not TOKEN:
+            return True
+        # Local loopback client without tunnel/proxy headers is always allowed
+        client_ip = self.client_address[0] if self.client_address else ""
+        is_loopback = client_ip in ("127.0.0.1", "::1", "localhost")
+        has_forwarded = any(
+            self.headers.get(h)
+            for h in ("CF-Ray", "CF-Connecting-IP", "X-Forwarded-For", "X-Forwarded-Host")
+        )
+        if is_loopback and not has_forwarded:
+            return True
+
+        # Extract token from query params, headers, or cookie
+        parsed_url = urllib.parse.urlparse(self.path)
+        query_token = urllib.parse.parse_qs(parsed_url.query).get("token", [None])[0]
+        if query_token and query_token == TOKEN:
+            return True
+
+        header_token = self.headers.get("X-Cockpit-Token")
+        if header_token and header_token == TOKEN:
+            return True
+
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer ") and auth_header[7:].strip() == TOKEN:
+            return True
+
+        cookie_header = self.headers.get("Cookie", "")
+        if cookie_header:
+            cookies = [c.strip() for c in cookie_header.split(";")]
+            for c in cookies:
+                if c.startswith("cockpit_token=") and c[len("cockpit_token=") :] == TOKEN:
+                    return True
+
+        return False
+
     def post_allowed(self) -> bool:
         """CSRF guard for state-changing calls.
 
@@ -400,15 +488,66 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         if origin is None:
             return True  # non-browser clients (CLI, tests) send no Origin
         port = self.server.server_address[1]
-        return origin in (f"http://127.0.0.1:{port}", f"http://localhost:{port}")
+        allowed = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+        host = self.headers.get("Host")
+        if host:
+            allowed.add(f"http://{host}")
+            allowed.add(f"https://{host}")
+        lan_ip = get_lan_ip()
+        if lan_ip:
+            allowed.add(f"http://{lan_ip}:{port}")
+        return origin in allowed
 
     def do_GET(self) -> None:
         parsed_url = urllib.parse.urlparse(self.path)
         path = parsed_url.path
 
+        if not self.is_authenticated():
+            if path.startswith("/api/"):
+                self.send_json(
+                    {"error": "Unauthorized: invalid or missing session token"},
+                    status=HTTPStatus.UNAUTHORIZED,
+                )
+                return
+            self.send_response(HTTPStatus.UNAUTHORIZED)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            body = (
+                b"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Unauthorized - PM &amp; QA Cockpit</title>"
+                b"<style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;display:flex;align-items:center;"
+                b"justify-content:center;height:100vh;margin:0;padding:1rem;box-sizing:border-box;}"
+                b".box{background:#1e293b;border:1px solid #334155;border-radius:1rem;padding:2rem;max-width:440px;text-align:center;}"
+                b"h1{font-size:1.25rem;color:#f43f5e;margin-top:0;}p{font-size:0.875rem;color:#94a3b8;line-height:1.5;}"
+                b"code{background:#0f172a;padding:0.2rem 0.4rem;border-radius:0.25rem;color:#38bdf8;}</style></head>"
+                b"<body><div class=\"box\"><h1>401 - Session Token Required</h1>"
+                b"<p>This Cockpit instance is running with token authentication enabled.</p>"
+                b"<p>Connect from your phone by scanning the QR code from the desktop dashboard or open the link with <code>?token=...</code>.</p>"
+                b"</div></body></html>"
+            )
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         # ----------------------------------------------------------------------
         # API Routes
         # ----------------------------------------------------------------------
+        if path == "/api/server-info":
+            lan_ip = get_lan_ip()
+            port = self.server.server_address[1]
+            self.send_json(
+                {
+                    "host": HOST,
+                    "port": port,
+                    "lan_ip": lan_ip,
+                    "lan_url": f"http://{lan_ip}:{port}",
+                    "tunnel_url": TUNNEL_URL,
+                    "token": TOKEN if TOKEN else None,
+                    "token_required": bool(TOKEN),
+                    "keep_alive": KEEP_ALIVE,
+                }
+            )
+            return
+
         if path == "/api/projects":
             self.send_json(STATE.project_view())
             return
@@ -588,6 +727,8 @@ class PMRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
+            if TOKEN and (path == "/" or path == "/index.html"):
+                self.send_header("Set-Cookie", f"cockpit_token={TOKEN}; Path=/; SameSite=Lax")
             self.end_headers()
             self.wfile.write(content)
         else:
@@ -624,6 +765,13 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 pass
         if not isinstance(body, dict):
             body = {}
+
+        if not self.is_authenticated():
+            self.send_json(
+                {"success": False, "error": "Unauthorized: invalid or missing session token"},
+                status=HTTPStatus.UNAUTHORIZED,
+            )
+            return
 
         if not self.post_allowed():
             self.send_json({"success": False, "error": "Rejected: JSON body from this origin required"}, status=403)
@@ -813,20 +961,58 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND, f"POST route {path} not found")
 
 
-def main():
+def main(argv: list[str] | None = None) -> None:
+    global HOST, PORT, TOKEN, TUNNEL_URL, KEEP_ALIVE
+    import argparse
+
+    parser = argparse.ArgumentParser(description="PM & QA Cockpit Server")
+    parser.add_argument("--host", default=HOST, help="Host address to bind to (e.g. 127.0.0.1 or 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=PORT, help="Port to listen on (default 3333)")
+    parser.add_argument("--token", default=TOKEN, help="Session token for remote authentication")
+    parser.add_argument("--tunnel-url", default=TUNNEL_URL, help="Public tunnel URL (e.g. from Cloudflare)")
+    parser.add_argument(
+        "--keep-alive",
+        action="store_true",
+        default=KEEP_ALIVE,
+        help="Prevent Windows sleep while running",
+    )
+    args = parser.parse_args(argv)
+
+    HOST = args.host
+    PORT = args.port
+    TOKEN = args.token
+    TUNNEL_URL = args.tunnel_url
+    if args.keep_alive or (HOST not in ("127.0.0.1", "localhost")):
+        KEEP_ALIVE = True
+
+    lan_ip = get_lan_ip()
     print("=" * 60)
     print("  PM & QA Cockpit")
     print(f"  Project:    {STATE.project.get('name')} ({STATE.project.get('docs_mode')})")
-    print(f"  Serving at: http://localhost:{PORT}")
+    print(f"  Local:      http://localhost:{PORT}")
+    if HOST not in ("127.0.0.1", "localhost"):
+        print(f"  LAN (Wi-Fi):http://{lan_ip}:{PORT}")
+    if TUNNEL_URL:
+        tunnel_display = TUNNEL_URL + (f"?token={TOKEN}" if TOKEN else "")
+        print(f"  Tunnel:     {tunnel_display}")
+    if KEEP_ALIVE:
+        ka_active = set_keep_alive(True)
+        print(f"  Keep-Alive: {'Active (sleep prevented)' if ka_active else 'Enabled'}")
+    if TOKEN:
+        print("  Security:   Session token active for remote clients")
     print("=" * 60)
+
     ThreadingHTTPServer.allow_reuse_address = True
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), PMRequestHandler)
+    server = ThreadingHTTPServer((HOST, PORT), PMRequestHandler)
     # Pre-warm cards cache in background so first browser request is instantaneous
     threading.Thread(target=STATE.parser.get_all_cards, daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down server...")
+    finally:
+        if KEEP_ALIVE:
+            set_keep_alive(False)
         server.server_close()
 
 

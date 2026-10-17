@@ -86,7 +86,12 @@
         </div>
       </div>
 
-      <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-2 sm:space-x-3">
+        <button id="mobileConnectBtn" onclick="openMobileConnectModal()" class="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 text-xs font-medium rounded-lg border border-emerald-500/40 transition cursor-pointer shadow-sm">
+          <i data-lucide="qr-code" class="w-3.5 h-3.5"></i>
+          <span class="hidden sm:inline">Mobile Connect</span>
+          <span class="sm:hidden">Mobile</span>
+        </button>
         <button id="refreshBtn" class="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg border border-slate-700 transition">
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5" id="refreshIcon"></i>
           <span>Refresh</span>
@@ -95,7 +100,7 @@
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8 -mb-px">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 sm:space-x-8 -mb-px overflow-x-auto scrollbar-none whitespace-nowrap">
       <button class="nav-tab active-tab" data-tab="pipeline">
         <i data-lucide="kanban" class="w-4 h-4 mr-2"></i>
         <span>Pipeline Board</span>
@@ -160,10 +165,32 @@
           <input type="text" id="pipelineSearch" placeholder="Search tasks or IDs..." class="w-full bg-slate-800 text-slate-200 text-xs rounded-lg pl-8 pr-3 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-500">
           <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
         </div>
+      <!-- Mobile Column Switcher Pills -->
+      <div id="mobileColumnPills" class="flex md:hidden items-center gap-2 overflow-x-auto pb-2 mb-3 scrollbar-none">
+        <button class="mobile-col-pill active" data-col="backlog" onclick="scrollToColumn('backlog')">
+          <span>Backlog</span>
+          <span id="mcount-backlog" class="ml-1 text-[10px] opacity-80">0</span>
+        </button>
+        <button class="mobile-col-pill" data-col="sprint-backlog" onclick="scrollToColumn('sprint-backlog')">
+          <span>Story Backlog</span>
+          <span id="mcount-sprint-backlog" class="ml-1 text-[10px] opacity-80">0</span>
+        </button>
+        <button class="mobile-col-pill" data-col="in-progress" onclick="scrollToColumn('in-progress')">
+          <span>In Progress</span>
+          <span id="mcount-in-progress" class="ml-1 text-[10px] opacity-80">0</span>
+        </button>
+        <button class="mobile-col-pill" data-col="qa" onclick="scrollToColumn('qa')">
+          <span>QA</span>
+          <span id="mcount-qa" class="ml-1 text-[10px] opacity-80">0</span>
+        </button>
+        <button class="mobile-col-pill" data-col="completed" onclick="scrollToColumn('completed')">
+          <span>Completed</span>
+          <span id="mcount-completed" class="ml-1 text-[10px] opacity-80">0</span>
+        </button>
       </div>
 
-      <!-- Kanban Columns Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <!-- Kanban Columns Grid (horizontal swipe snap on mobile, 5 cols on desktop) -->
+      <div id="kanbanColumnsContainer" class="flex md:grid md:grid-cols-5 overflow-x-auto md:overflow-visible snap-x snap-mandatory gap-4 pb-4 md:pb-0 scrollbar-none">
         <!-- Backlog -->
         <div class="board-column" data-col="backlog">
           <div class="board-column-header text-slate-400 border-slate-700">
@@ -889,8 +916,76 @@
       </div>
     </div>
 
+    <!-- MOBILE CONNECT & QR MODAL -->
+    <div id="mobileConnectModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm transition-opacity">
+      <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 sticky top-0 z-10">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <i data-lucide="qr-code" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">Mobile Connect</h3>
+              <p class="text-xs text-slate-400">Scan with your phone camera</p>
+            </div>
+          </div>
+          <button onclick="closeMobileConnectModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition cursor-pointer">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <div class="p-6 overflow-y-auto space-y-4 text-xs text-slate-300">
+          <!-- QR Code Container -->
+          <div class="flex flex-col items-center justify-center p-4 bg-white rounded-xl shadow-inner mx-auto w-64 h-64" id="mobileQrContainer">
+            <div id="mobileQrGraphic" class="w-56 h-56 flex items-center justify-center text-slate-400 font-mono text-xs">
+              Generating QR code...
+            </div>
+          </div>
+
+          <!-- URL and Copy Button -->
+          <div class="space-y-1.5">
+            <label class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Mobile URL</label>
+            <div class="flex items-center gap-2">
+              <input id="mobileConnectUrlInput" type="text" readonly class="flex-1 bg-slate-950 text-slate-200 font-mono text-[11px] px-3 py-2 rounded-lg border border-slate-800 focus:outline-none select-all">
+              <button onclick="copyMobileUrl()" id="copyMobileUrlBtn" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium rounded-lg text-xs flex items-center gap-1.5 transition cursor-pointer">
+                <i data-lucide="copy" class="w-3.5 h-3.5" id="copyMobileUrlIcon"></i>
+                <span id="copyMobileUrlText">Copy</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Status and Capabilities -->
+          <div class="p-3.5 bg-slate-950/60 rounded-xl border border-slate-800 space-y-2 text-[11px]">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-400">Network Access:</span>
+              <span id="mobileNetworkModeBadge" class="font-semibold text-emerald-400">Local Wi-Fi (LAN)</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-400">Host Keep-Alive:</span>
+              <span id="mobileKeepAliveBadge" class="font-semibold text-cyan-400">Active (Sleep Prevented)</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-400">Session Security:</span>
+              <span id="mobileTokenBadge" class="font-semibold text-slate-300">Standard</span>
+            </div>
+          </div>
+
+          <!-- Troubleshooting note -->
+          <div class="text-[11px] text-slate-400 leading-relaxed bg-slate-800/40 p-2.5 rounded-lg border border-slate-700/40">
+            <span class="text-slate-300 font-semibold">Tip:</span> Ensure your phone is connected to the same Wi-Fi network (or tunnel URL). If connection times out, verify port in Windows Firewall.
+          </div>
+        </div>
+
+        <div class="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex justify-end">
+          <button onclick="closeMobileConnectModal()" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition text-xs cursor-pointer">
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+
   </main>
 
-  <script src="app.js?v=20261001-scrollfix"></script>
+  <script src="app.js?v=20261017-mobile"></script>
 </body>
 </html>

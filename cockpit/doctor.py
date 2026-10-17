@@ -1,8 +1,8 @@
 """
-doctor.py - `cli.py doctor <project>`: is this project's cockpit setup correct? (Story 2.1, R2-Q7)
+doctor.py - `cli.py doctor <project>`: is this project's cockpit setup correct? (Story 2.1, R2-Q7; Story 3)
 
 Strictly read-only: no registry writes, no plan file, no exclude edits, no server, no network. Each of
-the 10 checks is pass / warn / fail with a one-line fix for anything that isn't a pass; any fail makes
+the 11 checks is pass / warn / fail with a one-line fix for anything that isn't a pass; any fail makes
 the command exit 1. `pm-qa-setup` ends with it, and the user can re-run it anytime.
 
 Standard library only.
@@ -13,6 +13,8 @@ from __future__ import annotations
 import contextlib
 import io
 from pathlib import Path
+import shutil
+import sys
 from typing import Any
 
 import projects
@@ -242,6 +244,22 @@ def run(target: str) -> dict[str, Any]:
     else:
         checks.append(_check(10, "Roster: every role has an agent", "pass",
                              f"all {len(roster.FILE_ROLES)} delegated roles have an agent with a known pinned model for {', '.join(labels.values())}"))
+
+    # 11. mobile network status and optional cloudflared presence (Story 3)
+    import server
+
+    lan_ip = server.get_lan_ip()
+    bin_name = "cloudflared.exe" if sys.platform == "win32" else "cloudflared"
+    custom_cf = Path.home() / ".pm-qa-cockpit" / "bin" / bin_name
+    cf_path = str(custom_cf) if custom_cf.is_file() else shutil.which("cloudflared")
+    cf_detail = f"cloudflared installed ({cf_path})" if cf_path else "cloudflared not installed (optional for -Tunnel)"
+
+    if lan_ip != "127.0.0.1":
+        checks.append(_check(11, "Mobile & tunnel access", "pass", f"LAN IP {lan_ip}; {cf_detail}"))
+    else:
+        checks.append(_check(11, "Mobile & tunnel access", "warn",
+                             f"no LAN IP detected ({lan_ip}); {cf_detail}",
+                             "connect to local Wi-Fi/LAN to use `dashboard.ps1 -Mobile`"))
 
     counts = {s: sum(1 for c in checks if c["status"] == s) for s in ("pass", "warn", "fail")}
     return {"project": project["slug"], "name": project["name"], "code_path": str(code), "checks": checks,

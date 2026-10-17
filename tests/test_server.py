@@ -202,3 +202,137 @@ def test_switching_back_keeps_finished_run_state(server, legacy_project, externa
     assert srv.STATE.worker is worker_a
     assert srv.STATE.worker.get_status()["status"] == "completed"
     assert srv.STATE.worker.get_log() == ["run finished"]
+
+
+def test_server_info_and_lan_ip(server):
+    base, srv = server
+    status, body = get(f"{base}/api/server-info")
+    assert status == 200
+    info = json.loads(body)
+    assert "host" in info
+    assert "port" in info
+    assert "lan_ip" in info
+    assert "token_required" in info
+    assert srv.get_lan_ip() is not None
+
+
+def test_token_auth_remote_guard(server, monkeypatch):
+    base, srv = server
+    monkeypatch.setattr(srv, "TOKEN", "secret-token-123")
+
+    # Localhost requests bypass token by default
+    status, body = get(f"{base}/api/server-info")
+    assert status == 200
+
+    # Remote or tunnel request (simulated via CF-Connecting-IP header) requires token
+    req_unauth = urllib.request.Request(
+        f"{base}/api/cards",
+        headers={"CF-Connecting-IP": "203.0.113.1"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req_unauth)
+    assert exc_info.value.code == 401
+
+    # Authorized with X-Cockpit-Token header
+    req_header = urllib.request.Request(
+        f"{base}/api/cards",
+        headers={"CF-Connecting-IP": "203.0.113.1", "X-Cockpit-Token": "secret-token-123"},
+    )
+    with urllib.request.urlopen(req_header) as r:
+        assert r.status == 200
+
+    # Authorized with ?token=... query parameter
+    req_query = urllib.request.Request(
+        f"{base}/api/cards?token=secret-token-123",
+        headers={"CF-Connecting-IP": "203.0.113.1"},
+    )
+    with urllib.request.urlopen(req_query) as r:
+        assert r.status == 200
+
+    # Authorized with Cookie
+    req_cookie = urllib.request.Request(
+        f"{base}/api/cards",
+        headers={"CF-Connecting-IP": "203.0.113.1", "Cookie": "cockpit_token=secret-token-123"},
+    )
+    with urllib.request.urlopen(req_cookie) as r:
+        assert r.status == 200
+
+    # POST unauthorized
+    post_unauth = urllib.request.Request(
+        f"{base}/api/projects/select",
+        data=json.dumps({"slug": "legacy"}).encode(),
+        headers={"Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.1"},
+        method="POST",
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(post_unauth)
+    assert exc_info.value.code == 401
+
+
+def test_post_allowed_with_host_header(server, legacy_project):
+    base, srv = server
+    projects.upsert_project(projects.build_project("Legacy", legacy_project, prefix="MN"))
+    # Origin matching request Host header is permitted (for LAN / tunnel)
+    req = urllib.request.Request(
+        f"{base}/api/projects/select",
+        data=json.dumps({"slug": "legacy"}).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Host": "my-mobile-host:3333",
+            "Origin": "http://my-mobile-host:3333",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as r:
+        assert r.status == 200
+
+    # Origin differing from Host header and localhost is rejected
+    req_bad = urllib.request.Request(
+        f"{base}/api/projects/select",
+        data=json.dumps({"slug": "legacy"}).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Host": "my-mobile-host:3333",
+            "Origin": "http://evil-site.com",
+        },
+        method="POST",
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req_bad)
+    assert exc_info.value.code == 403
+
+
+def test_heavy_worker_proxy_compatibility(server):
+    _, srv = server
+    assert hasattr(srv, "HEAVY_WORKER")
+    assert srv.HEAVY_WORKER.status == srv.STATE.worker.status
+
+
+def test_doctor_check_11_mobile_readiness(server, legacy_project, monkeypatch):
+    import doctor
+    _, srv = server
+
+    # With LAN IP detected
+    monkeypatch.setattr(srv, "get_lan_ip", lambda: "192.168.1.100")
+    report = doctor.run(str(legacy_project))
+    check11 = [c for c in report["checks"] if c["n"] == 11][0]
+    assert check11["status"] == "pass"
+    assert "192.168.1.100" in check11["detail"]
+
+    # With loopback only
+    monkeypatch.setattr(srv, "get_lan_ip", lambda: "127.0.0.1")
+    report_loopback = doctor.run(str(legacy_project))
+    check11_lb = [c for c in report_loopback["checks"] if c["n"] == 11][0]
+    assert check11_lb["status"] == "warn"
+    assert "no LAN IP detected" in check11_lb["detail"]
+
+
+def test_server_keep_alive(server):
+    _, srv = server
+    # Execution should not raise exception
+    res_on = srv.set_keep_alive(True)
+    res_off = srv.set_keep_alive(False)
+    assert isinstance(res_on, bool)
+    assert isinstance(res_off, bool)
+
+

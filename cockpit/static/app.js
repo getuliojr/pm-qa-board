@@ -1,5 +1,35 @@
 // app.js - Controller for PM & QA Cockpit
 
+// Session token handling for remote/tunnel connections
+(function initTokenAuth() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token) {
+      sessionStorage.setItem('cockpit_token', token);
+      params.delete('token');
+      const newQuery = params.toString() ? '?' + params.toString() : '';
+      const cleanUrl = window.location.pathname + newQuery + window.location.hash;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  } catch (_) {}
+
+  // Authenticate all fetch calls when session token is stored
+  const origFetch = window.fetch;
+  window.fetch = function(url, options) {
+    const token = sessionStorage.getItem('cockpit_token');
+    if (token) {
+      options = options || {};
+      const headers = new Headers(options.headers || {});
+      if (!headers.has('X-Cockpit-Token')) {
+        headers.set('X-Cockpit-Token', token);
+      }
+      options.headers = headers;
+    }
+    return origFetch.apply(this, [url, options]);
+  };
+})();
+
 let state = {
   cards: [],
   sprints: [],
@@ -252,6 +282,8 @@ function renderPipeline() {
   // Update column count badges
   Object.entries(counts).forEach(([k, el]) => {
     if (el) el.textContent = colCounts[k] || 0;
+    const mEl = document.getElementById(`mcount-${k}`);
+    if (mEl) mEl.textContent = colCounts[k] || 0;
   });
 }
 
@@ -2327,6 +2359,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   initProjectUi();
+  initMobileKanbanSwipe();
   fetchProjects().then(() => fetchAll());
   // Auto refresh every 10 seconds
   setInterval(fetchAll, 10000);
@@ -2336,6 +2369,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') {
       if (isCloseoutOpen()) { closeCloseout(); return; }
       if (isConfigureOpen()) { closeConfigureProject(); return; }
+      closeMobileConnectModal();
       closeSprintDoc();
       closeCardModal();
     }
@@ -3273,3 +3307,311 @@ function onCloseoutFrameLoad() {
     }
   } catch (_) { /* unreadable: leave the frame as is */ }
 }
+
+// -----------------------------------------------------------------------------
+// Mobile Kanban Swipe & Column Navigation
+// -----------------------------------------------------------------------------
+function scrollToColumn(colId) {
+  const container = document.getElementById('kanbanColumnsContainer');
+  const col = document.querySelector(`.board-column[data-col="${colId}"]`);
+  if (col && container) {
+    col.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }
+  document.querySelectorAll('.mobile-col-pill').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-col') === colId);
+  });
+}
+
+function initMobileKanbanSwipe() {
+  const container = document.getElementById('kanbanColumnsContainer');
+  if (!container) return;
+  let timeout;
+  container.addEventListener(
+    'scroll',
+    () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        const cols = Array.from(container.querySelectorAll('.board-column'));
+        const containerCenter = container.scrollLeft + container.clientWidth / 2;
+        let closestCol = null;
+        let closestDist = Infinity;
+        cols.forEach((col) => {
+          const colCenter = col.offsetLeft + col.offsetWidth / 2;
+          const dist = Math.abs(colCenter - containerCenter);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestCol = col;
+          }
+        });
+        if (closestCol) {
+          const colId = closestCol.getAttribute('data-col');
+          document.querySelectorAll('.mobile-col-pill').forEach((btn) => {
+            btn.classList.toggle('active', btn.getAttribute('data-col') === colId);
+          });
+        }
+      }, 80);
+    },
+    { passive: true }
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Pure JavaScript QR Code Generator (Byte mode, Level L, Versions 1-6)
+// -----------------------------------------------------------------------------
+function generateQrSvg(text) {
+  const len = text.length;
+  let version = 1;
+  const limits = [17, 32, 53, 78, 106, 134];
+  for (let v = 1; v <= 6; v++) {
+    if (len <= limits[v - 1]) {
+      version = v;
+      break;
+    }
+    version = 6;
+  }
+
+  const specs = {
+    1: [26, 19, 7, 0],
+    2: [44, 34, 10, 18],
+    3: [70, 55, 15, 22],
+    4: [100, 80, 20, 26],
+    5: [134, 108, 26, 30],
+    6: [172, 136, 36, 34],
+  };
+  const [totalCodewords, dataCodewords, ecCount, alignPos] = specs[version];
+
+  let bitBuf = 0;
+  let bitLen = 0;
+  const data = [];
+  function putBits(val, numBits) {
+    for (let i = numBits - 1; i >= 0; i--) {
+      bitBuf = (bitBuf << 1) | ((val >>> i) & 1);
+      bitLen++;
+      if (bitLen === 8) {
+        data.push(bitBuf);
+        bitBuf = 0;
+        bitLen = 0;
+      }
+    }
+  }
+
+  putBits(4, 4); // Byte mode indicator
+  putBits(len, 8); // Character count indicator
+  for (let i = 0; i < len; i++) {
+    putBits(text.charCodeAt(i) & 0xff, 8);
+  }
+  putBits(0, 4); // Terminator
+  if (bitLen > 0) {
+    data.push(bitBuf << (8 - bitLen));
+    bitBuf = 0;
+    bitLen = 0;
+  }
+  const padBytes = [0xec, 0x11];
+  let pIdx = 0;
+  while (data.length < dataCodewords) {
+    data.push(padBytes[pIdx % 2]);
+    pIdx++;
+  }
+
+  // Reed-Solomon Error Correction Code
+  const EXP = new Uint8Array(512);
+  const LOG = new Uint8Array(256);
+  let x = 1;
+  for (let i = 0; i < 255; i++) {
+    EXP[i] = x;
+    EXP[i + 255] = x;
+    LOG[x] = i;
+    x = (x << 1) ^ (x >= 128 ? 285 : 0);
+  }
+  function gfMul(a, b) {
+    return a === 0 || b === 0 ? 0 : EXP[LOG[a] + LOG[b]];
+  }
+
+  let poly = [1];
+  for (let i = 0; i < ecCount; i++) {
+    const nextP = new Array(poly.length + 1).fill(0);
+    const a_i = EXP[i];
+    for (let j = 0; j < poly.length; j++) {
+      nextP[j] ^= poly[j];
+      nextP[j + 1] ^= gfMul(poly[j], a_i);
+    }
+    poly = nextP;
+  }
+
+  const ecData = new Array(ecCount).fill(0);
+  for (let i = 0; i < data.length; i++) {
+    const factor = data[i] ^ ecData[0];
+    for (let j = 0; j < ecCount - 1; j++) {
+      ecData[j] = ecData[j + 1] ^ gfMul(poly[j + 1], factor);
+    }
+    ecData[ecCount - 1] = gfMul(poly[ecCount], factor);
+  }
+
+  const allCodewords = data.concat(ecData);
+  const size = version * 4 + 17;
+  const matrix = Array.from({ length: size }, () => new Int8Array(size).fill(-1));
+
+  function setModule(r, c, val) {
+    if (r >= 0 && r < size && c >= 0 && c < size) {
+      matrix[r][c] = val ? 1 : 0;
+    }
+  }
+
+  function placeFinder(row, col) {
+    for (let r = -1; r <= 7; r++) {
+      for (let c = -1; c <= 7; c++) {
+        const nr = row + r;
+        const nc = col + c;
+        if (nr < 0 || nr >= size || nc < 0 || nc >= size) continue;
+        if (r >= 0 && r <= 6 && c >= 0 && c <= 6) {
+          if (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4)) {
+            setModule(nr, nc, 1);
+          } else {
+            setModule(nr, nc, 0);
+          }
+        } else {
+          setModule(nr, nc, 0);
+        }
+      }
+    }
+  }
+  placeFinder(0, 0);
+  placeFinder(size - 7, 0);
+  placeFinder(0, size - 7);
+
+  for (let i = 8; i < size - 8; i++) {
+    if (matrix[6][i] === -1) setModule(6, i, i % 2 === 0);
+    if (matrix[i][6] === -1) setModule(i, 6, i % 2 === 0);
+  }
+
+  if (alignPos > 0) {
+    for (let r = -2; r <= 2; r++) {
+      for (let c = -2; c <= 2; c++) {
+        if (matrix[alignPos + r][alignPos + c] === -1) {
+          const isBlack = Math.abs(r) === 2 || Math.abs(c) === 2 || (r === 0 && c === 0);
+          setModule(alignPos + r, alignPos + c, isBlack ? 1 : 0);
+        }
+      }
+    }
+  }
+
+  setModule(4 * version + 9, 8, 1);
+
+  const formatBits = 0x74a0;
+  for (let i = 0; i < 15; i++) {
+    const bit = (formatBits >>> (14 - i)) & 1;
+    if (i < 6) setModule(8, i, bit);
+    else if (i < 8) setModule(8, i + 1, bit);
+    else if (i === 8) setModule(7, 8, bit);
+    else setModule(14 - i, 8, bit);
+
+    if (i < 8) setModule(size - 1 - i, 8, bit);
+    else setModule(8, size - 15 + i, bit);
+  }
+
+  let bitIdx = 0;
+  const totalBits = allCodewords.length * 8;
+  for (let right = size - 1; right > 0; right -= 2) {
+    if (right === 6) right--;
+    const upward = ((size - 1 - right) / 2) % 2 === 0;
+    for (let vert = 0; vert < size; vert++) {
+      const r = upward ? size - 1 - vert : vert;
+      for (let c = right; c >= right - 1; c--) {
+        if (matrix[r][c] === -1) {
+          let b = 0;
+          if (bitIdx < totalBits) {
+            const byte = allCodewords[Math.floor(bitIdx / 8)];
+            b = (byte >>> (7 - (bitIdx % 8))) & 1;
+            bitIdx++;
+          }
+          if ((r + c) % 2 === 0) b ^= 1;
+          matrix[r][c] = b;
+        }
+      }
+    }
+  }
+
+  const pad = 3;
+  const fullSize = size + pad * 2;
+  let rects = '';
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (matrix[r][c] === 1) {
+        rects += `<rect x="${c + pad}" y="${r + pad}" width="1" height="1" fill="#0f172a"/>`;
+      }
+    }
+  }
+  return `<svg viewBox="0 0 ${fullSize} ${fullSize}" xmlns="http://www.w3.org/2000/svg" class="w-full h-full shape-rendering-crispEdges"><rect width="100%" height="100%" fill="white"/>${rects}</svg>`;
+}
+
+// -----------------------------------------------------------------------------
+// Mobile Connect Modal Controller
+// -----------------------------------------------------------------------------
+async function openMobileConnectModal() {
+  const modal = document.getElementById('mobileConnectModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/server-info');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const info = await res.json();
+
+    const storedToken = sessionStorage.getItem('cockpit_token');
+    const token = info.token || storedToken || '';
+    let mobileUrl = '';
+    if (info.tunnel_url) {
+      mobileUrl = info.tunnel_url + (token ? `?token=${encodeURIComponent(token)}` : '');
+    } else {
+      const port = info.port || 3333;
+      const host = info.lan_ip || window.location.hostname;
+      mobileUrl = `http://${host}:${port}` + (token ? `?token=${encodeURIComponent(token)}` : '');
+    }
+
+    const input = document.getElementById('mobileConnectUrlInput');
+    if (input) input.value = mobileUrl;
+
+    const qrContainer = document.getElementById('mobileQrGraphic');
+    if (qrContainer) {
+      qrContainer.innerHTML = generateQrSvg(mobileUrl);
+    }
+
+    const netBadge = document.getElementById('mobileNetworkModeBadge');
+    if (netBadge) {
+      netBadge.textContent = info.tunnel_url ? 'Cloudflare Tunnel (Public)' : 'Local Wi-Fi (LAN)';
+      netBadge.className = `font-semibold ${info.tunnel_url ? 'text-amber-400' : 'text-emerald-400'}`;
+    }
+
+    const kaBadge = document.getElementById('mobileKeepAliveBadge');
+    if (kaBadge) {
+      kaBadge.textContent = info.keep_alive ? 'Active (Sleep Prevented)' : 'Standard';
+      kaBadge.className = `font-semibold ${info.keep_alive ? 'text-cyan-400' : 'text-slate-400'}`;
+    }
+
+    const tokBadge = document.getElementById('mobileTokenBadge');
+    if (tokBadge) {
+      tokBadge.textContent = info.token_required ? 'Session Token Active' : 'Unauthenticated (Local)';
+      tokBadge.className = `font-semibold ${info.token_required ? 'text-emerald-400' : 'text-slate-400'}`;
+    }
+  } catch (err) {
+    console.error('Failed to load server info for mobile connect:', err);
+    const input = document.getElementById('mobileConnectUrlInput');
+    if (input) input.value = window.location.href;
+    const qrContainer = document.getElementById('mobileQrGraphic');
+    if (qrContainer) qrContainer.innerHTML = generateQrSvg(window.location.href);
+  }
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function closeMobileConnectModal() {
+  const modal = document.getElementById('mobileConnectModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function copyMobileUrl() {
+  const input = document.getElementById('mobileConnectUrlInput');
+  if (!input || !input.value) return;
+  copyToClipboard(input.value, document.getElementById('copyMobileUrlBtn'));
+}
+
