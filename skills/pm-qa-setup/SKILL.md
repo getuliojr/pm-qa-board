@@ -2,7 +2,7 @@
 name: pm-qa-setup
 description: Use when the user asks to set up, install, onboard, register, upgrade or check PM & QA Cockpit in a project (or on this machine), or to clean up old cockpit skills. Inspects what the project and this machine already have, says in plain words where each thing belongs, asks a few plain questions, and changes only what the user approves; never overwrites a user's rules or skills. Ends with a read-only doctor check.
 metadata:
-  version: 0.4.0
+  version: 0.5.0
   source: pm-qa-cockpit
 ---
 
@@ -65,7 +65,37 @@ and "new" / "yours" / "your session pick"); the lead is the user's session choic
 approves the whole action. "Customise" asks the decision's `questions` one by one (a model from the
 list, recommendation first or Other, and an effort), then passes the answers to apply as
 `--roster '{"claude": {"advisor": {"model": "...", "effort": "high"}}}'`. In a register-only project
-the roster is reported, never offered: the project's own loop wins. Existing agent files are never edited.
+the roster is reported, never offered: the project's own loop wins. Existing agent files are never edited **by the plan**; step 2b may edit them, role by role, on approval.
+
+## 2b. Review the team and the QA setup (every setup, every mode)
+
+The plan above only fills gaps. A project that already has agents and gates still gets these two
+reviews, because "nothing missing" is not the same as "still right". Ask them with the interactive
+question tool, one role or one topic per question, recommended option first. Skipping them silently has
+already failed once (money-nest, 2026-10-17: the user had to ask for both).
+
+**Roster review.** Read the project's own agent files (`.claude/agents/`, `.cursor/agents/`,
+`.agents/subagents/`) and its rules file's roster text. Show one table per tool: role, model, effort,
+and any bare alias (`sonnet`, `opus`, `haiku`) that may resolve to an older model than intended. Then,
+**role by role**, ask the model and the thinking level, offering "keep as is" first; a role the user
+keeps is not touched. If the tool exposes no effort level (Cursor: only Fast on/off), ask that instead
+and say so. Check the claims against the files: a rules file saying one model while an agent file pins
+another is a finding. On approval, edit those agent files and the rules text that names the model
+(minimal edits, the project's own words); in a register-only project this is still allowed here
+because the user approved it role by role. Say plainly what you could not verify (a frontmatter key,
+a model slug the tool may not accept).
+
+**QA review.** Inspect, read-only: the gate scripts and what each gate runs; whether a fast/heavy split
+exists and when the heavy gate last ran (age in commits); coverage thresholds in config against the
+latest real coverage (a floor far below actual lets a large regression pass); whether any gate is
+retired or has no owner; and whether per-sprint numbers are recorded anywhere. Present: what exists,
+the gaps, and the metrics worth keeping per sprint: tests passed/skipped/failed, coverage %, static
+gate error counts, review rounds and findings per round, and **escapes** (bugs found in QA or later
+that gates and review missed, the one number that says whether the gates work). Then ask, one question
+each: raise a stale coverage floor (recommend a floor a couple of points under actual), add a floor
+where none exists (or measure first), flag a stale heavy run (never run a project's heavy gate for
+them), and where a small metrics table should live (the project's quality doc, or a new file).
+Apply only the approved ones; record the staleness note, don't fix it.
 
 ## 3. Apply only what was approved
 

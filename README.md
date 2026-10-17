@@ -133,3 +133,6 @@ read-only. See `skills/pm-orchestrate/SKILL.md` for the spec.
 ```powershell
 uv run --system-certs --group dev pytest
 ```
+
+**Setup also reviews the team and QA (0.5.0).** Besides filling gaps, `pm-qa-setup` step 2b asks, role by role, which model and thinking level each agent should use (existing agent files included, on approval) and reviews the project's gates, coverage floors, heavy-gate staleness and per-sprint metrics.
+
