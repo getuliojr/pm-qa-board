@@ -8,7 +8,8 @@ recommended defaults and the known-model lists, renders the thin ``cockpit-<role
 Roster table, and checks pins. ``setup_flow`` does the writing; ``doctor`` check 10 does the warning.
 
 Verified 2026-10-16 (docs): Claude Code agents read ``effort`` (low|medium|high|xhigh|max) and
-``tools``; Cursor reads ``.cursor/agents`` (and ``.claude/agents``) with ``model`` / ``readonly``;
+``tools``; Cursor reads ``.cursor/agents`` (and also ``.claude/agents``, which is not scanned here: a Claude file
+carries Claude model IDs, and ``.cursor/`` wins on a name clash) with ``model`` / ``readonly``;
 Antigravity documents ``.agents/agents`` (money-nest's ``.agents/subagents`` is read too, never
 written) with ``model`` ``inherit|flash|pro``.
 
@@ -29,7 +30,8 @@ PREFIX = "cockpit-"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 # A role is matched by file name first, then by description (heuristic, Q9).
-MATCH = {"builder": "builder", "advisor": "advisor", "reviewer": "review", "retrieval": "retriev", "pm-sync": "sync"}
+MATCH = {"builder": re.compile(r"\bbuilder\b"), "advisor": re.compile(r"\badvisor\b"), "reviewer": re.compile(r"\breview(er)?\b"),
+         "retrieval": re.compile(r"\bretriev(e|al|er)\b"), "pm-sync": re.compile(r"\bpm[-_ ]?sync\b")}
 READ_DIRS = {
     "claude": [".claude/agents"],
     "cursor": [".cursor/agents"],
@@ -90,21 +92,26 @@ def base_model(tool: str, model: str) -> str:
     return model.split("[", 1)[0].strip()
 
 
-def match_role(name: str, description: str) -> str | None:
-    """The role a file fills, or None. Name first; the description only if the name says nothing."""
+def roles_for(name: str, description: str) -> list[str]:
+    """Roles a file could fill (whole words only). Name first; the description only if the name says nothing."""
     for text in (name.lower(), description.lower()):
-        hits = [r for r, key in MATCH.items() if key in text]
-        if len(hits) == 1:
-            return hits[0]
-        if len(hits) > 1:
-            return None
-    return None
+        hits = [r for r, rx in MATCH.items() if rx.search(text)]
+        if hits:
+            return hits
+    return []
+
+
+def match_role(name: str, description: str) -> str | None:
+    """The one role a file fills, or None when it fits none or several."""
+    hits = roles_for(name, description)
+    return hits[0] if len(hits) == 1 else None
 
 
 def detect_tool(code: Path, tool: str) -> dict[str, Any]:
     """Existing agent files of one tool mapped to roles. ``roles[role]`` is None when missing."""
     roles: dict[str, dict[str, Any] | None] = {r: None for r in FILE_ROLES}
     extra: list[str] = []
+    possible: dict[str, list[str]] = {}  # files that could fill several roles: reported, never duplicated
     for rel in READ_DIRS[tool]:
         d = code / rel
         if not d.is_dir():
@@ -115,13 +122,19 @@ def detect_tool(code: Path, tool: str) -> dict[str, Any]:
             except OSError:
                 continue
             name = fm.get("name") or f.stem
-            role = match_role(f.stem if not fm.get("name") else f"{f.stem} {name}", fm.get("description", ""))
+            hits = roles_for(f.stem if not fm.get("name") else f"{f.stem} {name}", fm.get("description", ""))
+            if len(hits) > 1:
+                for h in hits:
+                    possible.setdefault(h, []).append(f"{rel}/{f.name}")
+                continue
+            role = hits[0] if hits else None
             if role is None or roles[role] is not None:
                 extra.append(f"{rel}/{f.name}")
                 continue
             roles[role] = {"file": f"{rel}/{f.name}", "name": name, "model": fm.get("model", ""),
                            "effort": fm.get("effort", ""), "ours": f.stem.startswith(PREFIX)}
-    return {"roles": roles, "extra": extra, "missing": [r for r, v in roles.items() if v is None]}
+    return {"roles": roles, "extra": extra, "possible": possible,
+            "missing": [r for r, v in roles.items() if v is None and r not in possible]}
 
 
 def parse_lead(text: str, labels: dict[str, str]) -> dict[str, dict[str, str]]:
@@ -149,6 +162,15 @@ def valid_value(kind: str, value: str) -> bool:
     if kind == "effort":
         return value in EFFORTS
     return bool(re.fullmatch(r"[A-Za-z0-9][\w.\-]*(\[[\w=,.\-]+\])?", value))
+
+
+def forbidden_pin(tool: str, role: str, model: str) -> str | None:
+    """Pins setup refuses to write (an unknown model only warns later, but these defeat the design)."""
+    if model in ALIASES[tool]:
+        return "an alias may resolve to an older model: use the full ID"
+    if model == "inherit":
+        return "inherit is not allowed: pin a model"
+    return None
 
 
 def render_agent(tool: str, role: str, model: str, effort: str) -> str:

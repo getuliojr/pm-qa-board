@@ -462,7 +462,7 @@ def read_roster(code: Path, project: dict[str, Any], tools: list[str]) -> dict[s
     except OSError:
         text = ""
     return {"orchestration": str(orch), "orchestration_exists": orch.is_file(),
-            "has_section": roster.ROSTER_START in text,
+            "has_section": roster.ROSTER_START in text and "| Role | Agent |" in text,
             "lead": roster.parse_lead(text, TOOL_LABELS),
             "tools": {t: roster.detect_tool(code, t) for t in tools}}
 
@@ -599,7 +599,8 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
     #     only for missing roles, never over an existing agent file.
     roster_state = read_roster(code, project, tools)
     roster_files: list[str] = []
-    if not register_only and any(r["missing"] for r in roster_state["tools"].values()):
+    table_only = roster_state["orchestration_exists"] and not roster_state["has_section"]
+    if not register_only and (table_only or any(r["missing"] for r in roster_state["tools"].values())):
         files = [{"tool": t, "role": role, "path": f"{roster.WRITE_DIR[t]}/{roster.PREFIX}{role}.md", **roster.recommended(t, role)}
                  for t in tools for role in roster_state["tools"][t]["missing"]]
         lead = {t: roster_state["lead"].get(t) or roster.recommended(t, "lead") for t in tools}
@@ -842,10 +843,14 @@ def build_inventory(plan: dict[str, Any], code: Path, reach: dict[str, dict[str,
             return f"{r}: {have['model'] or 'no model'}" + ("" if have["ours"] else " (yours)")
 
         now = "; ".join(say_role(r) for r in roster.FILE_ROLES)
+        if rs["possible"]:
+            now += "; " + "; ".join(f"possible {r}: {', '.join(fs)} (not duplicated)" for r, fs in sorted(rs["possible"].items()))
         if rs["extra"]:
             now += f"; other agents left alone: {', '.join(rs['extra'])}"
         if not rs["missing"]:
             status, belongs = "ok", "stays as it is"
+            if full and action and not action["files"]:
+                status, belongs = "change", "the roster table is recorded in ORCHESTRATION.md"
         elif not full:
             status, belongs = "review", "stays as your project has it (reported only: its own loop decides)"
         else:
@@ -949,6 +954,8 @@ def _say(a: dict[str, Any], plan: dict[str, Any]) -> str:
         return f"change {a['file']} line {a['edit']['line']} to call the running copy"
     if k == "roster":
         roles = sorted({f"{TOOL_LABELS[f['tool']]} {f['role']}" for f in a["files"]})
+        if not roles:
+            return "record the roster (who does each step) in ORCHESTRATION.md"
         return f"add cockpit agents for the missing roles ({_join(roles)}) and record the roster in ORCHESTRATION.md"
     if k == "profile-gates":
         return "time the test suite once (it runs the whole suite) to choose fast or heavy gates"
@@ -1050,7 +1057,8 @@ def roster_questions(plan: dict[str, Any], action: dict[str, Any]) -> list[dict[
     out = []
     rows = [("lead", t, action["lead"][t]) for t in plan["tools"]] + [(f["role"], f["tool"], f) for f in action["files"]]
     for role, t, cur in sorted(rows, key=lambda x: (plan["tools"].index(x[1]), roster.ROLES.index(x[0]))):
-        models = [cur["model"]] + [m for m in roster.KNOWN_MODELS[t] if m != roster.base_model(t, cur["model"])]
+        suffix = "[fast=false]" if t == "cursor" else ""
+        models = [cur["model"]] + [m + suffix for m in roster.KNOWN_MODELS[t] if m != roster.base_model(t, cur["model"])]
         out.append({"tool": t, "role": role, "question": f"{TOOL_LABELS[t]}: which model for the {role}?",
                     "recommendation": f"{cur['model']}, effort {cur['effort']}",
                     "models": models, "efforts": list(roster.EFFORTS), "default_effort": cur["effort"]})
@@ -1134,13 +1142,19 @@ def _roster_overrides(plan: dict[str, Any], approved_roster: list[dict[str, Any]
             allowed[(f["tool"], f["role"])] = True
         for t in a["lead"]:
             allowed[(t, "lead")] = True
+    if not isinstance(overrides, dict) or not all(isinstance(r, dict) and all(isinstance(v, dict) for v in r.values())
+                                                  for r in overrides.values()):
+        raise ValueError('roster choices must look like {"claude": {"advisor": {"model": "...", "effort": "high"}}}; nothing was changed.')
     for tool, roles in overrides.items():
-        for role, val in (roles or {}).items():
+        for role, val in roles.items():
             if (tool, role) not in allowed:
                 raise ValueError(f"roster choice for {tool}/{role} is not part of the approved roster; nothing was changed.")
             for key in ("model", "effort"):
                 if key in val and not roster.valid_value(key, str(val[key])):
                     raise ValueError(f"roster choice {tool}/{role} {key}={val[key]!r} is not valid; nothing was changed.")
+            bad = roster.forbidden_pin(tool, role, str(val["model"])) if "model" in val else None
+            if bad:
+                raise ValueError(f"roster choice {tool}/{role} model {val['model']!r}: {bad}; nothing was changed.")
             if set(val) - {"model", "effort"}:
                 raise ValueError(f"roster choice for {tool}/{role} may only set model and effort; nothing was changed.")
 
@@ -1175,12 +1189,15 @@ def apply_roster(code: Path, plan: dict[str, Any], a: dict[str, Any], overrides:
         eol = b"\r\n" if b"\r\n" in data else b"\n"
         start, end = roster.ROSTER_START.encode(), roster.ROSTER_END.encode()
         i, j = data.find(start), data.find(end)
-        if 0 <= i < j:  # our own markers: refresh only the block between them
+        if data.count(start) == 1 and data.count(end) == 1 and i < j:  # our own markers: refresh only what is between them
             block = section.rstrip("\n").replace("\n", "\n" if eol == b"\n" else "\r\n").encode("utf-8")
             orch.write_bytes(data[:i] + block + data[j + len(end):])
+            done.append("ORCHESTRATION.md: roster table written")
+        elif data.count(start) or data.count(end):
+            done.append("ORCHESTRATION.md: the roster markers are damaged (need exactly one start then one end): table not written")
         else:
             append_bytes(orch, section)
-        done.append("ORCHESTRATION.md: roster table written")
+            done.append("ORCHESTRATION.md: roster table written")
     return "; ".join(done)
 
 

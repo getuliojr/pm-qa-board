@@ -215,7 +215,7 @@ def run(target: str) -> dict[str, Any]:
 
     # 10. every loop role has an agent and a sound model pin per tool used (warn only: a model name never fails)
     reg_only = bool(loop)
-    gaps, pins, extra_lines = [], [], []
+    gaps, pins = [], []
     for t in tools:
         state = roster.detect_tool(code, t)
         for role in state["missing"]:

@@ -61,8 +61,17 @@ def test_roles_are_matched_by_name_then_description(tmp_path):
     st = roster.detect_tool(code, "cursor")
     assert st["roles"]["retrieval"]["file"] == ".cursor/agents/retrieve.md"
     assert st["roles"]["reviewer"]["file"] == ".cursor/agents/x.md"
-    assert set(st["extra"]) == {".cursor/agents/helper.md", ".cursor/agents/both.md"}, "unsure files are reported, not matched"
-    assert set(st["missing"]) == {"builder", "advisor", "pm-sync"}
+    assert st["extra"] == [".cursor/agents/helper.md"]
+    assert st["possible"] == {"builder": [".cursor/agents/both.md"], "reviewer": [".cursor/agents/both.md"]}
+    assert set(st["missing"]) == {"advisor", "pm-sync"}, "a file that could fill a role is never duplicated"
+
+
+def test_matching_uses_whole_words():
+    assert roster.match_role("ui-preview", "") is None
+    assert roster.match_role("frontend", "Builds UI with async data loading") is None
+    assert roster.match_role("db-sync-worker", "") is None
+    assert roster.match_role("money-nest-builder", "") == "builder"
+    assert roster.match_role("pm-sync", "") == "pm-sync" and roster.match_role("retrieve", "") == "retrieval"
 
 
 def test_the_lead_row_round_trips_through_the_roster_section():
@@ -264,3 +273,48 @@ def test_cursor_parameters_do_not_make_a_known_model_unknown():
     assert roster.check_pin("cursor", "advisor", "grok-4.6") is None
     assert roster.check_pin("antigravity", "reviewer", "inherit")
     assert roster.check_pin("antigravity", "reviewer", "pro") is None
+
+
+# ---------------------------------------------------------------- review round 1 regressions
+
+
+def test_fresh_install_records_the_table_after_registration(project):
+    orch = project / "docs/ORCHESTRATION.md"
+    orch.rename(project / "docs/hold.md")
+    plan = setup_flow.build_plan(project)
+    setup_flow.apply_actions(plan, [_roster_action(plan)["id"]])
+    assert not orch.exists() and (project / ".claude/agents/cockpit-advisor.md").exists()
+    (project / "docs/hold.md").rename(orch)  # `init --apply` has now written the template
+    again = setup_flow.build_plan(project)
+    a = _roster_action(again)
+    assert a is not None and a["files"] == [] and "record the roster" in setup_flow._say(a, again)
+    setup_flow.apply_actions(again, [a["id"]])
+    assert "| lead | (session pick) |" in orch.read_text(encoding="utf-8")
+    assert _roster_action(setup_flow.build_plan(project)) is None
+
+
+def test_damaged_markers_are_never_refreshed_over_user_text(project):
+    orch = project / "docs/ORCHESTRATION.md"
+    text = orch.read_text(encoding="utf-8").replace(roster.ROSTER_END, "")
+    mine = text + "\nMY OWN NOTES\n"
+    orch.write_text(mine, encoding="utf-8")
+    plan = setup_flow.build_plan(project)
+    (res,) = setup_flow.apply_actions(plan, [_roster_action(plan)["id"]])
+    assert "damaged" in res["result"] and orch.read_text(encoding="utf-8") == mine
+
+
+def test_customise_refuses_aliases_inherit_and_wrong_shapes(project):
+    plan = setup_flow.build_plan(project)
+    aid = _roster_action(plan)["id"]
+    for bad in ({"claude": {"advisor": {"model": "opus"}}}, {"claude": {"reviewer": {"model": "inherit"}}},
+                {"claude": ["advisor"]}, {"claude": {"advisor": None}}, {"claude": {"advisor": ["model"]}}, ["x"]):
+        with pytest.raises(ValueError):
+            setup_flow.apply_actions(plan, [aid], roster_overrides=bad)
+    assert not (project / ".claude/agents/cockpit-advisor.md").exists()
+
+
+def test_cursor_customise_options_keep_the_fast_off_suffix(project):
+    plan = setup_flow.build_plan(project)
+    qs = next(d for d in plan["decisions"] if d["theme"] == "roster")["questions"]
+    cursor = [m for q in qs if q["tool"] == "cursor" for m in q["models"]]
+    assert cursor and all(m.endswith("[fast=false]") for m in cursor)
