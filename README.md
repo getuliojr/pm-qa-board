@@ -1,4 +1,4 @@
-# PM & QA Cockpit
+# PM & QA Board
 
 A local, zero-dependency dashboard and CLI for running agent-built work as **stories**: markdown cards,
 Definition of Done, cold-review verdicts, Human QA checks, heavy gates and interactive close-out
@@ -20,7 +20,7 @@ powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1 -DryRun
 powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1
 
 # 3. In each project, ask your agent (Claude Code, Cursor, Antigravity):
-#      "set up PM & QA Cockpit in this project"
+#      "set up PM & QA Board in this project"
 
 # 4. Launch the dashboard (http://localhost:3333)
 powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 [-Project my-app] [-Port 3333]
@@ -34,7 +34,7 @@ launcher wiring, gates), plus one per skill you edited. Behind them the plan hol
 
 - the cockpit skills, copied into the project's own agent folders (`.claude/skills`, `.agents/skills`)
   only for agents detected there — Cursor is pointed at them through `AGENTS.md` instead of a copy;
-- a short "PM & QA Cockpit" section appended (between markers) to `CLAUDE.md` / `AGENTS.md` /
+- a short "PM & QA Board" section appended (between markers) to `CLAUDE.md` / `AGENTS.md` /
   `GEMINI.md`, saying **the project's own rules win** on conflict;
 - `.git/info/exclude` entries (exact paths) when the project keeps its PM docs outside the repo;
 - grill-me copied (never moved) to the global folder of each tool the project uses, old global
@@ -94,7 +94,7 @@ each project's agent upgrade its skills with your approval:
 
 ```powershell
 git -C $HOME\.pm-qa-cockpit\app pull
-# then, in a project: "check for PM & QA Cockpit upgrades"
+# then, in a project: "check for PM & QA Board upgrades"
 ```
 
 Projects find the cockpit through `$env:PM_QA_COCKPIT_REPO`, else `~/.pm-qa-cockpit/app`, else a sibling
@@ -102,7 +102,7 @@ Projects find the cockpit through `$env:PM_QA_COCKPIT_REPO`, else `~/.pm-qa-cock
 
 **New machine:** clone this repo (dev), clone it again into `~/.pm-qa-cockpit/app` (running copy), clone
 your projects and the private docs repo, run `install.ps1`, then ask your agent to "set up PM & QA
-Cockpit" in each project (on a new machine that mostly means re-registering it).
+Board" in each project (on a new machine that mostly means re-registering it).
 
 ## Story schema
 

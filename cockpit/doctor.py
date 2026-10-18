@@ -273,7 +273,7 @@ def cmd_doctor(args: Any) -> int:
     if args.json:
         print(json.dumps(report, indent=2))
         return 0 if report["ok"] else 1
-    print(f"PM & QA Cockpit doctor: {report['name']} ({report['code_path']})\n")
+    print(f"PM & QA Board doctor: {report['name']} ({report['code_path']})\n")
     for c in report["checks"]:
         print(f"  [{c['status']}] {c['n']}. {c['name']}: {c['detail']}")
         if c["fix"]:

@@ -47,7 +47,7 @@ def run_tests():
     req = urllib.request.urlopen(f"{base_url}/")
     assert req.status == 200
     html = req.read().decode("utf-8")
-    assert "PM &amp; QA Cockpit" in html or "PM & QA Cockpit" in html
+    assert "PM &amp; QA Board" in html or "PM & QA Board" in html
     print("GET / OK (HTML served)")
 
     # 2. Test GET /api/cards

@@ -187,7 +187,7 @@ def render_agent(tool: str, role: str, model: str, effort: str) -> str:
     """A thin agent file: frontmatter + the role's one-line job and its hard rule (Q7)."""
     job, rule = ROLE_TEXT[role]
     name = PREFIX + role
-    lines = ["---", f"name: {name}", f"description: {job} Dispatched by the PM & QA Cockpit loop."]
+    lines = ["---", f"name: {name}", f"description: {job} Dispatched by the PM & QA Board loop."]
     if tool == "claude":
         if role in CLAUDE_TOOLS:
             lines.append(f"tools: {CLAUDE_TOOLS[role]}")

@@ -126,7 +126,7 @@ def test_artifact_served_and_traversal_blocked(server, legacy_project):
 def test_index_is_rebranded(server):
     base, _ = server
     _, html = get(f"{base}/")
-    assert "PM &amp; QA Cockpit" in html or "PM & QA Cockpit" in html
+    assert "PM &amp; QA Board" in html or "PM & QA Board" in html
 
 
 def raw_post(url, data: bytes, headers: dict):

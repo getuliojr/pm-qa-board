@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-cli.py - PM & QA Cockpit command line (multi-project story cards).
+cli.py - PM & QA Board command line (multi-project story cards).
 
 Lets agents and developers query, update, check off DoD items and transition story cards
 from the terminal without the web server. The project is resolved, in order, from
@@ -379,7 +379,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="PM & QA Cockpit — story card CLI")
+    parser = argparse.ArgumentParser(description="PM & QA Board — story card CLI")
     parser.add_argument("--project", help="Registered project slug (default: resolved from the current directory)")
     sub = parser.add_subparsers(dest="command", required=True)
 

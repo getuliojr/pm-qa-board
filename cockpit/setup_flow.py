@@ -434,9 +434,9 @@ def pointer_text(project: dict[str, Any], register_only: bool) -> str:
     docs = project["docs_path"]
     lines = [
         POINTER_START,
-        "## PM & QA Cockpit",
+        "## PM & QA Board",
         "",
-        f"Stories are tracked with PM & QA Cockpit (card prefix `{project['prefix']}`, docs in `{docs}`).",
+        f"Stories are tracked with PM & QA Board (card prefix `{project['prefix']}`, docs in `{docs}`).",
         f"Dashboard: `powershell -File ~/.pm-qa-cockpit/app/dashboard.ps1 -Project {project['slug']}`"
         " → http://localhost:3333.",
     ]
@@ -597,7 +597,7 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
         text = (code / fname).read_text(encoding="utf-8", errors="replace") if (code / fname).exists() else ""
         if POINTER_START in text:
             continue
-        add("pointer", f"Add a PM & QA Cockpit section to {fname}", file=fname, writes=[str(code / fname)],
+        add("pointer", f"Add a PM & QA Board section to {fname}", file=fname, writes=[str(code / fname)],
             preview=pointer_text(project, register_only))
 
     # 4b. Roster (Story 2.2): who does each step. Read for every project; written only in full mode,
@@ -941,7 +941,7 @@ def _say(a: dict[str, Any], plan: dict[str, Any]) -> str:
         where = "inside the repo" if p["docs_mode"] == "in-repo" else "outside the code repo"
         return f"register {p['name']} (card prefix {p['prefix']}) with its PM data in {p['docs_path']} ({where})"
     if k == "pointer":
-        return f"append a short PM & QA Cockpit section to {a['file']} (your text stays as it is)"
+        return f"append a short PM & QA Board section to {a['file']} (your text stays as it is)"
     if k == "clone-running-copy":
         return "download the cockpit's running copy to ~/.pm-qa-cockpit/app"
     if k == "fetch-grill-me":

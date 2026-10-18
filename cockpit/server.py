@@ -1,5 +1,5 @@
 """
-server.py - PM & QA Cockpit local web server (multi-project).
+server.py - PM & QA Board local web server (multi-project).
 
 Runs on port 3333 with zero external dependencies (Python standard library).
 Provides REST APIs for story card inspection, interactive QA validation, git status,
@@ -976,7 +976,7 @@ def main(argv: list[str] | None = None) -> None:
     global HOST, PORT, TOKEN, TUNNEL_URL, KEEP_ALIVE
     import argparse
 
-    parser = argparse.ArgumentParser(description="PM & QA Cockpit Server")
+    parser = argparse.ArgumentParser(description="PM & QA Board Server")
     parser.add_argument("--host", default=HOST, help="Host address to bind to (e.g. 127.0.0.1 or 0.0.0.0)")
     parser.add_argument("--port", type=int, default=PORT, help="Port to listen on (default 3333)")
     parser.add_argument("--token", default=TOKEN, help="Session token for remote authentication")
@@ -998,7 +998,7 @@ def main(argv: list[str] | None = None) -> None:
 
     lan_ip = get_lan_ip()
     print("=" * 60)
-    print("  PM & QA Cockpit")
+    print("  PM & QA Board")
     print(f"  Project:    {STATE.project.get('name')} ({STATE.project.get('docs_mode')})")
     print(f"  Local:      http://localhost:{PORT}")
     if HOST not in ("127.0.0.1", "localhost"):

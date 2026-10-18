@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Launches the PM & QA Cockpit (local dashboard, default port 3333).
+    Launches the PM & QA Board (local dashboard, default port 3333).
 
 .DESCRIPTION
     Optionally selects the active project, frees the port from stale processes,
@@ -139,7 +139,7 @@ if (-not $PSBoundParameters.ContainsKey('Mobile') -and
     if ($isInteractive) {
         Write-Host ""
         Write-Host "  ================================================" -ForegroundColor Cyan
-        Write-Host "    PM & QA Cockpit Launcher" -ForegroundColor Cyan
+        Write-Host "    PM & QA Board Launcher" -ForegroundColor Cyan
         Write-Host "  ================================================" -ForegroundColor Cyan
         Write-Host "  Select dashboard access mode:" -ForegroundColor Cyan
         Write-Host "    [1] Mobile Wi-Fi (LAN access for phone on same Wi-Fi, keep-awake) [default]" -ForegroundColor Green
@@ -258,7 +258,7 @@ $lanIp = Get-LanIPAddress
 
 Write-Host ""
 Write-Host "  ================================================" -ForegroundColor Green
-Write-Host "    PM & QA Cockpit" -ForegroundColor Green
+Write-Host "    PM & QA Board" -ForegroundColor Green
 Write-Host "  ================================================" -ForegroundColor Green
 Write-Host "  Local URL:       http://localhost:$Port" -ForegroundColor Cyan
 if ($Mobile -or $HostName -eq "0.0.0.0") {

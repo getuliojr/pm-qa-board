@@ -31,7 +31,7 @@ LOOP_SIGNALS = {
 }
 STEALTH_PATTERNS = ("docs/cards/", "docs/reviews/", "docs/artifacts/", "PLAN.md", "gate-heavy-results/")
 
-ORCHESTRATION_TEMPLATE = """# {name} — Story loop (PM & QA Cockpit)
+ORCHESTRATION_TEMPLATE = """# {name} — Story loop (PM & QA Board)
 
 Cards: `{cards}` with prefix `{prefix}-<story>`. Dashboard: `pm-qa-cockpit` on http://localhost:3333.
 
@@ -114,7 +114,7 @@ def apply_stealth(code: Path, project: dict[str, Any]) -> list[str]:
         with exclude.open("a", encoding="utf-8") as f:
             if existing and existing[-1].strip():
                 f.write("\n")
-            f.write("# PM & QA Cockpit (stealth mode)\n" + "\n".join(added) + "\n")
+            f.write("# PM & QA Board (stealth mode)\n" + "\n".join(added) + "\n")
     return added
 
 
