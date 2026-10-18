@@ -36,8 +36,7 @@ param(
     [string]$Project,
     [int]$Port = 3333,
     [switch]$Mobile,
-    [switch]$Tunnel,
-    [alias("Public")][switch]$Public,
+    [alias("Public")][switch]$Tunnel,
     [string]$Token = "",
     [string]$HostName = ""
 )
@@ -137,7 +136,7 @@ try {
 
 $tunnelProcess = $null
 $tunnelUrl = $null
-if ($Tunnel -or $Public) {
+if ($Tunnel) {
     $cfExe = Get-CloudflaredPath
     if (-not $cfExe) {
         $cfExe = Install-Cloudflared

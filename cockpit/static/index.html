@@ -12,7 +12,7 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <!-- DOMPurify via CDN -->
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-  <link rel="stylesheet" href="style.css?v=20261001-font">
+  <link rel="stylesheet" href="style.css?v=20261017-mobile">
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -165,6 +165,8 @@
           <input type="text" id="pipelineSearch" placeholder="Search tasks or IDs..." class="w-full bg-slate-800 text-slate-200 text-xs rounded-lg pl-8 pr-3 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-500">
           <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
         </div>
+      </div>
+
       <!-- Mobile Column Switcher Pills -->
       <div id="mobileColumnPills" class="flex md:hidden items-center gap-2 overflow-x-auto pb-2 mb-3 scrollbar-none">
         <button class="mobile-col-pill active" data-col="backlog" onclick="scrollToColumn('backlog')">

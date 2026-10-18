@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import sys
 import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 from conftest import git, seed_external_docs
@@ -387,5 +390,22 @@ def test_doctor_check_11_custom_cloudflared_in_cockpit_home(server, legacy_proje
     assert check11["status"] == "pass"
     assert "cloudflared installed" in check11["detail"]
     assert str(fake_cf) in check11["detail"]
+
+
+def test_dashboard_ps1_parameter_syntax():
+    ps = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps:
+        pytest.skip("powershell not available")
+    dashboard = Path(__file__).resolve().parent.parent / "dashboard.ps1"
+    res = subprocess.run(
+        [ps, "-NoProfile", "-Command", f"Get-Command '{dashboard}' -Syntax; (Get-Command '{dashboard}').Parameters['Tunnel'].Aliases"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0
+    assert "-Mobile" in res.stdout
+    assert "-Tunnel" in res.stdout
+    assert "Public" in res.stdout
 
 
