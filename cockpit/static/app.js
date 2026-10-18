@@ -75,6 +75,10 @@ const LUCIDE_TO_PHOSPHOR = {
   'bot': 'ph-robot',
   'sparkles': 'ph-sparkle',
   'clipboard-check': 'ph-clipboard-text',
+  'alert-triangle': 'ph-warning',
+  'loader': 'ph-spinner',
+  'loader-2': 'ph-spinner',
+  'filter': 'ph-funnel',
 };
 
 window.lucide = {
@@ -598,18 +602,18 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
               : ''
           }
         </div>
-        <h2 class="text-xl font-bold text-white tracking-tight">${escTitle}</h2>
+        <h2 class="text-xl font-bold text-[var(--text-primary)] tracking-tight">${escTitle}</h2>
       </div>
-      <div class="text-right text-xs text-slate-400 font-mono">
+      <div class="text-right text-xs text-[var(--text-tertiary)] font-mono">
         <div>${escFileName}</div>
-        ${card.created_date ? `<div class="text-xs text-slate-500 mt-0.5">Created: ${escapeHtml(card.created_date)}</div>` : ''}
+        ${card.created_date ? `<div class="text-xs text-[var(--text-tertiary)] mt-0.5">Created: ${escapeHtml(card.created_date)}</div>` : ''}
       </div>
     </div>
 
     <!-- Description -->
     <div class="mb-6">
-      <h4 class="text-sm font-bold text-slate-300 uppercase tracking-wider mb-2">Description / User Intent</h4>
-      <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 break-words">
+      <h4 class="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Description / User Intent</h4>
+      <div class="bg-[var(--bg-subtle)] p-4 rounded-lg border border-[var(--border-subtle)] break-words text-[var(--text-primary)]">
         ${renderMarkdown(card.description || 'No description provided.')}
       </div>
     </div>
@@ -617,28 +621,28 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
     <!-- Acceptance Criteria (Interactive Checkboxes) -->
     <div class="mb-6">
       <div class="flex items-center justify-between mb-2">
-        <h4 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Definition of Done / Acceptance Criteria</h4>
-        <span class="text-sm font-mono text-emerald-400 font-bold">${card.dod_checked}/${card.dod_total} Complete</span>
+        <h4 class="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider">Definition of Done / Acceptance Criteria</h4>
+        <span class="text-sm font-mono text-emerald-500 font-bold">${card.dod_checked}/${card.dod_total} Complete</span>
       </div>
-      <div class="bg-slate-950 p-3.5 rounded-lg border border-slate-800 space-y-2">
+      <div class="bg-[var(--bg-subtle)] p-3.5 rounded-lg border border-[var(--border-subtle)] space-y-2">
         ${
           card.dod.length > 0
             ? card.dod
                 .map((item, idx) => {
                   const isPending = !item.checked;
-                  const itemClass = isPending ? 'qa-pending-item p-2' : 'p-2 hover:bg-slate-900';
+                  const itemClass = isPending ? 'qa-pending-item p-2' : 'p-2 hover:bg-[var(--bg-surface-secondary)]';
                   return `
           <label class="flex items-start justify-between space-x-3 rounded cursor-pointer text-sm transition touch-target-item ${itemClass}">
             <div class="flex items-start space-x-3 flex-1">
-              <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-dod" data-card-id="${escId}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500/20 bg-slate-800 cursor-pointer">
-              <span class="${item.checked ? 'text-slate-200 font-medium' : 'text-amber-200 font-semibold'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
+              <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-dod" data-card-id="${escId}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-[var(--border-medium)] text-emerald-500 focus:ring-emerald-500/20 bg-[var(--bg-surface)] cursor-pointer">
+              <span class="${item.checked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)] font-medium'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
             </div>
-            ${isPending ? '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 ml-2 whitespace-nowrap border border-amber-500/30">Needs Live Validation</span>' : ''}
+            ${isPending ? '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300 ml-2 whitespace-nowrap border border-amber-500/30">Needs Live Validation</span>' : ''}
           </label>
         `;
                 })
                 .join('')
-            : '<p class="text-sm text-slate-500 italic">No checklist items defined.</p>'
+            : '<p class="text-sm text-[var(--text-tertiary)] italic">No checklist items defined.</p>'
         }
       </div>
     </div>
@@ -650,37 +654,37 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
       if (!hasInstr && !hasItems) {
         return `
     <div class="mb-6">
-      <h4 class="text-sm font-bold text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+      <h4 class="text-sm font-bold text-amber-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
         <i data-lucide="clipboard-list" class="w-4 h-4"></i>
         <span>Human QA Test Steps</span>
       </h4>
       <div class="bg-amber-500/5 border border-amber-500/25 rounded-lg p-4 flex items-start gap-3">
-        <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400 mt-0.5 shrink-0"></i>
-        <div class="text-sm text-amber-200/90 leading-relaxed">
+        <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i>
+        <div class="text-sm text-amber-700 dark:text-amber-200/90 leading-relaxed">
           <span class="font-semibold">No Human QA Test section found in this card.</span><br>
-          Ask the dev agent to add a <code class="font-mono text-amber-300 bg-amber-500/10 px-1 rounded text-xs">## Human QA Test</code> section with explicit step-by-step instructions (where to go, what to click, what to verify).
+          Ask the dev agent to add a <code class="font-mono text-amber-600 dark:text-amber-300 bg-amber-500/10 px-1 rounded text-xs">## Human QA Test</code> section with explicit step-by-step instructions (where to go, what to click, what to verify).
         </div>
       </div>
     </div>`;
       }
       const instrHtml = hasInstr
-        ? `<div class="bg-slate-950 p-4 rounded-lg border border-slate-800 mb-3">${renderMarkdown(card.qa_instructions)}</div>`
+        ? `<div class="bg-[var(--bg-subtle)] p-4 rounded-lg border border-[var(--border-subtle)] mb-3 text-[var(--text-primary)]">${renderMarkdown(card.qa_instructions)}</div>`
         : '';
       const itemsHtml = hasItems
-        ? `<div class="bg-slate-950 p-3.5 rounded-lg border border-slate-800 space-y-2">
+        ? `<div class="bg-[var(--bg-subtle)] p-3.5 rounded-lg border border-[var(--border-subtle)] space-y-2">
             ${card.qa_items.map((item, idx) => `
-              <label class="flex items-start space-x-3 rounded cursor-pointer text-sm transition p-2 hover:bg-slate-900">
-                <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-qa" data-card-id="${escapeHtml(card.mn_id)}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-amber-600/50 text-amber-500 focus:ring-amber-500/20 bg-slate-800 cursor-pointer">
-                <span class="${item.checked ? 'text-slate-400 line-through' : 'text-amber-100 font-medium'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
+              <label class="flex items-start space-x-3 rounded cursor-pointer text-sm transition p-2 hover:bg-[var(--bg-surface-secondary)] touch-target-item">
+                <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-qa" data-card-id="${escapeHtml(card.mn_id)}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-amber-600/50 text-amber-500 focus:ring-amber-500/20 bg-[var(--bg-surface)] cursor-pointer">
+                <span class="${item.checked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)] font-medium'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
               </label>`).join('')}
           </div>`
         : '';
       return `
     <div class="mb-6">
-      <h4 class="text-sm font-bold text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+      <h4 class="text-sm font-bold text-amber-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
         <i data-lucide="clipboard-list" class="w-4 h-4"></i>
         <span>Human QA Test Steps</span>
-        ${hasItems ? `<span class="text-xs px-2 py-0.5 rounded font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20 ml-1.5">${card.qa_items.filter(i => i.checked).length}/${card.qa_items.length} done</span>` : ''}
+        ${hasItems ? `<span class="text-xs px-2 py-0.5 rounded font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/20 ml-1.5">${card.qa_items.filter(i => i.checked).length}/${card.qa_items.length} done</span>` : ''}
       </h4>
       ${instrHtml}${itemsHtml}
     </div>`;
@@ -690,10 +694,10 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
     ${changelogHtml}
 
     <!-- Tester Verification Action -->
-    <div class="mt-auto pt-5 border-t border-slate-800">
-      <h4 class="text-sm font-bold text-slate-300 uppercase tracking-wider mb-2">QA Sign-off</h4>
+    <div class="mt-auto pt-5 border-t border-[var(--border-subtle)]">
+      <h4 class="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">QA Sign-off</h4>
       <div class="flex flex-col sm:flex-row gap-3">
-        <input type="text" id="qaValidateNotes" placeholder="Optional QA validation note (e.g. 'Verified Wise import flow live')" class="flex-1 bg-slate-950 text-slate-200 text-sm rounded-lg px-3.5 py-2.5 border border-slate-700 focus:outline-none focus:border-emerald-500">
+        <input type="text" id="qaValidateNotes" placeholder="Optional QA validation note (e.g. 'Verified Wise import flow live')" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm rounded-lg px-3.5 py-2.5 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
         <button data-action="validate-card" data-card-id="${escId}" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 transition">
           <i data-lucide="check-check" class="w-4 h-4"></i>
           <span>Validate & Complete Work</span>
@@ -864,7 +868,7 @@ function onRoadmapSearch(query) {
 
 function filterBoardBySprint(sprintNum) {
   state.filters.sprint = sprintNum;
-  const filterSelect = document.getElementById('filterSprint');
+  const filterSelect = document.getElementById('pipelineSprintFilter') || document.getElementById('filterSprint');
   if (filterSelect) filterSelect.value = sprintNum;
   switchTab('pipeline');
   renderPipeline();
@@ -1417,7 +1421,7 @@ function renderActiveSprintDod() {
                            data-card-id="${escId}"
                            data-idx="${itemIdx}"
                            class="mt-0.5 rounded border-slate-700 text-purple-500 focus:ring-purple-500/20 bg-slate-800 cursor-pointer w-4 h-4">
-                    <span class="flex-1 ${item.checked ? 'text-slate-500 line-through' : 'text-slate-200'} group-hover:text-slate-100 transition-colors leading-relaxed">${escText}</span>
+                    <span class="flex-1 ${item.checked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]'} group-hover:text-[var(--text-primary)] transition-colors leading-relaxed">${escText}</span>
                   </label>
                 `;
               })
@@ -1429,45 +1433,45 @@ function renderActiveSprintDod() {
                 <div class="flex items-start justify-between gap-3 mb-3">
                   <div class="flex-1 min-w-0">
                     <div class="flex flex-wrap items-center gap-2 mb-1.5">
-                      <span class="font-mono font-bold text-sm text-purple-400 cursor-pointer hover:underline flex items-center gap-1" data-action="${isGrill ? '' : 'open-card-modal'}" data-card-id="${escId}">
+                      <span class="font-mono font-bold text-sm text-purple-600 dark:text-purple-400 cursor-pointer hover:underline flex items-center gap-1" data-action="${isGrill ? '' : 'open-card-modal'}" data-card-id="${escId}">
                         <i data-lucide="${isGrill ? 'flame' : 'file-code'}" class="w-4 h-4"></i> ${escId}
                       </span>
                       ${sprintBadgeHtml}
                       <span class="text-[10px] font-semibold px-2 py-0.5 rounded ${typeClass}">${s.type || 'feature'}</span>
                       ${durationBadgeHtml}
                     </div>
-                    <h3 class="text-base font-bold text-white leading-snug cursor-pointer hover:text-purple-300 transition-colors" data-action="${isGrill ? '' : 'open-card-modal'}" data-card-id="${escId}">${escTitle}</h3>
+                    <h3 class="text-base font-bold text-[var(--text-primary)] leading-snug cursor-pointer hover:text-purple-600 dark:hover:text-purple-300 transition-colors" data-action="${isGrill ? '' : 'open-card-modal'}" data-card-id="${escId}">${escTitle}</h3>
                   </div>
                   <div class="shrink-0 flex items-center gap-2">${statusBadgeHtml}</div>
                 </div>
 
                 <!-- Scope Summary -->
-                <div class="bg-slate-950/40 p-3 rounded-xl border border-slate-800/80 mb-4">
-                  <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                    <i data-lucide="target" class="w-3.5 h-3.5 text-purple-400"></i> Scope & Objective
+                <div class="bg-[var(--bg-subtle)] p-3 rounded-xl border border-[var(--border-subtle)] mb-4">
+                  <div class="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                    <i data-lucide="target" class="w-3.5 h-3.5 text-purple-500"></i> Scope & Objective
                   </div>
-                  <p class="text-xs text-slate-300 leading-relaxed">${escScope || 'No explicit description provided.'}</p>
+                  <p class="text-xs text-[var(--text-secondary)] leading-relaxed">${escScope || 'No explicit description provided.'}</p>
                 </div>
 
                 <!-- Card Body Grid (2-column layout inside each stream card) -->
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1">
                   
                   <!-- Left Column: Agent Activity & Implementation Changelog (5 cols) -->
-                  <div class="lg:col-span-5 flex flex-col bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
-                    <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800/80">
-                      <span class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                        <i data-lucide="cpu" class="w-3.5 h-3.5 text-purple-400"></i> Agent Activity & Proof
+                  <div class="lg:col-span-5 flex flex-col bg-[var(--bg-subtle)] p-3.5 rounded-xl border border-[var(--border-subtle)]">
+                    <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-[var(--border-subtle)]">
+                      <span class="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-1.5">
+                        <i data-lucide="cpu" class="w-3.5 h-3.5 text-purple-500"></i> Agent Activity & Proof
                       </span>
-                      <span class="text-[10px] text-slate-400 font-mono">${(s.changelog || []).length} logged</span>
+                      <span class="text-[10px] text-[var(--text-tertiary)] font-mono">${(s.changelog || []).length} logged</span>
                     </div>
 
                     <!-- Current Focus Box -->
                     <div class="mb-3 p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-xs">
-                      <div class="text-[10px] text-purple-300 font-semibold mb-1 flex items-center justify-between">
-                        <span class="flex items-center gap-1"><i data-lucide="play-circle" class="w-3 h-3 text-purple-400"></i> Current Focus: ${agentName}</span>
-                        ${agentDt ? `<span class="font-mono text-[9px] text-slate-400" title="${agentDt}">${agentDt}</span>` : ''}
+                      <div class="text-[10px] text-purple-600 dark:text-purple-300 font-semibold mb-1 flex items-center justify-between">
+                        <span class="flex items-center gap-1"><i data-lucide="play-circle" class="w-3 h-3 text-purple-500"></i> Current Focus: ${agentName}</span>
+                        ${agentDt ? `<span class="font-mono text-[9px] text-[var(--text-tertiary)]" title="${agentDt}">${agentDt}</span>` : ''}
                       </div>
-                      <p class="text-slate-200 font-medium text-[11px] leading-snug line-clamp-3">
+                      <p class="text-[var(--text-primary)] font-medium text-[11px] leading-snug line-clamp-3">
                         ${agentAction}
                       </p>
                     </div>
@@ -1479,41 +1483,41 @@ function renderActiveSprintDod() {
                     ${reviewsHtml}
 
                     <!-- Changelog Feed -->
-                    <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                    <div class="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider mb-1.5 flex items-center justify-between">
                       <span>Implementation Milestones</span>
-                      <span class="text-[9px] text-slate-500 lowercase">newest first</span>
+                      <span class="text-[9px] text-[var(--text-tertiary)] lowercase">newest first</span>
                     </div>
                     <div class="flex-1 overflow-y-auto max-h-[220px] space-y-2 pr-1 stream-dod-container">
-                      ${changelogEntriesHtml || '<div class="text-slate-500 italic text-xs py-3 text-center">No changelog entries recorded yet.</div>'}
+                      ${changelogEntriesHtml || '<div class="text-[var(--text-tertiary)] italic text-xs py-3 text-center">No changelog entries recorded yet.</div>'}
                     </div>
                   </div>
 
                   <!-- Right Column: Live Definition of Done Checklist (7 cols, taller) -->
-                  <div class="lg:col-span-7 flex flex-col bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
+                  <div class="lg:col-span-7 flex flex-col bg-[var(--bg-subtle)] p-3.5 rounded-xl border border-[var(--border-subtle)]">
                     <div class="flex items-center justify-between mb-2">
-                      <span class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                        <i data-lucide="check-square" class="w-3.5 h-3.5 text-emerald-400"></i> Definition of Done
+                      <span class="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-1.5">
+                        <i data-lucide="check-square" class="w-3.5 h-3.5 text-emerald-500"></i> Definition of Done
                       </span>
-                      <span class="font-mono text-purple-400 font-bold text-xs">${s.dod_checked}/${s.dod_total} (${s.progress_pct}%)</span>
+                      <span class="font-mono text-purple-600 dark:text-purple-400 font-bold text-xs">${s.dod_checked}/${s.dod_total} (${s.progress_pct}%)</span>
                     </div>
 
                     <!-- Progress bar -->
-                    <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden mb-3">
+                    <div class="w-full bg-[var(--bg-surface-tertiary)] rounded-full h-2 overflow-hidden mb-3">
                       <div class="bg-gradient-to-r from-purple-500 to-emerald-400 h-2 rounded-full transition-all duration-300" style="width: ${s.progress_pct}%"></div>
                     </div>
 
                     <!-- DoD Items (Taller height so many items fit without scrolling!) -->
-                    <div class="flex-1 overflow-y-auto max-h-[380px] space-y-1 pr-1 stream-dod-container border-t border-slate-800/60 pt-2">
-                      ${dodItemsHtml || '<div class="text-xs text-slate-500 italic py-6 text-center">No criteria checklist defined.</div>'}
+                    <div class="flex-1 overflow-y-auto max-h-[380px] space-y-1 pr-1 stream-dod-container border-t border-[var(--border-subtle)] pt-2">
+                      ${dodItemsHtml || '<div class="text-xs text-[var(--text-tertiary)] italic py-6 text-center">No criteria checklist defined.</div>'}
                     </div>
                   </div>
 
                 </div>
 
                 <!-- Card Footer -->
-                <div class="mt-4 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 font-mono">
-                  <span class="flex items-center gap-1.5"><i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-500"></i> Created ${escDate}</span>
-                  <button class="text-purple-400 hover:text-purple-300 flex items-center gap-1 text-xs font-medium transition cursor-pointer" data-action="${isGrill ? '' : 'open-card-modal'}" data-card-id="${escId}">
+                <div class="mt-4 pt-2.5 border-t border-[var(--border-subtle)] flex items-center justify-between text-xs text-[var(--text-tertiary)] font-mono">
+                  <span class="flex items-center gap-1.5"><i data-lucide="calendar" class="w-3.5 h-3.5 text-[var(--text-tertiary)]"></i> Created ${escDate}</span>
+                  <button class="text-purple-600 dark:text-purple-400 hover:text-purple-500 flex items-center gap-1 text-xs font-medium transition cursor-pointer" data-action="${isGrill ? '' : 'open-card-modal'}" data-card-id="${escId}">
                     <span>Open Story Details</span>
                     <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
                   </button>
@@ -1545,17 +1549,11 @@ function renderActiveSprintDod() {
       navBadge.className = 'ml-2 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
     }
 
-    // Story DoD progress bar
-    const sprintRatioEl = document.getElementById('sprintDodRatio');
-    const sprintBarEl = document.getElementById('sprintDodProgressBar');
-    if (sprintRatioEl) sprintRatioEl.textContent = `${data.sprint_dod_checked}/${data.sprint_dod_total} (${data.sprint_dod_pct}%)`;
-    if (sprintBarEl) sprintBarEl.style.width = `${data.sprint_dod_pct}%`;
-
-    // Cards DoD progress bar
-    const cardRatioEl = document.getElementById('cardDodRatio');
-    const cardBarEl = document.getElementById('cardDodProgressBar');
-    if (cardRatioEl) cardRatioEl.textContent = `${data.card_dod_checked}/${data.card_dod_total} (${data.card_dod_pct}%)`;
-    if (cardBarEl) cardBarEl.style.width = `${data.card_dod_pct}%`;
+    // Story / Cards DoD progress bar
+    const cardRatioEl = document.getElementById('cardDodRatio') || document.getElementById('sprintDodRatio');
+    const cardBarEl = document.getElementById('cardDodProgressBar') || document.getElementById('sprintDodProgressBar');
+    if (cardRatioEl) cardRatioEl.textContent = `${data.card_dod_checked || data.sprint_dod_checked}/${data.card_dod_total || data.sprint_dod_total} (${data.card_dod_pct || data.sprint_dod_pct}%)`;
+    if (cardBarEl) cardBarEl.style.width = `${data.card_dod_pct || data.sprint_dod_pct}%`;
 
     // Status counts
     const inProgCards = (data.cards_by_status && data.cards_by_status['in-progress']) || [];
