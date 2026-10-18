@@ -443,3 +443,114 @@ def test_dashboard_ps1_parameter_syntax():
     assert "Public" in res.stdout
 
 
+def test_notification_config_get_and_post(server, external_project):
+    base, srv = server
+    code, docs = external_project
+
+    # Configure external project
+    post(
+        f"{base}/api/projects/configure",
+        {"name": "NotifyPrj", "code_path": str(code), "docs_path": str(docs), "docs_mode": "external"},
+    )
+
+    # GET default config
+    status, body = get(f"{base}/api/notifications/config?slug=notifyprj")
+    assert status == 200
+    res = json.loads(body)
+    assert res["success"] is True
+    cfg = res["config"]
+    assert cfg["sound_enabled"] is True
+    assert cfg["push_enabled"] is True
+    assert "notifyprj" in cfg["ntfy_topic"]
+
+    # POST update config
+    status, updated = post(
+        f"{base}/api/notifications/config",
+        {"slug": "notifyprj", "sound_enabled": False, "push_enabled": True, "ntfy_topic": "custom-notify-topic"},
+    )
+    assert status == 200
+    assert updated["success"] is True
+    assert updated["config"]["sound_enabled"] is False
+    assert updated["config"]["ntfy_topic"] == "custom-notify-topic"
+
+    # Verify persisted GET
+    status, body2 = get(f"{base}/api/notifications/config?slug=notifyprj")
+    assert status == 200
+    res2 = json.loads(body2)
+    assert res2["config"]["sound_enabled"] is False
+    assert res2["config"]["ntfy_topic"] == "custom-notify-topic"
+
+
+def test_notification_test_endpoint(server, monkeypatch):
+    base, srv = server
+    dispatched = []
+
+    def fake_send(topic, **kwargs):
+        dispatched.append({"topic": topic, **kwargs})
+        return True, "Notification sent"
+
+    monkeypatch.setattr(srv, "send_ntfy_notification", fake_send)
+
+    status, res = post(
+        f"{base}/api/notifications/test",
+        {"topic": "my-test-topic"},
+    )
+    assert status == 200
+    assert res["success"] is True
+    assert res["topic"] == "my-test-topic"
+    assert len(dispatched) == 1
+    assert dispatched[0]["topic"] == "my-test-topic"
+
+
+def test_notification_watcher_transitions(external_project, monkeypatch):
+    import server as srv
+    from conftest import seed_external_docs
+
+    code, docs = external_project
+    proj = projects.build_project(
+        name="WatchPrj", code_path=code, docs_path=docs, docs_mode="external"
+    )
+    projects.ensure_docs_root(proj)
+    seed_external_docs(docs)
+    projects.upsert_project(proj, activate=True)
+    srv.STATE.activate(proj)
+
+    watcher = srv.NotificationWatcher()
+    dispatched = []
+
+    def fake_send(topic, **kwargs):
+        dispatched.append({"topic": topic, **kwargs})
+        return True, "Notification sent"
+
+    monkeypatch.setattr(srv, "send_ntfy_notification", fake_send)
+
+    # Initial check seeds the state - no alerts sent
+    alerts = watcher.check_transitions()
+    assert len(alerts) == 0
+
+    # Modify card status from story-backlog to qa
+    card_file = docs / "cards" / "APP-3.1 - New story card.md"
+    assert card_file.exists()
+    content = card_file.read_text(encoding="utf-8")
+    card_file.write_text(content.replace("status: story-backlog", "status: qa"), encoding="utf-8")
+
+    # Second check should detect transition to qa and trigger alert
+    alerts = watcher.check_transitions()
+    assert len(alerts) == 1
+    assert alerts[0]["new_status"] == "qa"
+    assert alerts[0]["card_id"] == "APP-3.1"
+    assert len(dispatched) == 1
+    assert "Ready for QA" in dispatched[0]["title"]
+
+    # Transition to completed
+    content = card_file.read_text(encoding="utf-8")
+    card_file.write_text(content.replace("status: qa", "status: completed"), encoding="utf-8")
+
+    alerts = watcher.check_transitions()
+    assert len(alerts) == 1
+    assert alerts[0]["new_status"] == "completed"
+    assert len(dispatched) == 2
+    assert "Story Completed" in dispatched[1]["title"]
+
+
+

@@ -475,6 +475,191 @@ class _WorkerProxy:
 HEAVY_WORKER = _WorkerProxy()
 
 
+def send_ntfy_notification(
+    topic: str,
+    *,
+    title: str = "PM & QA Board",
+    message: str = "",
+    priority: int | str = 3,
+    tags: list[str] | None = None,
+    click_url: str | None = None,
+    timeout: float = 6.0,
+) -> tuple[bool, str]:
+    """Dispatch push notification via ntfy.sh (standard library urllib.request)."""
+    import urllib.request
+
+    clean_topic = topic.strip()
+    if clean_topic.startswith("http://") or clean_topic.startswith("https://"):
+        endpoint = clean_topic.rstrip("/")
+        slug_topic = endpoint.split("/")[-1]
+    else:
+        slug_topic = clean_topic.lstrip("/")
+        endpoint = "https://ntfy.sh"
+
+    if not slug_topic:
+        return False, "Empty ntfy topic"
+
+    payload: dict[str, Any] = {
+        "topic": slug_topic,
+        "title": title,
+        "message": message,
+        "priority": priority,
+    }
+    if tags:
+        payload["tags"] = tags
+    if click_url:
+        payload["click"] = click_url
+
+    req = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "User-Agent": "PM-QA-Cockpit/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status in (200, 201, 202, 204):
+                return True, f"Notification sent to {slug_topic}"
+            return False, f"ntfy.sh returned HTTP {resp.status}"
+    except Exception as e:
+        return False, str(e)
+
+
+class NotificationWatcher(threading.Thread):
+    """Background watcher that polls card transitions across registered projects and sends ntfy alerts."""
+
+    def __init__(self, interval: float = 10.0):
+        super().__init__(daemon=True, name="NotificationWatcher")
+        self.interval = interval
+        self.stop_event = threading.Event()
+        self.last_card_statuses: dict[str, dict[str, str]] = {}
+        self.initialized_projects: set[str] = set()
+
+    def run(self) -> None:
+        while not self.stop_event.is_set():
+            try:
+                self.check_transitions()
+            except Exception:
+                pass
+            self.stop_event.wait(self.interval)
+
+    def stop(self) -> None:
+        self.stop_event.set()
+
+    def check_transitions(self) -> list[dict[str, Any]]:
+        """Poll card transitions and dispatch ntfy alerts. Returns list of triggered alerts (for testing)."""
+        dispatched: list[dict[str, Any]] = []
+        registry = projects.load_registry()
+        all_projects = list(registry.get("projects", {}).values())
+        if not all_projects and STATE.project:
+            all_projects = [STATE.project]
+
+        for proj in all_projects:
+            slug = proj.get("slug")
+            if not slug:
+                continue
+            docs_path = proj.get("docs_path")
+            if not docs_path or not Path(docs_path).is_dir():
+                continue
+
+            try:
+                if STATE.project.get("slug") == slug:
+                    parser = STATE.parser
+                else:
+                    parser = PMParser(project=proj)
+                cards = parser.get_all_cards(refresh=True)
+            except Exception:
+                continue
+
+            curr_map = {
+                (c.get("mn_id") or c.get("id")): c.get("status")
+                for c in cards
+                if (c.get("mn_id") or c.get("id"))
+            }
+
+            if slug not in self.initialized_projects:
+                self.last_card_statuses[slug] = curr_map
+                self.initialized_projects.add(slug)
+                continue
+
+            prev_map = self.last_card_statuses.get(slug, {})
+
+            for card in cards:
+                card_id = card.get("mn_id") or card.get("id")
+                if not card_id:
+                    continue
+                old_status = prev_map.get(card_id)
+                new_status = card.get("status")
+
+                if old_status and old_status != new_status:
+                    if new_status in ("qa", "completed"):
+                        alert_info = self._handle_transition(proj, card, old_status, new_status)
+                        if alert_info:
+                            dispatched.append(alert_info)
+
+            self.last_card_statuses[slug] = curr_map
+
+        return dispatched
+
+    def _handle_transition(
+        self, proj: dict[str, Any], card: dict[str, Any], old_status: str, new_status: str
+    ) -> dict[str, Any] | None:
+        slug = proj.get("slug", "project")
+        notif_cfg = projects.get_notification_config(slug)
+        if not notif_cfg.get("push_enabled", True):
+            return None
+
+        topic = notif_cfg.get("ntfy_topic") or f"pmqa-{slug}"
+        card_id = card.get("mn_id") or card.get("id")
+        card_name = card.get("name") or card.get("title") or card_id
+
+        token_q = f"&token={TOKEN}" if TOKEN else ""
+        if TUNNEL_URL:
+            base = TUNNEL_URL.rstrip("/")
+        else:
+            base = f"http://{get_lan_ip()}:{PORT}"
+
+        if new_status == "qa":
+            title = f"🔔 Ready for QA: {card_id}"
+            message = f"{card_name} has finished building and is awaiting QA verification."
+            click_url = f"{base}/?card={card_id}{token_q}#qa"
+            priority = 4
+            tags = ["tada", "white_check_mark", "sparkles"]
+        elif new_status == "completed":
+            title = f"🎉 Story Completed: {card_id}"
+            message = f"{card_name} has been validated and completed! Ready to build something new."
+            click_url = f"{base}/?card={card_id}{token_q}#pipeline"
+            priority = 3
+            tags = ["party_popper", "tada"]
+        else:
+            return None
+
+        ok, msg = send_ntfy_notification(
+            topic=topic,
+            title=title,
+            message=message,
+            priority=priority,
+            tags=tags,
+            click_url=click_url,
+        )
+        return {
+            "slug": slug,
+            "card_id": card_id,
+            "old_status": old_status,
+            "new_status": new_status,
+            "topic": topic,
+            "ok": ok,
+            "message": msg,
+        }
+
+
+NOTIFICATION_WATCHER = NotificationWatcher()
+
+
+
 class PMRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
         # Custom concise logging
@@ -736,6 +921,23 @@ class PMRequestHandler(BaseHTTPRequestHandler):
             self.send_json(overview)
             return
 
+        if path == "/api/notifications/config":
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            target_slug = query_params.get("slug", [None])[0] or STATE.project.get("slug")
+            cfg = projects.get_notification_config(target_slug)
+            self.send_json(
+                {
+                    "success": True,
+                    "slug": target_slug,
+                    "config": cfg,
+                    "tunnel_url": TUNNEL_URL,
+                    "lan_ip": get_lan_ip(),
+                    "port": PORT,
+                    "token": TOKEN,
+                }
+            )
+            return
+
         if path == "/api/heavy-gate/status":
             gate_info = STATE.parser.get_heavy_gate_info()
             worker_status = STATE.worker.get_status()
@@ -904,6 +1106,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                     docs_path=body.get("docs_path") or None,
                     docs_mode=body.get("docs_mode") or None,
                     gates=existing.get("gates"),
+                    notifications=existing.get("notifications"),
                 )
             except ValueError as err:
                 self.send_json({"success": False, "error": str(err)}, status=400)
@@ -915,6 +1118,39 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 STATE.activate(project)
             self.send_json({"success": True, "project": project, "created": created, **STATE.project_view()})
             return
+
+        # ----------------------------------------------------------------------
+        # Notification Config & Test Alert
+        # ----------------------------------------------------------------------
+        if path == "/api/notifications/config":
+            target_slug = body.get("slug") or STATE.project.get("slug")
+            try:
+                cfg = projects.update_notification_config(target_slug, body)
+                self.send_json({"success": True, "slug": target_slug, "config": cfg})
+            except Exception as err:
+                self.send_json({"success": False, "error": str(err)}, status=400)
+            return
+
+        if path == "/api/notifications/test":
+            target_slug = body.get("slug") or STATE.project.get("slug")
+            cfg = projects.get_notification_config(target_slug)
+            topic = body.get("topic") or cfg.get("ntfy_topic") or f"pmqa-{target_slug or 'test'}"
+            token_q = f"?token={TOKEN}" if TOKEN else ""
+            click_url = f"{TUNNEL_URL.rstrip('/')}/{token_q}" if TUNNEL_URL else f"http://{get_lan_ip()}:{PORT}/{token_q}"
+            ok, msg = send_ntfy_notification(
+                topic=topic,
+                title="PM & QA Board — Test Alert",
+                message="🔔 Test alert from PM & QA Board! Audio, haptic, and mobile push alerts are operational.",
+                priority=3,
+                tags=["bell", "tada"],
+                click_url=click_url,
+            )
+            if ok:
+                self.send_json({"success": True, "message": msg, "topic": topic})
+            else:
+                self.send_json({"success": False, "error": msg, "topic": topic}, status=502)
+            return
+
 
         # ----------------------------------------------------------------------
         # Toggle DoD checkbox
@@ -1101,11 +1337,14 @@ def main(argv: list[str] | None = None) -> None:
     server = ThreadingHTTPServer((HOST, PORT), PMRequestHandler)
     # Pre-warm cards cache in background so first browser request is instantaneous
     threading.Thread(target=STATE.parser.get_all_cards, daemon=True).start()
+    # Start background notification watcher for card transitions (Awaiting QA / Completed)
+    NOTIFICATION_WATCHER.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down server...")
     finally:
+        NOTIFICATION_WATCHER.stop()
         if KEEP_ALIVE:
             set_keep_alive(False)
         server.server_close()

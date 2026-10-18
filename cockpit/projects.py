@@ -101,6 +101,7 @@ def build_project(
     docs_path: str | Path | None = None,
     docs_mode: str | None = None,
     gates: dict[str, Any] | None = None,
+    notifications: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate and normalise one project entry. Raises ValueError on bad input."""
     if not name or not str(name).strip():
@@ -122,14 +123,22 @@ def build_project(
     pfx = (prefix or "").strip().upper() or re.sub(r"[^A-Z]", "", name.upper())[:3] or "PRJ"
     if not re.fullmatch(r"[A-Z][A-Z0-9]{0,7}", pfx):
         raise ValueError("prefix must be 1-8 uppercase letters/digits, starting with a letter")
+    resolved_slug = slug or slugify(name)
     return {
         "name": str(name).strip(),
-        "slug": slug or slugify(name),
+        "slug": resolved_slug,
         "prefix": pfx,
         "code_path": code_s,
         "docs_path": docs_s,
         "docs_mode": mode,
         "gates": gates or {"mode": "unprofiled"},
+        "notifications": notifications
+        if notifications is not None
+        else {
+            "sound_enabled": True,
+            "push_enabled": True,
+            "ntfy_topic": f"pmqa-{resolved_slug}",
+        },
     }
 
 
@@ -205,14 +214,20 @@ def adhoc_project(code_path: str | Path) -> dict[str, Any]:
     """An unregistered in-repo project rooted at ``code_path`` (legacy single-root behaviour)."""
     code = Path(code_path).resolve()
     docs = code / "docs"
+    sl = slugify(code.name)
     return {
         "name": code.name,
-        "slug": slugify(code.name),
+        "slug": sl,
         "prefix": "MN" if (docs / "cards").exists() and any((docs / "cards").glob("MN-*.md")) else "PRJ",
         "code_path": _norm(code),
         "docs_path": _norm(docs if docs.exists() else code),
         "docs_mode": "in-repo",
         "gates": {"mode": "unprofiled"},
+        "notifications": {
+            "sound_enabled": True,
+            "push_enabled": True,
+            "ntfy_topic": f"pmqa-{sl}",
+        },
     }
 
 
@@ -223,3 +238,38 @@ def public_view(data: dict[str, Any] | None = None) -> dict[str, Any]:
         "projects": sorted(data["projects"].values(), key=lambda p: p.get("name", "").lower()),
         "registry_path": str(registry_path()).replace("\\", "/"),
     }
+
+
+def get_notification_config(slug: str | None = None) -> dict[str, Any]:
+    """Return notification preferences for a project (or active project), with defaults."""
+    data = load_registry()
+    target_slug = slug or data.get("active_project")
+    proj = data.get("projects", {}).get(target_slug) if target_slug else None
+    existing = (proj.get("notifications") if proj else {}) or {}
+    default_topic = f"pmqa-{target_slug}" if target_slug else "pmqa-project"
+    return {
+        "sound_enabled": existing.get("sound_enabled", True),
+        "push_enabled": existing.get("push_enabled", True),
+        "ntfy_topic": existing.get("ntfy_topic") or default_topic,
+    }
+
+
+def update_notification_config(slug: str | None, config: dict[str, Any]) -> dict[str, Any]:
+    """Persist notification preferences for a project (or active project) into projects.json."""
+    data = load_registry()
+    target_slug = slug or data.get("active_project")
+    if not target_slug or target_slug not in data.get("projects", {}):
+        raise KeyError(target_slug or "active_project")
+    proj = data["projects"][target_slug]
+    notifs = proj.setdefault("notifications", {})
+    if "sound_enabled" in config:
+        notifs["sound_enabled"] = bool(config["sound_enabled"])
+    if "push_enabled" in config:
+        notifs["push_enabled"] = bool(config["push_enabled"])
+    if "ntfy_topic" in config:
+        topic_str = str(config["ntfy_topic"]).strip().lstrip("/")
+        if topic_str:
+            notifs["ntfy_topic"] = topic_str
+    save_registry(data)
+    return get_notification_config(target_slug)
+
