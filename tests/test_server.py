@@ -502,7 +502,7 @@ def test_notification_test_endpoint(server, monkeypatch):
     assert dispatched[0]["topic"] == "my-test-topic"
 
 
-def test_notification_watcher_transitions(external_project, monkeypatch):
+def test_notification_watcher_transitions(cockpit_home, external_project, monkeypatch):
     import server as srv
     from conftest import seed_external_docs
 

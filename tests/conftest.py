@@ -126,7 +126,7 @@ STORY_PLAN = textwrap.dedent(
 )
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def cockpit_home(tmp_path, monkeypatch):
     home = tmp_path / "cockpit-home"
     monkeypatch.setenv("PM_QA_COCKPIT_HOME", str(home))
