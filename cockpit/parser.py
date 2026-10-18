@@ -929,9 +929,9 @@ class PMParser:
 
             if plan_content:
                 grill_matches = re.finditer(
-                    r"###\s+Grill in progress\s*[--\-]\s*(?:(?:Sprint|Story)\s+)?([^\r\n]+)",
+                    r"^\s*#{3,4}\s+Grill in progress\s*[—–\-]\s*(?:(?:Sprint|Story)\s+)?([a-zA-Z0-9_.-]+)",
                     plan_content,
-                    re.IGNORECASE,
+                    re.IGNORECASE | re.MULTILINE,
                 )
                 seen_sprints = {
                     c.get("sprint", "").lower()
@@ -1311,9 +1311,9 @@ class PMParser:
                 pass
 
         grill_matches = re.finditer(
-            r"###\s+Grill in progress\s*[—–\-]\s*(?:(?:Sprint|Story)\s+)?([^\r\n]+)",
+            r"^\s*#{3,4}\s+Grill in progress\s*[—–\-]\s*(?:(?:Sprint|Story)\s+)?([a-zA-Z0-9_.-]+)",
             plan_content,
-            re.IGNORECASE,
+            re.IGNORECASE | re.MULTILINE,
         )
         active_grills = []
         for gm in grill_matches:

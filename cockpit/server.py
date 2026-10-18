@@ -383,7 +383,11 @@ def count_building_cards(project: dict[str, Any]) -> int:
         try:
             with open(plan_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
-            grills = re.findall(r"###\s+Grill in progress\s*[--\-]\s*(?:(?:Sprint|Story)\s+)?([^\r\n]+)", content, re.IGNORECASE)
+            grills = re.findall(
+                r"^\s*#{3,4}\s+Grill in progress\s*[—–\-]\s*(?:(?:Sprint|Story)\s+)?([a-zA-Z0-9_.-]+)",
+                content,
+                re.IGNORECASE | re.MULTILINE,
+            )
             for g in grills:
                 clean_g = re.sub(r"^(?:Sprint|Story|Phase)\s+", "", g, flags=re.IGNORECASE).strip().lower()
                 if clean_g and clean_g not in building_sprints:
