@@ -198,6 +198,7 @@ try {
 
 $tunnelProcess = $null
 $tunnelUrl = $null
+$tunnelLog = $null
 if ($Tunnel) {
     $cfExe = Get-CloudflaredPath
     if (-not $cfExe) {
@@ -213,28 +214,33 @@ if ($Tunnel) {
     $env:PM_QA_COCKPIT_KEEP_ALIVE = "1"
 
     Write-Host "  [tunnel] Starting Cloudflare Quick Tunnel to port $Port..." -ForegroundColor Gray
+    $tunnelLog = [System.IO.Path]::GetTempFileName()
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $cfExe
-    $psi.Arguments = "tunnel --url http://127.0.0.1:$Port"
-    $psi.RedirectStandardError = $true
-    $psi.RedirectStandardOutput = $false
+    $psi.Arguments = "tunnel --logfile `"$tunnelLog`" --url http://127.0.0.1:$Port"
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $tunnelProcess = [System.Diagnostics.Process]::Start($psi)
 
-    # Watch output for trycloudflare.com URL without blocking
+    # Watch log for trycloudflare.com URL without blocking
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     while ($sw.ElapsedMilliseconds -lt 15000 -and -not $tunnelUrl) {
         Start-Sleep -Milliseconds 250
         if ($tunnelProcess.HasExited) {
             break
         }
-        while ($tunnelProcess.StandardError.Peek() -ge 0) {
-            $line = $tunnelProcess.StandardError.ReadLine()
-            if ($line -match '(https://[a-zA-Z0-9-]+\.trycloudflare\.com)') {
-                $tunnelUrl = $matches[1]
-                break
-            }
+        if (Test-Path $tunnelLog) {
+            try {
+                $fs = [System.IO.File]::Open($tunnelLog, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                $sr = New-Object System.IO.StreamReader($fs)
+                $logContent = $sr.ReadToEnd()
+                $sr.Close()
+                $fs.Close()
+                if ($logContent -match '(https://[a-zA-Z0-9-]+\.trycloudflare\.com)') {
+                    $tunnelUrl = $matches[1]
+                    break
+                }
+            } catch {}
         }
     }
     if ($tunnelUrl) {
@@ -308,5 +314,8 @@ try {
         try {
             $tunnelProcess.Kill()
         } catch {}
+    }
+    if ($tunnelLog -and (Test-Path $tunnelLog)) {
+        Remove-Item $tunnelLog -Force -ErrorAction SilentlyContinue
     }
 }

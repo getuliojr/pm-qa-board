@@ -378,7 +378,9 @@ def test_post_allowed_with_tunnel_and_forwarded_host(server, legacy_project, mon
 def test_doctor_check_11_custom_cloudflared_in_cockpit_home(server, legacy_project, monkeypatch, tmp_path):
     import doctor
     _, srv = server
-    custom_bin = projects.cockpit_home() / "bin"
+    fake_home = tmp_path / "cockpit-home"
+    monkeypatch.setenv("PM_QA_COCKPIT_HOME", str(fake_home))
+    custom_bin = fake_home / "bin"
     custom_bin.mkdir(parents=True, exist_ok=True)
     bin_name = "cloudflared.exe" if sys.platform == "win32" else "cloudflared"
     fake_cf = custom_bin / bin_name
