@@ -3600,7 +3600,19 @@ async function openMobileConnectModal() {
 
     const qrContainer = document.getElementById('mobileQrGraphic');
     if (qrContainer) {
-      qrContainer.innerHTML = generateQrSvg(mobileUrl);
+      qrContainer.innerHTML = '';
+      if (typeof QRCode !== 'undefined') {
+        new QRCode(qrContainer, {
+          text: mobileUrl,
+          width: 200,
+          height: 200,
+          colorDark: '#0f172a',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M,
+        });
+      } else {
+        qrContainer.innerHTML = generateQrSvg(mobileUrl);
+      }
     }
 
     const netBadge = document.getElementById('mobileNetworkModeBadge');

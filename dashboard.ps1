@@ -17,11 +17,17 @@
 .PARAMETER Mobile
     Enables mobile LAN access (binds to 0.0.0.0, enables keep-alive, prints LAN URL).
 
+.PARAMETER Local
+    Enables local-only access (binds to 127.0.0.1, PC only).
+
 .PARAMETER Tunnel
     Enables public internet access via Cloudflare Quick Tunnel with random session token protection.
 
 .PARAMETER Public
     Alias for -Tunnel.
+
+.PARAMETER Mode
+    Explicit mode string: 'mobile', 'local', or 'tunnel'.
 
 .PARAMETER Token
     Explicit session token for remote authentication (auto-generated if -Tunnel is passed without -Token).
@@ -37,6 +43,8 @@ param(
     [int]$Port = 3333,
     [switch]$Mobile,
     [alias("Public")][switch]$Tunnel,
+    [switch]$Local,
+    [string]$Mode = "",
     [string]$Token = "",
     [string]$HostName = ""
 )
@@ -107,11 +115,65 @@ function Install-Cloudflared {
     }
 }
 
+if ($Mode) {
+    switch ($Mode.ToLower()) {
+        "mobile" { $Mobile = $true }
+        "local"  { $Local = $true }
+        "tunnel" { $Tunnel = $true }
+        "public" { $Tunnel = $true }
+        default  { $Mobile = $true }
+    }
+}
+
+if (-not $PSBoundParameters.ContainsKey('Mobile') -and
+    -not $PSBoundParameters.ContainsKey('Tunnel') -and
+    -not $PSBoundParameters.ContainsKey('Public') -and
+    -not $PSBoundParameters.ContainsKey('Local') -and
+    -not $Mode) {
+
+    $isInteractive = [Environment]::UserInteractive
+    try {
+        if ([Console]::IsInputRedirected) { $isInteractive = $false }
+    } catch {}
+
+    if ($isInteractive) {
+        Write-Host ""
+        Write-Host "  ================================================" -ForegroundColor Cyan
+        Write-Host "    PM & QA Cockpit Launcher" -ForegroundColor Cyan
+        Write-Host "  ================================================" -ForegroundColor Cyan
+        Write-Host "  Select dashboard access mode:" -ForegroundColor Cyan
+        Write-Host "    [1] Mobile Wi-Fi (LAN access for phone on same Wi-Fi, keep-awake) [default]" -ForegroundColor Green
+        Write-Host "    [2] Local only   (127.0.0.1 loopback, PC only)" -ForegroundColor DarkGray
+        Write-Host "    [3] Public Tunnel (Cloudflare Quick Tunnel with secure session token)" -ForegroundColor Yellow
+        Write-Host ""
+        $choice = Read-Host "  Choose mode [1]"
+        $choice = if ($choice) { $choice.Trim() } else { "" }
+        if ($choice -eq "" -or $choice -eq "1" -or $choice.ToLower() -eq "mobile" -or $choice.ToLower() -eq "m") {
+            $Mobile = $true
+        } elseif ($choice -eq "2" -or $choice.ToLower() -eq "local" -or $choice.ToLower() -eq "l") {
+            $Local = $true
+        } elseif ($choice -eq "3" -or $choice.ToLower() -eq "tunnel" -or $choice.ToLower() -eq "t" -or $choice.ToLower() -eq "public") {
+            $Tunnel = $true
+        } else {
+            Write-Host "  Unknown choice '$choice', defaulting to Mobile." -ForegroundColor DarkYellow
+            $Mobile = $true
+        }
+    } else {
+        # Default to Mobile mode when started without arguments
+        $Mobile = $true
+    }
+}
+
 if ($Mobile) {
     if (-not $HostName) {
         $HostName = "0.0.0.0"
     }
     $env:PM_QA_COCKPIT_KEEP_ALIVE = "1"
+} elseif ($Local) {
+    if (-not $HostName) {
+        $HostName = "127.0.0.1"
+    }
+    $env:PM_QA_COCKPIT_KEEP_ALIVE = "0"
 }
 if ($HostName) {
     $env:PM_QA_COCKPIT_HOST = $HostName

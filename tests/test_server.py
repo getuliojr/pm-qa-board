@@ -405,7 +405,9 @@ def test_dashboard_ps1_parameter_syntax():
     )
     assert res.returncode == 0
     assert "-Mobile" in res.stdout
+    assert "-Local" in res.stdout
     assert "-Tunnel" in res.stdout
+    assert "-Mode" in res.stdout
     assert "Public" in res.stdout
 
 
