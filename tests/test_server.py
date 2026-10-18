@@ -81,6 +81,11 @@ def test_configure_switch_and_isolate_external_project(server, external_project)
     view = json.loads(body)
     assert view["active_project"] == "story-app"
     assert {p["slug"] for p in view["projects"]} >= {"story-app"}
+    assert "building_count" in view["current"]
+    assert isinstance(view["current"]["building_count"], int)
+    for p in view["projects"]:
+        assert "building_count" in p
+        assert isinstance(p["building_count"], int)
 
 
 def test_select_switches_back_and_unknown_is_404(server, legacy_project, external_project):
@@ -271,6 +276,31 @@ def test_token_auth_remote_guard(server, monkeypatch):
     with pytest.raises(urllib.error.HTTPError) as exc_info:
         urllib.request.urlopen(post_unauth)
     assert exc_info.value.code == 401
+
+    # Unauthenticated GET / returns 401 HTML with interactive token form
+    req_html_unauth = urllib.request.Request(
+        f"{base}/",
+        headers={"CF-Connecting-IP": "203.0.113.1"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req_html_unauth)
+    assert exc_info.value.code == 401
+    err_html = exc_info.value.read().decode("utf-8")
+    assert "PM &amp; QA Board" in err_html
+    assert "Connect to Board" in err_html
+    assert 'id="tok"' in err_html
+
+    # Authenticated GET / over HTTPS sets Secure cookie
+    req_html_auth_https = urllib.request.Request(
+        f"{base}/?token=secret-token-123",
+        headers={"CF-Connecting-IP": "203.0.113.1", "X-Forwarded-Proto": "https"},
+    )
+    with urllib.request.urlopen(req_html_auth_https) as r:
+        assert r.status == 200
+        set_cookie = r.headers.get("Set-Cookie", "")
+        assert "cockpit_token=secret-token-123" in set_cookie
+        assert "Secure" in set_cookie
+        assert "SameSite=Lax" in set_cookie
 
 
 def test_post_allowed_with_host_header(server, legacy_project):

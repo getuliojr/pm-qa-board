@@ -355,6 +355,29 @@ def _worker_config(parser: PMParser) -> tuple[str, str, str | None]:
     return (str(parser.root_dir), str(parser.heavy_results_dir), gates.get("heavy_script"))
 
 
+def count_building_cards(project: dict[str, Any]) -> int:
+    """Count how many stories are currently in progress ('building') for a project."""
+    docs_path = project.get("docs_path")
+    if not docs_path:
+        return 0
+    cards_dir = Path(docs_path) / "cards"
+    if not cards_dir.is_dir():
+        return 0
+    count = 0
+    for card_file in cards_dir.glob("*.md"):
+        try:
+            with open(card_file, "r", encoding="utf-8", errors="ignore") as f:
+                header = f.read(1024)
+            m = re.search(r"^status:\s*(.+)$", header, re.MULTILINE)
+            if m:
+                st = m.group(1).strip().lower().strip("\"'")
+                if st in ("in-progress", "building", "active"):
+                    count += 1
+        except Exception:
+            pass
+    return count
+
+
 class CockpitState:
     """The active project's parser + heavy-gate worker; swapped atomically on project switch."""
 
@@ -398,9 +421,25 @@ class CockpitState:
 
     def project_view(self) -> dict[str, Any]:
         view = projects.public_view()
-        view["current"] = self.project
+        view["current"] = dict(self.project)
         if self.project.get("slug") and not any(p["slug"] == self.project["slug"] for p in view["projects"]):
-            view["projects"] = [self.project, *view["projects"]]
+            view["projects"] = [dict(self.project), *view["projects"]]
+        cur_slug = self.project.get("slug")
+        try:
+            cur_active_count = sum(1 for c in self.parser.get_all_cards() if c.get("status") == "in-progress")
+        except Exception:
+            cur_active_count = 0
+        enriched_projects = []
+        for p in view["projects"]:
+            p_copy = dict(p)
+            if cur_slug and p_copy.get("slug") == cur_slug:
+                p_copy["building_count"] = cur_active_count
+            else:
+                p_copy["building_count"] = count_building_cards(p_copy)
+            enriched_projects.append(p_copy)
+        view["projects"] = enriched_projects
+        if view.get("current"):
+            view["current"]["building_count"] = cur_active_count
         return view
 
 
@@ -523,15 +562,36 @@ class PMRequestHandler(BaseHTTPRequestHandler):
             self.send_response(HTTPStatus.UNAUTHORIZED)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             body = (
-                b"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Unauthorized - PM &amp; QA Cockpit</title>"
-                b"<style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;display:flex;align-items:center;"
-                b"justify-content:center;height:100vh;margin:0;padding:1rem;box-sizing:border-box;}"
-                b".box{background:#1e293b;border:1px solid #334155;border-radius:1rem;padding:2rem;max-width:440px;text-align:center;}"
-                b"h1{font-size:1.25rem;color:#f43f5e;margin-top:0;}p{font-size:0.875rem;color:#94a3b8;line-height:1.5;}"
-                b"code{background:#0f172a;padding:0.2rem 0.4rem;border-radius:0.25rem;color:#38bdf8;}</style></head>"
-                b"<body><div class=\"box\"><h1>401 - Session Token Required</h1>"
-                b"<p>This Cockpit instance is running with token authentication enabled.</p>"
-                b"<p>Connect from your phone by scanning the QR code from the desktop dashboard or open the link with <code>?token=...</code>.</p>"
+                b"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
+                b"<title>Unauthorized - PM &amp; QA Board</title>"
+                b"<style>body{background:#09090b;color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;"
+                b"display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:1.5rem;box-sizing:border-box;}"
+                b".box{background:#18181b;border:1px solid #27272a;border-radius:1rem;padding:2rem;max-width:440px;width:100%;text-align:center;box-shadow:0 10px 25px -5px rgba(0,0,0,0.5);}"
+                b"h1{font-size:1.25rem;color:#f43f5e;margin-top:0;font-weight:700;}p{font-size:0.875rem;color:#a1a1aa;line-height:1.5;margin:0.75rem 0;}"
+                b"code{background:#09090b;padding:0.2rem 0.4rem;border-radius:0.375rem;color:#10b981;font-size:0.8rem;border:1px solid #27272a;}"
+                b".form{margin-top:1.25rem;display:flex;flex-direction:column;gap:0.75rem;}"
+                b"input{background:#09090b;border:1px solid #3f3f46;border-radius:0.5rem;padding:0.6rem 0.8rem;color:#f4f4f5;font-size:0.875rem;outline:none;text-align:center;box-sizing:border-box;width:100%;}"
+                b"input:focus{border-color:#10b981;box-shadow:0 0 0 2px rgba(16,185,129,0.2);}"
+                b"button{background:#10b981;color:#ffffff;border:none;border-radius:0.5rem;padding:0.65rem 1rem;font-size:0.875rem;font-weight:600;cursor:pointer;transition:background 0.2s;}"
+                b"button:hover{background:#059669;}"
+                b"</style></head>"
+                b"<body><div class=\"box\">"
+                b"<h1>401 - Session Token Required</h1>"
+                b"<p>This PM &amp; QA Board instance is running with token authentication enabled.</p>"
+                b"<p>Scan the QR code from the desktop dashboard or enter your session token below to connect:</p>"
+                b"<form class=\"form\" onsubmit=\"event.preventDefault();submitToken();\">"
+                b"<input type=\"text\" id=\"tok\" placeholder=\"Paste session token here...\" autocomplete=\"off\" required>"
+                b"<button type=\"submit\">Connect to Board</button>"
+                b"</form>"
+                b"<script>"
+                b"function submitToken(){"
+                b"var t=document.getElementById('tok').value.trim();"
+                b"if(!t)return;"
+                b"try{localStorage.setItem('cockpit_token',t);sessionStorage.setItem('cockpit_token',t);}catch(e){}"
+                b"document.cookie='cockpit_token='+encodeURIComponent(t)+'; Path=/; SameSite=Lax; Secure';"
+                b"window.location.href=window.location.pathname+'?token='+encodeURIComponent(t);"
+                b"}"
+                b"</script>"
                 b"</div></body></html>"
             )
             self.send_header("Content-Length", str(len(body)))
@@ -739,7 +799,12 @@ class PMRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
             if TOKEN and (path == "/" or path == "/index.html"):
-                self.send_header("Set-Cookie", f"cockpit_token={TOKEN}; Path=/; SameSite=Lax")
+                is_secure = (
+                    self.headers.get("X-Forwarded-Proto") == "https"
+                    or (TUNNEL_URL and TUNNEL_URL.startswith("https"))
+                )
+                secure_flag = "; Secure" if is_secure else ""
+                self.send_header("Set-Cookie", f"cockpit_token={TOKEN}; Path=/; SameSite=Lax{secure_flag}")
             self.end_headers()
             self.wfile.write(content)
         else:

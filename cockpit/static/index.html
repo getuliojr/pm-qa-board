@@ -70,10 +70,10 @@
   <div class="flex h-screen w-screen overflow-hidden bg-[var(--bg-spatial)]">
 
     <!-- LEFT SIDEBAR -->
-    <aside id="appSidebar" class="apple-glass-sidebar w-64 flex flex-col shrink-0 z-40 fixed md:static inset-y-0 left-0 -translate-x-full md:translate-x-0 h-screen transition-all duration-300">
+    <aside id="appSidebar" class="apple-glass-sidebar w-64 flex flex-col shrink-0 z-40 fixed md:static inset-y-0 left-0 -translate-x-full md:translate-x-0 h-screen max-h-[100dvh] overflow-y-auto overscroll-contain transition-all duration-300">
 
       <!-- Sidebar Top: Brand & Workspace -->
-      <div class="p-4 border-b border-[var(--border-glass)] flex flex-col gap-3">
+      <div class="p-4 border-b border-[var(--border-glass)] flex flex-col gap-3 shrink-0">
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-2.5 min-w-0">
             <div class="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-bold shadow-sm shrink-0">
@@ -97,6 +97,7 @@
             <div class="flex items-center gap-2 min-w-0">
               <i class="ph ph-folder-notch text-emerald-600 dark:text-emerald-400 shrink-0 text-sm"></i>
               <span id="headerProjectName" class="truncate text-left">Loading project...</span>
+              <span id="headerProjectBuildingBadge" class="hidden shrink-0 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/25">0</span>
             </div>
             <i class="ph ph-caret-up-down shrink-0 text-[var(--text-tertiary)] text-xs ml-1"></i>
           </button>
@@ -114,7 +115,7 @@
       </div>
 
       <!-- Sidebar Navigation Menu (5 Primary Views) -->
-      <nav class="flex-1 px-3 py-3 space-y-1 overflow-y-auto" aria-label="Main Navigation">
+      <nav class="flex-1 px-3 py-3 space-y-1 overflow-y-auto min-h-[120px]" aria-label="Main Navigation">
         <button class="nav-tab active-tab" data-tab="pipeline" title="Pipeline Board">
           <i class="ph ph-kanban text-base mr-2.5 shrink-0"></i>
           <span class="sidebar-label">Pipeline Board</span>
@@ -144,15 +145,15 @@
       </nav>
 
       <!-- Sidebar Bottom: Telemetry Widget & Utility Controls -->
-      <div class="p-3 border-t border-[var(--border-glass)] flex flex-col gap-2.5">
+      <div class="p-3 border-t border-[var(--border-glass)] flex flex-col gap-2 shrink-0">
 
         <!-- Control Center Telemetry Widget -->
-        <div id="sidebarTelemetryWidget" class="p-2.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] sidebar-widget-content">
+        <div id="sidebarTelemetryWidget" class="p-2 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] sidebar-widget-content">
           <div class="flex items-center justify-between text-[11px] mb-1.5">
             <span class="text-[var(--text-tertiary)] font-medium">Active Story:</span>
             <span id="headerActiveSprint" class="font-bold text-emerald-600 dark:text-emerald-400 truncate max-w-[9rem]">...</span>
           </div>
-          <div class="grid grid-cols-2 gap-2 text-[11px]">
+          <div class="grid grid-cols-2 gap-1.5 text-[11px]">
             <div class="p-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-between">
               <span class="text-[var(--text-tertiary)]">Awaiting QA</span>
               <span id="headerQaCount" class="font-bold text-amber-600 dark:text-amber-400 tabular-nums">0</span>
@@ -226,6 +227,12 @@
             <span class="kbd-shortcut absolute right-1.5 top-1.5 hidden sm:inline-flex" title="Press / to focus search">/</span>
           </div>
 
+          <!-- Remote Connect (QR Code) Button -->
+          <button id="toolbarMobileConnectBtn" type="button" onclick="openMobileConnectModal()" class="flex items-center space-x-1.5 px-2.5 py-1 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[var(--text-primary)] text-xs font-medium rounded-lg border border-[var(--border-medium)] transition shadow-sm cursor-pointer" title="Remote Connect / QR Code (LAN & Tunnel)">
+            <i class="ph ph-qr-code text-xs text-emerald-600 dark:text-emerald-400"></i>
+            <span class="hidden lg:inline">Connect</span>
+          </button>
+
           <!-- Refresh Button -->
           <button id="refreshBtn" class="flex items-center space-x-1.5 px-2.5 py-1 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[var(--text-primary)] text-xs font-medium rounded-lg border border-[var(--border-medium)] transition shadow-sm cursor-pointer" title="Refresh Data">
             <i class="ph ph-arrows-clockwise text-xs" id="refreshIcon"></i>
@@ -266,7 +273,7 @@
               <span id="mcount-backlog" class="ml-1 text-[10px] opacity-80">0</span>
             </button>
             <button class="mobile-col-pill" data-col="sprint-backlog" onclick="scrollToColumn('sprint-backlog')">
-              <span>Story Backlog</span>
+              <span>Ready to Build</span>
               <span id="mcount-sprint-backlog" class="ml-1 text-[10px] opacity-80">0</span>
             </button>
             <button class="mobile-col-pill" data-col="in-progress" onclick="scrollToColumn('in-progress')">
@@ -294,10 +301,10 @@
               <div class="board-cards-container" id="cards-backlog"></div>
             </div>
 
-            <!-- Ready to Build / Story Backlog -->
+            <!-- Ready to Build (Story Backlog) -->
             <div class="board-column" data-col="sprint-backlog">
               <div class="board-column-header text-blue-600 dark:text-blue-400">
-                <span>Story Backlog</span>
+                <span>Ready to Build</span>
                 <span class="count-badge" id="count-sprint-backlog">0</span>
               </div>
               <div class="board-cards-container" id="cards-sprint-backlog"></div>
@@ -423,7 +430,7 @@
               <p class="text-xs text-[var(--text-tertiary)] max-w-md mx-auto mb-5">All current development stories are completed or moved to QA. Ready to pick the next story from the backlog.</p>
               <button onclick="switchTab('pipeline')" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition cursor-pointer">
                 <i class="ph ph-list-plus text-sm"></i>
-                <span>View Story Backlog</span>
+                <span>View Ready to Build</span>
               </button>
             </div>
 
@@ -763,8 +770,8 @@
           <i class="ph ph-book-open text-emerald-500"></i>
           <span class="hidden sm:inline">Spec</span>
         </button>
-        <button id="cardModalCloseoutBtn" type="button" data-action="open-closeout" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-medium transition shrink-0" title="Story Close-Out">
-          <i class="ph ph-file-check"></i>
+        <button id="cardModalCloseoutBtn" type="button" data-action="open-closeout" class="hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 shadow-xs dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-500/30 dark:hover:bg-emerald-900/50 text-xs font-medium transition shrink-0" title="Story Close-Out">
+          <i class="ph ph-file-check text-xs shrink-0"></i>
           <span class="hidden sm:inline">Close-Out</span>
         </button>
         <button id="cardModalReviewsBtn" onclick="onCardModalViewReviews()" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs font-medium transition shrink-0" title="Reviews">

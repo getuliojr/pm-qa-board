@@ -2,11 +2,33 @@
 
 // Session token handling for remote/tunnel connections
 (function initTokenAuth() {
+  function getStoredToken() {
+    try {
+      return sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function setStoredToken(t) {
+    if (!t) return;
+    try { sessionStorage.setItem('cockpit_token', t); } catch (_) {}
+    try { localStorage.setItem('cockpit_token', t); } catch (_) {}
+  }
+
+  // Also check if document.cookie contains token
+  try {
+    const match = document.cookie.match(/(?:^|;\s*)cockpit_token=([^;]+)/);
+    if (match && match[1]) {
+      setStoredToken(decodeURIComponent(match[1]));
+    }
+  } catch (_) {}
+
   try {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
     if (token) {
-      sessionStorage.setItem('cockpit_token', token);
+      setStoredToken(token);
       params.delete('token');
       const newQuery = params.toString() ? '?' + params.toString() : '';
       const cleanUrl = window.location.pathname + newQuery + window.location.hash;
@@ -17,12 +39,26 @@
   // Authenticate all fetch calls when session token is stored
   const origFetch = window.fetch;
   window.fetch = function(url, options) {
-    const token = sessionStorage.getItem('cockpit_token');
+    const token = getStoredToken();
     if (token) {
+      // 1. Append token to query parameter for API endpoints if not present
+      if (typeof url === 'string' && (url.startsWith('/api/') || url.includes('/api/'))) {
+        try {
+          const u = new URL(url, window.location.origin);
+          if (!u.searchParams.has('token')) {
+            u.searchParams.set('token', token);
+            url = u.pathname + u.search + u.hash;
+          }
+        } catch (_) {}
+      }
+      // 2. Also send X-Cockpit-Token and Authorization headers
       options = options || {};
       const headers = new Headers(options.headers || {});
       if (!headers.has('X-Cockpit-Token')) {
         headers.set('X-Cockpit-Token', token);
+      }
+      if (!headers.has('Authorization')) {
+        headers.set('Authorization', 'Bearer ' + token);
       }
       options.headers = headers;
     }
@@ -196,6 +232,14 @@ async function fetchAll() {
     state.cards = cardsRes.cards || [];
     state.sprints = sprintsRes.roadmap || [];
     state.activity = actRes || {};
+
+    try {
+      const activeCount = state.cards.filter((c) => c.status === 'in-progress').length;
+      if (state.currentProject) state.currentProject.building_count = activeCount;
+      const curChoice = (state.projects || []).find((p) => p.slug === state.activeProjectSlug);
+      if (curChoice) curChoice.building_count = activeCount;
+      renderProjectUi();
+    } catch (_) {}
 
     try { updateHeader(); } catch (e) { console.error('Error in updateHeader:', e); }
     try { populateSprintFilter(); } catch (e) { console.error('Error in populateSprintFilter:', e); }
@@ -3312,14 +3356,29 @@ function projectChoices() {
 
 function renderProjectHeader() {
   const nameEl = document.getElementById('headerProjectName');
+  const badgeEl = document.getElementById('headerProjectBuildingBadge');
   const pillEl = document.getElementById('activeProjectPill');
   const cur = state.currentProject;
   if (nameEl) {
     nameEl.textContent = cur ? projectLabel(cur) : (state.projectsError ? 'Projects unavailable' : 'No project');
     nameEl.title = cur ? `${cur.name} — ${cur.code_path || ''}` : '';
   }
+  if (badgeEl) {
+    const bCount = cur ? (cur.building_count || 0) : 0;
+    if (bCount > 0) {
+      badgeEl.textContent = `${bCount}`;
+      badgeEl.title = `${bCount} stories building`;
+      badgeEl.classList.remove('hidden');
+    } else {
+      badgeEl.classList.add('hidden');
+    }
+  }
   if (pillEl) {
-    pillEl.textContent = cur ? (cur.prefix || cur.name) : 'No project';
+    const pName = cur ? (cur.prefix || cur.name) : 'No project';
+    const bCount = cur ? (cur.building_count || 0) : 0;
+    pillEl.innerHTML = `<span>${escapeHtml(pName)}</span>${
+      bCount > 0 ? `<span class="ml-1.5 px-1.5 py-0.2 text-[9px] font-bold rounded-full bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/30">${bCount}</span>` : ''
+    }`;
   }
 }
 
@@ -3343,6 +3402,10 @@ function renderProjectUi() {
       menu.innerHTML = choices
         .map((p) => {
           const active = p.slug === state.activeProjectSlug;
+          const bCount = p.building_count || 0;
+          const buildingTag = bCount > 0
+            ? `<span class="ml-auto shrink-0 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/25" title="${bCount} stories building">${bCount}</span>`
+            : '';
           return `<button role="menuitemradio" aria-checked="${active}" data-project-slug="${escapeHtml(p.slug)}" title="${escapeHtml(p.code_path || '')}"
             class="w-full flex items-center gap-2 px-3 py-2 text-left text-xs rounded-lg transition ${
               active ? 'bg-emerald-500/10 text-emerald-300' : 'text-slate-200 hover:bg-slate-800'
@@ -3351,6 +3414,7 @@ function renderProjectUi() {
             <span class="truncate font-semibold">${escapeHtml(p.name)}</span>
             ${p.prefix ? `<span class="shrink-0 font-mono text-[10px] text-slate-400">${escapeHtml(p.prefix)}</span>` : ''}
             ${externalMarkerHtml(p)}
+            ${buildingTag}
           </button>`;
         })
         .join('');
@@ -3370,7 +3434,11 @@ function renderProjectUi() {
         choices
           .map((p) => {
             const active = p.slug === state.activeProjectSlug;
-            return `<button class="type-filter-pill max-w-[12rem] truncate ${active ? 'active' : ''}" data-project-slug="${escapeHtml(p.slug)}" aria-pressed="${active}" title="${escapeHtml(projectLabel(p))}">${escapeHtml(p.name)}${p.prefix ? ` <span class="font-mono opacity-70">${escapeHtml(p.prefix)}</span>` : ''}</button>`;
+            const bCount = p.building_count || 0;
+            const bBadge = bCount > 0
+              ? `<span class="ml-1.5 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/25" title="${bCount} stories building">${bCount}</span>`
+              : '';
+            return `<button class="type-filter-pill max-w-[12rem] truncate ${active ? 'active' : ''}" data-project-slug="${escapeHtml(p.slug)}" aria-pressed="${active}" title="${escapeHtml(projectLabel(p))}">${escapeHtml(p.name)}${p.prefix ? ` <span class="font-mono opacity-70">${escapeHtml(p.prefix)}</span>` : ''}${bBadge}</button>`;
           })
           .join('') +
         '<button class="type-filter-pill" onclick="openConfigureProject()" title="Configure a project">+ Configure Project</button>';
@@ -3546,7 +3614,7 @@ async function submitConfigureProject(e) {
 function closeoutButtonHtml(card, extraClass = '', viaAction = false) {
   if (!card || !card.closeout || !card.closeout.url) return '';
   const attrs = viaAction ? `data-action="open-closeout" data-card-id="${escapeHtml(card.mn_id)}"` : 'data-closeout="1"';
-  return `<button type="button" ${attrs} class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border border-emerald-500/30 hover:border-emerald-400 text-xs font-medium transition ${extraClass}" title="Open the Story Close-Out report"><i data-lucide="file-check" class="w-3.5 h-3.5"></i><span>Story Close-Out</span></button>`;
+  return `<button type="button" ${attrs} class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 shadow-xs dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-500/30 dark:hover:bg-emerald-900/50 text-xs font-medium transition ${extraClass}" title="Open the Story Close-Out report"><i class="ph ph-file-check text-xs shrink-0"></i><span>Story Close-Out</span></button>`;
 }
 function bindCloseoutButton(root, card) {
   const b = root.querySelector('[data-closeout]');
@@ -3899,8 +3967,12 @@ async function openMobileConnectModal() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const info = await res.json();
 
-    const storedToken = sessionStorage.getItem('cockpit_token');
+    const storedToken = sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
     const token = info.token || storedToken || '';
+    if (token) {
+      try { sessionStorage.setItem('cockpit_token', token); } catch (_) {}
+      try { localStorage.setItem('cockpit_token', token); } catch (_) {}
+    }
     let mobileUrl = '';
     if (info.tunnel_url) {
       mobileUrl = info.tunnel_url + (token ? `?token=${encodeURIComponent(token)}` : '');
