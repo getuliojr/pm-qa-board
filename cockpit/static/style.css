@@ -467,6 +467,24 @@ html.dark .count-badge {
   color: var(--status-blue);
   border: 1px solid var(--status-blue-border);
 }
+.pill-grill {
+  background: var(--status-purple-bg);
+  color: var(--status-purple);
+  border: 1px solid var(--status-purple-border);
+}
+
+/* Top-Center Apple Glass Toast System */
+#toastContainer {
+  pointer-events: none;
+}
+
+.toast-banner {
+  background: var(--bg-glass-translucent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-medium);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05);
+}
 
 /* Document Content Markdown Styling */
 .doc-content h1 {

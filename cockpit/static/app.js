@@ -161,6 +161,67 @@ let state = {
 // -----------------------------------------------------------------------------
 // Visual Loading & Feedback Helpers
 // -----------------------------------------------------------------------------
+function showToast(message, type = 'info', duration = 3500) {
+  const container = document.getElementById('toastContainer');
+  if (!container) {
+    console.log(`[Toast ${type}]`, message);
+    return;
+  }
+  const toast = document.createElement('div');
+  toast.className = 'toast-banner flex items-center gap-3 px-4 py-2.5 rounded-2xl pointer-events-auto cursor-pointer transition-all duration-300 ease-out transform -translate-y-4 opacity-0 max-w-md w-full shadow-lg';
+
+  let iconHtml = '<i class="ph-fill ph-info text-sky-500 text-lg shrink-0"></i>';
+  if (type === 'success') {
+    iconHtml = '<i class="ph-fill ph-check-circle text-emerald-500 text-lg shrink-0"></i>';
+  } else if (type === 'error' || type === 'danger') {
+    iconHtml = '<i class="ph-fill ph-x-circle text-rose-500 text-lg shrink-0"></i>';
+  } else if (type === 'warning') {
+    iconHtml = '<i class="ph-fill ph-warning text-amber-500 text-lg shrink-0"></i>';
+  }
+
+  toast.innerHTML = `
+    ${iconHtml}
+    <div class="text-xs sm:text-sm font-medium text-[var(--text-primary)] leading-tight select-none flex-1 break-words">${escapeHtml(message)}</div>
+    <button class="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] shrink-0 ml-1 transition-colors p-1" aria-label="Dismiss toast">
+      <i class="ph ph-x text-xs"></i>
+    </button>
+  `;
+
+  container.appendChild(toast);
+
+  // Trigger enter animation on next frame
+  requestAnimationFrame(() => {
+    toast.classList.remove('-translate-y-4', 'opacity-0');
+    toast.classList.add('translate-y-0', 'opacity-100');
+  });
+
+  let dismissTimer = null;
+  const dismiss = () => {
+    if (dismissTimer) clearTimeout(dismissTimer);
+    toast.classList.remove('translate-y-0', 'opacity-100');
+    toast.classList.add('-translate-y-2', 'opacity-0');
+    setTimeout(() => {
+      if (toast.parentElement) toast.parentElement.removeChild(toast);
+    }, 300);
+  };
+
+  const startTimer = () => {
+    if (duration > 0) {
+      dismissTimer = setTimeout(dismiss, duration);
+    }
+  };
+
+  startTimer();
+
+  toast.addEventListener('mouseenter', () => {
+    if (dismissTimer) clearTimeout(dismissTimer);
+  });
+  toast.addEventListener('mouseleave', () => {
+    startTimer();
+  });
+  toast.addEventListener('click', dismiss);
+}
+
 function showLoadingFeedback(isLoading) {
   const bar = document.getElementById('loadingBar');
   if (bar) {
@@ -180,21 +241,21 @@ function renderLoadingSkeletons() {
     const el = document.getElementById(`cards-${colId}`);
     if (el && state.cards.length === 0) {
       el.innerHTML = `
-        <div class="board-skeleton-card p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 animate-pulse space-y-2.5 my-2">
+        <div class="board-skeleton-card p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2.5 my-2">
           <div class="flex justify-between items-center">
-            <div class="h-3 bg-slate-800 rounded w-16"></div>
-            <div class="h-3 bg-slate-800 rounded w-12"></div>
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16"></div>
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-12"></div>
           </div>
-          <div class="h-4 bg-slate-800/80 rounded w-4/5"></div>
-          <div class="h-2 bg-slate-800/50 rounded w-full"></div>
-          <div class="h-2 bg-slate-800/40 rounded w-1/3 pt-1"></div>
+          <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-4/5"></div>
+          <div class="h-2 bg-[var(--bg-surface-tertiary)] rounded w-full"></div>
+          <div class="h-2 bg-[var(--bg-surface-tertiary)] rounded w-1/3 pt-1"></div>
         </div>
-        <div class="board-skeleton-card p-3.5 rounded-xl bg-slate-900/40 border border-slate-800/50 animate-pulse space-y-2.5 my-2 opacity-50">
+        <div class="board-skeleton-card p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2.5 my-2 opacity-50">
           <div class="flex justify-between items-center">
-            <div class="h-3 bg-slate-800 rounded w-14"></div>
-            <div class="h-3 bg-slate-800 rounded w-10"></div>
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-14"></div>
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-10"></div>
           </div>
-          <div class="h-4 bg-slate-800/80 rounded w-3/5"></div>
+          <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-3/5"></div>
         </div>
       `;
     }
@@ -273,6 +334,10 @@ function updateHeader() {
   renderProjectHeader();
   document.getElementById('headerBranch').textContent = `Branch: ${state.activity.branch || 'unknown'}`;
   document.getElementById('headerTotalCount').textContent = state.cards.length;
+
+  const inProgCards = state.cards.filter((c) => c.status === 'in-progress');
+  const inProgEl = document.getElementById('headerInProgressCount');
+  if (inProgEl) inProgEl.textContent = inProgCards.length;
 
   const qaCards = state.cards.filter((c) => c.status === 'qa');
   document.getElementById('headerQaCount').textContent = qaCards.length;
@@ -396,27 +461,45 @@ function renderPipeline() {
 function createCardElement(card) {
   const div = document.createElement('div');
   div.className = 'task-card group';
-  div.draggable = true;
-  div.addEventListener('dragstart', (e) => {
-    e.dataTransfer.setData('text/plain', card.mn_id);
-    div.classList.add('opacity-40');
-  });
-  div.addEventListener('dragend', () => {
-    div.classList.remove('opacity-40');
-    document.querySelectorAll('.board-column').forEach((col) => col.classList.remove('drag-over'));
-  });
-  div.onclick = () => {
-    if (card.status === 'qa') {
-      switchTab('qa');
-      selectQaCard(card.mn_id, { forceScrollTop: true });
-    } else {
-      openCardModal(card);
-    }
-  };
+
+  const isGrill = card.is_grill || card.type === 'grill' || (card.mn_id && card.mn_id.startsWith('GRILL-'));
+  if (isGrill) {
+    div.draggable = false;
+    div.style.cursor = 'pointer';
+    div.onclick = (e) => {
+      e.stopPropagation();
+      switchTab('streams');
+      const streamEl = document.getElementById(`stream-${card.mn_id}`);
+      if (streamEl) {
+        streamEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        streamEl.classList.add('ring-2', 'ring-purple-500');
+        setTimeout(() => streamEl.classList.remove('ring-2', 'ring-purple-500'), 2000);
+      }
+    };
+  } else {
+    div.draggable = true;
+    div.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', card.mn_id);
+      div.classList.add('opacity-40');
+    });
+    div.addEventListener('dragend', () => {
+      div.classList.remove('opacity-40');
+      document.querySelectorAll('.board-column').forEach((col) => col.classList.remove('drag-over'));
+    });
+    div.onclick = () => {
+      if (card.status === 'qa') {
+        switchTab('qa');
+        selectQaCard(card.mn_id, { forceScrollTop: true });
+      } else {
+        openCardModal(card);
+      }
+    };
+  }
 
   let typeClass = 'pill-feature';
   if (card.type === 'bug') typeClass = 'pill-bug';
   if (card.type === 'improvement') typeClass = 'pill-improvement';
+  if (isGrill) typeClass = 'pill-grill';
 
   const dodBar =
     card.dod_total > 0
@@ -436,15 +519,19 @@ function createCardElement(card) {
   const escId = escapeHtml(card.mn_id);
   const escTitle = escapeHtml(card.title);
   const escSprint = escapeHtml(card.sprint);
-  const escType = escapeHtml(card.type);
+  const escType = isGrill ? 'grill' : escapeHtml(card.type);
   const escDate = escapeHtml(card.created_date || 'N/A');
+
+  const typePillHtml = isGrill
+    ? `<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded pill-grill flex items-center gap-1"><i class="ph ph-flame text-xs"></i>Grill</span>`
+    : `<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded ${typeClass}">${escType}</span>`;
 
   div.innerHTML = `
     <div class="flex items-center justify-between gap-1 mb-1.5">
       <span class="text-xs font-mono font-bold text-[var(--text-tertiary)]">${escId}</span>
       <div class="flex items-center gap-1">
         ${card.sprint ? `<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">Story ${escSprint}</span>` : ''}
-        <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded ${typeClass}">${escType}</span>
+        ${typePillHtml}
       </div>
     </div>
     <h3 class="text-sm font-semibold text-[var(--text-primary)] line-clamp-2 group-hover:text-emerald-500 transition-colors">${escTitle}</h3>
@@ -493,8 +580,8 @@ function renderQaStation() {
 
   if (qaCards.length === 0) {
     container.innerHTML = `
-      <div class="p-4 text-center text-slate-500 text-xs">
-        <i data-lucide="sparkles" class="w-6 h-6 mx-auto mb-2 text-emerald-400/60"></i>
+      <div class="p-4 text-center text-[var(--text-tertiary)] text-xs">
+        <i class="ph ph-sparkle text-lg mx-auto mb-2 text-emerald-500/70 block"></i>
         No cards currently awaiting QA!
       </div>
     `;
@@ -505,10 +592,10 @@ function renderQaStation() {
     const item = document.createElement('div');
     const isSelected = state.selectedQaId === card.mn_id;
     item.dataset.qaCardId = card.mn_id;
-    item.className = `p-3.5 rounded-lg border cursor-pointer transition ${
+    item.className = `p-3.5 rounded-xl border cursor-pointer transition shadow-xs ${
       isSelected
-        ? 'bg-slate-800 border-amber-500/50 shadow-md ring-1 ring-amber-500/30'
-        : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+        ? 'bg-amber-500/10 border-amber-500 shadow-sm ring-2 ring-amber-500/20'
+        : 'bg-[var(--card-bg)] border-[var(--border-subtle)] hover:border-[var(--card-hover-border)]'
     }`;
     item.onclick = () => {
       const isNew = state.selectedQaId !== card.mn_id;
@@ -523,14 +610,14 @@ function renderQaStation() {
 
     item.innerHTML = `
       <div class="flex items-center justify-between mb-1.5">
-        <span class="font-mono font-bold text-amber-400 text-xs">${escId}</span>
-        <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700/60">Story ${escSprint}</span>
+        <span class="font-mono font-bold text-amber-500 text-xs">${escId}</span>
+        <span class="text-xs px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">Story ${escSprint}</span>
       </div>
-      <p class="font-semibold text-slate-200 text-sm line-clamp-1">${escTitle}</p>
-      <div class="mt-2.5 flex items-center justify-between text-xs text-slate-400 font-mono">
+      <p class="font-semibold text-[var(--text-primary)] text-sm line-clamp-1">${escTitle}</p>
+      <div class="mt-2.5 flex items-center justify-between text-xs text-[var(--text-secondary)] font-mono">
         <span>DoD: ${card.dod_checked}/${card.dod_total}</span>
-        ${displayDate ? `<span class="text-slate-400 flex items-center gap-1" title="Completed: ${escapeHtml(displayDate)}"><i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-500"></i>${escapeHtml(displayDate)}</span>` : ''}
-        <span class="text-amber-400 flex items-center"><i data-lucide="clock" class="w-3.5 h-3.5 mr-1"></i> Ready for QA</span>
+        ${displayDate ? `<span class="text-[var(--text-secondary)] flex items-center gap-1" title="Completed: ${escapeHtml(displayDate)}"><i class="ph ph-calendar-blank text-[var(--text-quaternary)] text-xs"></i>${escapeHtml(displayDate)}</span>` : ''}
+        <span class="text-amber-600 dark:text-amber-400 flex items-center"><i class="ph ph-clock mr-1 text-xs"></i> Ready for QA</span>
       </div>
       ${closeoutButtonHtml(card, 'mt-2')}
     `;
@@ -570,10 +657,10 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
   if (qaContainer) {
     qaContainer.querySelectorAll('[data-qa-card-id]').forEach((el) => {
       const isSelected = el.dataset.qaCardId === mn_id;
-      el.className = `p-3.5 rounded-lg border cursor-pointer transition ${
+      el.className = `p-3.5 rounded-xl border cursor-pointer transition shadow-xs ${
         isSelected
-          ? 'bg-slate-800 border-amber-500/50 shadow-md ring-1 ring-amber-500/30'
-          : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+          ? 'bg-amber-500/10 border-amber-500 shadow-sm ring-2 ring-amber-500/20'
+          : 'bg-[var(--card-bg)] border-[var(--border-subtle)] hover:border-[var(--card-hover-border)]'
       }`;
     });
   }
@@ -581,7 +668,7 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
   if (!card) {
     if (detailEl) {
       detailEl.innerHTML = `
-        <div class="h-full flex flex-col items-center justify-center text-slate-500">
+        <div class="h-full flex flex-col items-center justify-center text-[var(--text-tertiary)]">
           <p class="text-base">Select a card to view verification details.</p>
         </div>
       `;
@@ -608,8 +695,8 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
     card.changelog && card.changelog.length > 0
       ? `
     <div class="mb-6">
-      <h4 class="text-sm font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-        <i data-lucide="git-commit" class="w-4 h-4 text-emerald-400"></i>
+      <h4 class="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+        <i class="ph ph-git-commit text-emerald-500 text-base"></i>
         <span>Implementation Changelog & Evidence (${card.changelog.length})</span>
       </h4>
       ${renderChangelogTable(card.changelog, card)}
@@ -618,20 +705,20 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
       : '';
 
   detailEl.innerHTML = `
-    <div class="flex items-start justify-between border-b border-slate-800 pb-4 mb-4">
+    <div class="flex items-start justify-between border-b border-[var(--border-subtle)] pb-4 mb-4">
       <div>
         <div class="flex items-center space-x-2 mb-2 flex-wrap gap-y-1">
-          <span class="text-sm font-mono font-bold px-2.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">${escId}</span>
-          <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-slate-800 text-slate-300">Story ${escSprint}</span>
-          <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">${escType}</span>
-          <span class="text-xs font-mono px-2.5 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/60 flex items-center gap-1">
-            <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-500"></i>
+          <span class="text-sm font-mono font-bold px-2.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">${escId}</span>
+          <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">Story ${escSprint}</span>
+          <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">${escType}</span>
+          <span class="text-xs font-mono px-2.5 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)] flex items-center gap-1">
+            <i class="ph ph-calendar-blank text-[var(--text-quaternary)] text-xs"></i>
             <span>Created: ${escapeHtml(card.created_date || 'N/A')}</span>
           </span>
           ${
             card.sprint
-              ? `<button data-action="open-sprint-doc" data-sprint="${escSprint}" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 text-xs font-medium transition ml-1 group">
-                  <i data-lucide="book-open" class="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform"></i>
+              ? `<button data-action="open-sprint-doc" data-sprint="${escSprint}" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] text-xs font-medium transition ml-1 shadow-xs group">
+                  <i class="ph ph-book-open text-emerald-500 group-hover:scale-110 transition-transform text-xs"></i>
                   <span>View Story Spec</span>
                 </button>`
               : ''
@@ -639,8 +726,8 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
           ${closeoutButtonHtml(card, '', true)}
           ${
             (card.review_count > 0 || (card.reviews && card.reviews.length > 0))
-              ? `<button onclick="openReviewModal('${escId}')" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-purple-950/40 hover:bg-purple-900/50 text-purple-300 border border-purple-500/30 hover:border-purple-400 text-xs font-medium transition ml-1 group">
-                  <i data-lucide="shield-check" class="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform"></i>
+              ? `<button onclick="openReviewModal('${escId}')" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/30 hover:border-purple-500/50 text-xs font-medium transition ml-1 shadow-xs group">
+                  <i class="ph ph-shield-check text-purple-500 group-hover:scale-110 transition-transform text-xs"></i>
                   <span>Reviews (${card.review_count || card.reviews.length})</span>
                 </button>`
               : ''
@@ -657,7 +744,7 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
     <!-- Description -->
     <div class="mb-6">
       <h4 class="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Description / User Intent</h4>
-      <div class="bg-[var(--bg-subtle)] p-4 rounded-lg border border-[var(--border-subtle)] break-words text-[var(--text-primary)]">
+      <div class="bg-[var(--bg-subtle)] p-4 rounded-xl border border-[var(--border-subtle)] break-words text-[var(--text-primary)]">
         ${renderMarkdown(card.description || 'No description provided.')}
       </div>
     </div>
@@ -668,7 +755,7 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
         <h4 class="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider">Definition of Done / Acceptance Criteria</h4>
         <span class="text-sm font-mono text-emerald-500 font-bold">${card.dod_checked}/${card.dod_total} Complete</span>
       </div>
-      <div class="bg-[var(--bg-subtle)] p-3.5 rounded-lg border border-[var(--border-subtle)] space-y-2">
+      <div class="bg-[var(--bg-subtle)] p-3.5 rounded-xl border border-[var(--border-subtle)] space-y-2">
         ${
           card.dod.length > 0
             ? card.dod
@@ -699,11 +786,11 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
         return `
     <div class="mb-6">
       <h4 class="text-sm font-bold text-amber-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-        <i data-lucide="clipboard-list" class="w-4 h-4"></i>
+        <i class="ph ph-clipboard-text text-base"></i>
         <span>Human QA Test Steps</span>
       </h4>
-      <div class="bg-amber-500/5 border border-amber-500/25 rounded-lg p-4 flex items-start gap-3">
-        <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i>
+      <div class="bg-amber-500/5 border border-amber-500/25 rounded-xl p-4 flex items-start gap-3">
+        <i class="ph ph-warning text-amber-500 mt-0.5 shrink-0 text-base"></i>
         <div class="text-sm text-amber-700 dark:text-amber-200/90 leading-relaxed">
           <span class="font-semibold">No Human QA Test section found in this card.</span><br>
           Ask the dev agent to add a <code class="font-mono text-amber-600 dark:text-amber-300 bg-amber-500/10 px-1 rounded text-xs">## Human QA Test</code> section with explicit step-by-step instructions (where to go, what to click, what to verify).
@@ -712,10 +799,10 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
     </div>`;
       }
       const instrHtml = hasInstr
-        ? `<div class="bg-[var(--bg-subtle)] p-4 rounded-lg border border-[var(--border-subtle)] mb-3 text-[var(--text-primary)]">${renderMarkdown(card.qa_instructions)}</div>`
+        ? `<div class="bg-[var(--bg-subtle)] p-4 rounded-xl border border-[var(--border-subtle)] mb-3 text-[var(--text-primary)]">${renderMarkdown(card.qa_instructions)}</div>`
         : '';
       const itemsHtml = hasItems
-        ? `<div class="bg-[var(--bg-subtle)] p-3.5 rounded-lg border border-[var(--border-subtle)] space-y-2">
+        ? `<div class="bg-[var(--bg-subtle)] p-3.5 rounded-xl border border-[var(--border-subtle)] space-y-2">
             ${card.qa_items.map((item, idx) => `
               <label class="flex items-start space-x-3 rounded cursor-pointer text-sm transition p-2 hover:bg-[var(--bg-surface-secondary)] touch-target-item">
                 <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-qa" data-card-id="${escapeHtml(card.mn_id)}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-amber-600/50 text-amber-500 focus:ring-amber-500/20 bg-[var(--bg-surface)] cursor-pointer">
@@ -726,7 +813,7 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
       return `
     <div class="mb-6">
       <h4 class="text-sm font-bold text-amber-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-        <i data-lucide="clipboard-list" class="w-4 h-4"></i>
+        <i class="ph ph-clipboard-text text-base"></i>
         <span>Human QA Test Steps</span>
         ${hasItems ? `<span class="text-xs px-2 py-0.5 rounded font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/20 ml-1.5">${card.qa_items.filter(i => i.checked).length}/${card.qa_items.length} done</span>` : ''}
       </h4>
@@ -742,8 +829,8 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
       <h4 class="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">QA Sign-off</h4>
       <div class="flex flex-col sm:flex-row gap-3">
         <input type="text" id="qaValidateNotes" placeholder="Optional QA validation note (e.g. 'Verified Wise import flow live')" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm rounded-lg px-3.5 py-2.5 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
-        <button data-action="validate-card" data-card-id="${escId}" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 transition">
-          <i data-lucide="check-check" class="w-4 h-4"></i>
+        <button data-action="validate-card" data-card-id="${escId}" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 transition cursor-pointer">
+          <i class="ph ph-checks text-base"></i>
           <span>Validate & Complete Work</span>
         </button>
       </div>
@@ -790,12 +877,12 @@ async function toggleDod(mn_id, index, checked) {
         if (updatedCard) openCardModal(updatedCard);
       }
     } else {
-      alert(`Error updating DoD: ${res.error || 'Server error'}`);
+      showToast(`Error updating DoD: ${res.error || 'Server error'}`, 'error');
       await fetchAll();
     }
   } catch (err) {
     console.error('Failed to toggle DoD item:', err);
-    alert('Failed to communicate with server.');
+    showToast('Failed to communicate with server.', 'error');
     await fetchAll();
   }
 }
@@ -816,12 +903,12 @@ async function toggleQa(mn_id, index, checked) {
         if (updatedCard) openCardModal(updatedCard);
       }
     } else {
-      alert(`Error updating QA item: ${res.error || 'Server error'}`);
+      showToast(`Error updating QA item: ${res.error || 'Server error'}`, 'error');
       await fetchAll();
     }
   } catch (err) {
     console.error('Failed to toggle QA item:', err);
-    alert('Failed to communicate with server.');
+    showToast('Failed to communicate with server.', 'error');
     await fetchAll();
   }
 }
@@ -842,15 +929,15 @@ async function validateCard(mn_id) {
     }).then((r) => r.json());
 
     if (res.success) {
-      alert(`Success: ${res.message}`);
+      showToast(res.message, 'success');
       await fetchAll();
       renderQaStation();
     } else {
-      alert(`Error: ${res.error || 'Failed to validate card'}`);
+      showToast(`Error: ${res.error || 'Failed to validate card'}`, 'error');
     }
   } catch (err) {
     console.error('Failed to validate card:', err);
-    alert('Failed to validate card.');
+    showToast('Failed to validate card.', 'error');
   }
 }
 
@@ -1009,8 +1096,8 @@ function renderRoadmap() {
   if (sorted.length === 0) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td colspan="5" class="py-8 text-center text-slate-500 text-xs">
-        <i data-lucide="filter" class="w-6 h-6 mx-auto mb-2 text-slate-600"></i>
+      <td colspan="5" class="py-8 text-center text-[var(--text-tertiary)] text-xs">
+        <i class="ph ph-funnel text-xl mx-auto mb-2 text-[var(--text-quaternary)] block"></i>
         No stories match the current filter or search criteria.
       </td>
     `;
@@ -1022,7 +1109,7 @@ function renderRoadmap() {
   // 4. Render sorted rows
   sorted.forEach((sprint) => {
     const tr = document.createElement('tr');
-    tr.className = 'hover:bg-slate-800/40 transition-colors';
+    tr.className = 'hover:bg-[var(--bg-surface-secondary)] transition-colors';
 
     const sName = (sprint.sprint || '').toLowerCase();
     const isBacklog = sName.includes('backlog') || sName.includes('unscheduled');
@@ -1033,45 +1120,45 @@ function renderRoadmap() {
 
     let badge = '';
     if (sprint.is_complete) {
-      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Complete ✅</span>';
+      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Complete ✅</span>';
     } else if (sprint.is_built || hasActiveCards) {
-      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Built / In QA</span>';
+      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">Built / In QA</span>';
     } else if (isBacklog) {
-      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/50">Backlog</span>';
+      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">Backlog</span>';
     } else if (!hasSprintBacklogCards) {
-      badge = '<span class="badge-next-to-define"><i data-lucide="sparkles" class="w-3 h-3 mr-1 inline"></i>Next to Define</span>';
+      badge = '<span class="badge-next-to-define"><i class="ph ph-sparkle text-xs mr-1 inline"></i>Next to Define</span>';
     } else if (sprint.is_partial) {
-      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">Partial ⚠️</span>';
+      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">Partial ⚠️</span>';
     } else {
-      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">Planned</span>';
+      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">Planned</span>';
     }
 
     // Card column representation
     let cardsHtml = '';
     if (assignedCards.length > 0) {
       cardsHtml = `
-        <button data-action="filter-board-by-sprint" data-sprint="${escapeHtml(sprintIdNum)}" title="Click to view cards in Board" class="inline-flex items-center gap-1 font-mono text-emerald-400 hover:text-emerald-300 hover:underline font-semibold text-xs">
+        <button data-action="filter-board-by-sprint" data-sprint="${escapeHtml(sprintIdNum)}" title="Click to view cards in Board" class="inline-flex items-center gap-1 font-mono text-emerald-600 dark:text-emerald-400 hover:underline font-semibold text-xs">
           <span>${assignedCards.length} cards</span>
-          <i data-lucide="external-link" class="w-3 h-3 opacity-60"></i>
+          <i class="ph ph-arrow-square-out text-xs opacity-70"></i>
         </button>
       `;
     } else if (!sprint.is_complete && !isBacklog) {
-      cardsHtml = `<span class="badge-next-to-define"><i data-lucide="sparkles" class="w-3 h-3 mr-1 inline"></i>Next to Define</span>`;
+      cardsHtml = `<span class="badge-next-to-define"><i class="ph ph-sparkle text-xs mr-1 inline"></i>Next to Define</span>`;
     } else {
-      cardsHtml = `<span class="text-slate-500 font-mono text-[11px]">0 cards</span>`;
+      cardsHtml = `<span class="text-[var(--text-quaternary)] font-mono text-[11px]">0 cards</span>`;
     }
 
     const escSprint = escapeHtml(sprint.sprint);
     const escScope = escapeHtml(sprint.scope);
 
     tr.innerHTML = `
-      <td class="py-3 px-4 font-bold text-slate-200 whitespace-nowrap">${escapeHtml(storyLabel(sprint.sprint))}</td>
-      <td class="py-3 px-4 text-slate-300 max-w-md leading-relaxed">${escScope}</td>
+      <td class="py-3 px-4 font-bold text-[var(--text-primary)] whitespace-nowrap">${escapeHtml(storyLabel(sprint.sprint))}</td>
+      <td class="py-3 px-4 text-[var(--text-secondary)] max-w-md leading-relaxed">${escScope}</td>
       <td class="py-3 px-4 whitespace-nowrap">${cardsHtml}</td>
       <td class="py-3 px-4 whitespace-nowrap">${badge}</td>
       <td class="py-3 px-4 text-right whitespace-nowrap">
-        <button data-action="open-sprint-doc" data-sprint="${escSprint}" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 transition text-[11px] font-medium shadow-sm group">
-          <i data-lucide="book-open" class="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform"></i>
+        <button data-action="open-sprint-doc" data-sprint="${escSprint}" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] transition text-xs font-medium shadow-xs group cursor-pointer">
+          <i class="ph ph-book-open text-emerald-500 group-hover:scale-110 transition-transform text-xs"></i>
           <span>View Spec</span>
         </button>
       </td>
@@ -1095,7 +1182,7 @@ function renderActivity() {
   fileCount.textContent = `${modified.length} files`;
 
   if (modified.length === 0) {
-    fileList.innerHTML = '<p class="text-slate-500 italic">Working directory is clean.</p>';
+    fileList.innerHTML = '<p class="text-[var(--text-tertiary)] italic">Working directory is clean.</p>';
   } else {
     fileList.innerHTML = modified
       .map((f) => {
@@ -1124,16 +1211,16 @@ function renderActivity() {
           path = path.slice(1, -1);
         }
 
-        let statusColor = 'text-amber-400';
-        if (status === '??') statusColor = 'text-cyan-400';
-        else if (status.includes('D')) statusColor = 'text-rose-400';
-        else if (status.includes('A')) statusColor = 'text-emerald-400';
-        else if (status.includes('R')) statusColor = 'text-purple-400';
+        let statusColor = 'text-amber-500';
+        if (status === '??') statusColor = 'text-sky-500';
+        else if (status.includes('D')) statusColor = 'text-rose-500';
+        else if (status.includes('A')) statusColor = 'text-emerald-500';
+        else if (status.includes('R')) statusColor = 'text-purple-500';
 
         return `
-          <div class="flex items-center space-x-2 py-1 border-b border-slate-800/40 font-mono text-xs">
+          <div class="flex items-center space-x-2 py-1.5 border-b border-[var(--border-subtle)] font-mono text-xs">
             <span class="${statusColor} font-bold w-6 shrink-0">${escapeHtml(status)}</span>
-            <span class="text-slate-300 truncate" title="${escapeHtml(path)}">${escapeHtml(path)}</span>
+            <span class="text-[var(--text-primary)] font-medium truncate" title="${escapeHtml(path)}">${escapeHtml(path)}</span>
           </div>
         `;
       })
@@ -1144,13 +1231,13 @@ function renderActivity() {
   commitList.innerHTML = commits
     .map(
       (c) => `
-    <div class="p-3 bg-slate-950 rounded-lg border border-slate-800/70 text-xs">
-      <div class="flex items-center justify-between mb-1 font-mono text-[10px] text-slate-400">
-        <span class="text-emerald-400 font-bold">${c.sha}</span>
-        <span class="flex items-center gap-1 text-slate-400"><i data-lucide="clock" class="w-3 h-3 text-slate-500"></i>${c.date}</span>
+    <div class="p-3 bg-[var(--bg-surface-secondary)] rounded-xl border border-[var(--border-subtle)] hover:border-[var(--border-medium)] text-xs shadow-2xs transition">
+      <div class="flex items-center justify-between mb-1 font-mono text-[10px] text-[var(--text-tertiary)]">
+        <span class="text-emerald-600 dark:text-emerald-400 font-bold">${escapeHtml(c.sha)}</span>
+        <span class="flex items-center gap-1 text-[var(--text-secondary)]"><i class="ph ph-clock text-[var(--text-quaternary)] text-xs"></i>${escapeHtml(c.date)}</span>
       </div>
-      <p class="font-medium text-slate-200">${c.message}</p>
-      <div class="mt-1 text-[10px] text-slate-500">${c.author}</div>
+      <p class="font-medium text-[var(--text-primary)]">${escapeHtml(c.message)}</p>
+      <div class="mt-1 text-[10px] text-[var(--text-tertiary)]">${escapeHtml(c.author)}</div>
     </div>
   `
     )
@@ -1367,10 +1454,10 @@ function renderActiveSprintDod() {
             if (isGrill) typeClass = 'pill-grill';
 
             const statusBadgeHtml = isGrill
-              ? '<span class="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30 flex items-center gap-1"><i data-lucide="flame" class="w-3.5 h-3.5 text-purple-400"></i>Design Grill</span>'
-              : '<span class="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>In Progress</span>';
+              ? '<span class="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30 flex items-center gap-1"><i class="ph ph-flame text-sm text-purple-500"></i>Design Grill</span>'
+              : '<span class="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>In Progress</span>';
 
-            const sprintBadgeHtml = `<span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono font-medium">Story ${escSprint}</span>`;
+            const sprintBadgeHtml = `<span class="text-xs px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)] font-mono font-medium">Story ${escSprint}</span>`;
 
             const agentAct = s.latest_activity || {};
             const agentName = escapeHtml(agentAct.agent || (isGrill ? 'Lead (Grill)' : 'Lead'));
@@ -1385,25 +1472,25 @@ function renderActiveSprintDod() {
                 ? `⏱️ ${durationFormatted} in progress`
                 : `⏱️ Completed in ${durationFormatted}`;
               const timeRange = s.start_time ? `Started: ${s.start_time}${s.end_time ? ' • Ended: ' + s.end_time : ''}` : '';
-              durationBadgeHtml = `<span class="text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-800 text-purple-300 border border-purple-500/30 flex items-center gap-1 font-mono" title="${escapeHtml(timeRange)}">${escapeHtml(durText)}</span>`;
+              durationBadgeHtml = `<span class="text-xs px-2.5 py-0.5 rounded-full font-medium bg-purple-500/10 text-purple-600 dark:text-purple-300 border border-purple-500/30 flex items-center gap-1 font-mono" title="${escapeHtml(timeRange)}">${escapeHtml(durText)}</span>`;
             }
 
             // Git Commits Proof
             const gitCommitsHtml = (s.git_commits && s.git_commits.length > 0)
               ? `
                 <div class="mb-3">
-                  <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                    <span class="flex items-center gap-1"><i data-lucide="git-branch" class="w-3 h-3 text-purple-400"></i> Git Commits Proof</span>
-                    <span class="text-[9px] text-slate-500 font-mono">${s.git_commits.length} recent</span>
+                  <div class="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                    <span class="flex items-center gap-1"><i class="ph ph-git-branch text-purple-500"></i> Git Commits Proof</span>
+                    <span class="text-[9px] text-[var(--text-tertiary)] font-mono">${s.git_commits.length} recent</span>
                   </div>
                   <div class="space-y-1">
                     ${s.git_commits.map((c) => {
                       const commitDt = escapeHtml(c.datetime || (c.date && c.time ? `${c.date} ${c.time}` : c.date) || '');
                       return `
-                      <div class="flex items-center gap-2 py-1 px-2 rounded bg-slate-900/80 border border-slate-800 text-[11px]">
-                        <span class="font-mono text-[10px] text-purple-400 font-bold bg-purple-500/10 px-1 py-0.2 rounded border border-purple-500/20 shrink-0">${escapeHtml(c.sha)}</span>
-                        <span class="text-slate-300 truncate flex-1 font-medium text-[11px]" title="${escapeHtml(c.message)}">${escapeHtml(c.message)}</span>
-                        <span class="text-slate-500 font-mono text-[9px] shrink-0" title="${commitDt}">${commitDt}</span>
+                      <div class="flex items-center gap-2 py-1 px-2 rounded bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] text-[11px]">
+                        <span class="font-mono text-[10px] text-purple-600 dark:text-purple-400 font-bold bg-purple-500/10 px-1 py-0.2 rounded border border-purple-500/20 shrink-0">${escapeHtml(c.sha)}</span>
+                        <span class="text-[var(--text-primary)] truncate flex-1 font-medium text-[11px]" title="${escapeHtml(c.message)}">${escapeHtml(c.message)}</span>
+                        <span class="text-[var(--text-tertiary)] font-mono text-[9px] shrink-0" title="${commitDt}">${commitDt}</span>
                       </div>
                     `;}).join('')}
                   </div>
@@ -1415,18 +1502,18 @@ function renderActiveSprintDod() {
             const reviewsHtml = (s.reviews && s.reviews.length > 0)
               ? `
                 <div class="mb-3">
-                  <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                    <i data-lucide="shield-check" class="w-3 h-3 text-emerald-400"></i> Review Gate Evidence
+                  <div class="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                    <i class="ph ph-shield-check text-emerald-500"></i> Review Gate Evidence
                   </div>
                   <div class="space-y-1">
                     ${s.reviews.map((r) => `
                       <div class="flex items-center justify-between py-1 px-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs">
                         <div class="flex items-center gap-1.5">
-                          <span class="font-bold text-emerald-400 text-[11px]">Round ${escapeHtml(String(r.round))}</span>
-                          <span class="text-slate-200 font-medium text-[11px]">${escapeHtml(r.verdict || 'PASS')}</span>
-                          <span class="text-slate-500 text-[10px]">(${escapeHtml(r.reviewer || 'Reviewer')})</span>
+                          <span class="font-bold text-emerald-600 dark:text-emerald-400 text-[11px]">Round ${escapeHtml(String(r.round))}</span>
+                          <span class="text-[var(--text-primary)] font-medium text-[11px]">${escapeHtml(r.verdict || 'PASS')}</span>
+                          <span class="text-[var(--text-tertiary)] text-[10px]">(${escapeHtml(r.reviewer || 'Reviewer')})</span>
                         </div>
-                        <button class="text-purple-400 hover:text-purple-300 text-[10px] font-mono cursor-pointer" data-action="open-review-modal" data-sprint="${escapeHtml(r.sprint)}">View Report →</button>
+                        <button class="text-purple-600 dark:text-purple-400 hover:underline text-[10px] font-mono cursor-pointer" data-action="open-review-modal" data-sprint="${escapeHtml(r.sprint)}">View Report →</button>
                       </div>
                     `).join('')}
                   </div>
@@ -1442,13 +1529,13 @@ function renderActiveSprintDod() {
               const eWhat = escapeHtml(entry.what || '');
               return `
                 <div class="stream-changelog-item">
-                  <div class="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                    <span class="font-semibold text-purple-300 flex items-center gap-1">
-                      <i data-lucide="git-commit" class="w-3 h-3 text-purple-400"></i> ${eAgent}
+                  <div class="flex items-center justify-between text-[10px] text-[var(--text-tertiary)] mb-1">
+                    <span class="font-semibold text-purple-600 dark:text-purple-300 flex items-center gap-1">
+                      <i class="ph ph-git-commit text-purple-500"></i> ${eAgent}
                     </span>
-                    <span class="font-mono text-[9px] text-slate-500" title="${eDt}">${eDt}</span>
+                    <span class="font-mono text-[9px] text-[var(--text-tertiary)]" title="${eDt}">${eDt}</span>
                   </div>
-                  <p class="text-[11px] text-slate-300 leading-snug line-clamp-3">${eWhat}</p>
+                  <p class="text-[11px] text-[var(--text-primary)] leading-snug line-clamp-3">${eWhat}</p>
                 </div>
               `;
             }).join('');
@@ -1459,12 +1546,12 @@ function renderActiveSprintDod() {
                 const escText = formatRichText(item.text);
                 const itemIdx = item.index !== undefined ? item.index : idx;
                 return `
-                  <label class="flex items-start space-x-2.5 py-1.5 px-2 rounded-lg hover:bg-slate-900/90 cursor-pointer text-xs transition group">
+                  <label class="flex items-start space-x-2.5 py-1.5 px-2 rounded-lg hover:bg-[var(--bg-surface-secondary)] cursor-pointer text-xs transition group">
                     <input type="checkbox" ${item.checked ? 'checked' : ''}
                            data-action="toggle-dod"
                            data-card-id="${escId}"
                            data-idx="${itemIdx}"
-                           class="mt-0.5 rounded border-slate-700 text-purple-500 focus:ring-purple-500/20 bg-slate-800 cursor-pointer w-4 h-4">
+                           class="mt-0.5 rounded border-[var(--border-medium)] text-purple-500 focus:ring-purple-500/20 bg-[var(--bg-surface)] cursor-pointer w-4 h-4">
                     <span class="flex-1 ${item.checked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]'} group-hover:text-[var(--text-primary)] transition-colors leading-relaxed">${escText}</span>
                   </label>
                 `;
@@ -1626,9 +1713,9 @@ function renderActiveSprintDod() {
           .map((item, idx) => {
             const escSprintId = escapeHtml(data.sprint_id);
             return `
-            <label class="flex items-start space-x-3 p-2.5 rounded-lg bg-slate-950/70 hover:bg-slate-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer text-xs transition group">
-              <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-sprint-dod" data-sprint-id="${escSprintId}" data-idx="${idx}" class="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500/20 bg-slate-800 cursor-pointer">
-              <span class="flex-1 ${item.checked ? 'text-slate-400 line-through' : 'text-slate-200 font-medium'} group-hover:text-emerald-300 transition-colors">${formatRichText(item.text)}</span>
+            <label class="flex items-start space-x-3 p-2.5 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] border border-[var(--border-subtle)] hover:border-[var(--border-medium)] cursor-pointer text-xs transition group">
+              <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-sprint-dod" data-sprint-id="${escSprintId}" data-idx="${idx}" class="mt-0.5 rounded border-[var(--border-medium)] text-emerald-500 focus:ring-emerald-500/20 bg-[var(--bg-surface)] cursor-pointer">
+              <span class="flex-1 ${item.checked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)] font-medium'} group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">${formatRichText(item.text)}</span>
             </label>
           `;
           })
@@ -1644,8 +1731,8 @@ function renderActiveSprintDod() {
     if (cardsContainerEl) {
       if (!data.cards || data.cards.length === 0) {
         cardsContainerEl.innerHTML = `
-          <div class="p-8 text-center text-slate-500 text-xs">
-            <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-600"></i>
+          <div class="p-8 text-center text-[var(--text-tertiary)] text-xs">
+            <i class="ph ph-tray text-2xl mx-auto mb-2 text-[var(--text-quaternary)] block"></i>
             No cards assigned to Story ${escapeHtml(data.sprint_id)} yet.
           </div>
         `;
@@ -1654,40 +1741,40 @@ function renderActiveSprintDod() {
           .map((c) => {
             const escId = escapeHtml(c.mn_id);
             const escTitle = escapeHtml(c.title);
-            let statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">Backlog</span>';
+            let statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">Backlog</span>';
             if (c.status === 'in-progress') {
-              statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">In Progress</span>';
+              statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">In Progress</span>';
             } else if (c.status === 'qa') {
-              statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Awaiting QA</span>';
+              statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">Awaiting QA</span>';
             } else if (c.status === 'completed') {
-              statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Done</span>';
+              statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Done</span>';
             }
 
             const dodItemsHtml = (c.dod || [])
               .map((item, subIdx) => {
                 return `
-                <label class="flex items-start space-x-2 py-1 px-1.5 rounded hover:bg-slate-900 cursor-pointer text-[11px] transition touch-target-item">
-                  <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-dod" data-card-id="${escId}" data-idx="${subIdx}" class="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500/20 bg-slate-800 cursor-pointer">
-                  <span class="${item.checked ? 'text-slate-500 line-through' : 'text-slate-300'}">${formatRichText(item.text)}</span>
+                <label class="flex items-start space-x-2 py-1 px-1.5 rounded hover:bg-[var(--bg-surface-tertiary)] cursor-pointer text-[11px] transition touch-target-item">
+                  <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-dod" data-card-id="${escId}" data-idx="${subIdx}" class="mt-0.5 rounded border-[var(--border-medium)] text-emerald-500 focus:ring-emerald-500/20 bg-[var(--bg-surface)] cursor-pointer">
+                  <span class="${item.checked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)]'}">${formatRichText(item.text)}</span>
                 </label>
               `;
               })
               .join('');
 
             return `
-            <div class="bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 hover:border-slate-700 transition">
+            <div class="bg-[var(--bg-surface-secondary)] p-3.5 rounded-xl border border-[var(--border-subtle)] hover:border-[var(--border-medium)] transition shadow-2xs">
               <div class="flex items-center justify-between gap-2 mb-1.5">
                 <div class="flex items-center gap-2">
-                  <span class="font-mono font-bold text-xs text-emerald-400 cursor-pointer hover:underline" data-action="open-card-modal" data-card-id="${escId}">${escId}</span>
-                  <h4 class="text-xs font-semibold text-white cursor-pointer hover:text-emerald-400 transition-colors" data-action="open-card-modal" data-card-id="${escId}">${escTitle}</h4>
+                  <span class="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400 cursor-pointer hover:underline" data-action="open-card-modal" data-card-id="${escId}">${escId}</span>
+                  <h4 class="text-xs font-semibold text-[var(--text-primary)] cursor-pointer hover:text-emerald-500 transition-colors" data-action="open-card-modal" data-card-id="${escId}">${escTitle}</h4>
                 </div>
                 <div>${statusBadge}</div>
               </div>
               ${c.dod && c.dod.length > 0 ? `
-                <div class="mt-2.5 pt-2 border-t border-slate-900 space-y-1">
-                  <div class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-1 flex items-center justify-between">
+                <div class="mt-2.5 pt-2 border-t border-[var(--border-subtle)] space-y-1">
+                  <div class="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between">
                     <span>Card DoD Criteria:</span>
-                    <span class="font-mono text-emerald-400">${c.dod_checked}/${c.dod_total}</span>
+                    <span class="font-mono text-emerald-600 dark:text-emerald-400">${c.dod_checked}/${c.dod_total}</span>
                   </div>
                   ${dodItemsHtml}
                 </div>
@@ -1714,11 +1801,11 @@ async function toggleSprintDodItem(sprintId, itemIndex, checked) {
     if (res.success) {
       await fetchActiveSprint();
     } else {
-      alert(`Error updating Story DoD: ${res.error || 'Server error'}`);
+      showToast(`Error updating Story DoD: ${res.error || 'Server error'}`, 'error');
     }
   } catch (err) {
     console.error('Failed to toggle sprint DoD:', err);
-    alert('Failed to update Story DoD.');
+    showToast('Failed to update Story DoD.', 'error');
   }
 }
 
@@ -1839,9 +1926,9 @@ function updateHeavyGateUi() {
     } else {
       if (badgeEl) {
         badgeEl.textContent = 'Idle';
-        badgeEl.className = 'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-slate-800 text-slate-400 border border-slate-700';
+        badgeEl.className = 'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]';
       }
-      if (indicator) indicator.className = 'w-2.5 h-2.5 rounded-full bg-slate-600 inline-block';
+      if (indicator) indicator.className = 'w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600 inline-block';
     }
   }
 
@@ -1855,7 +1942,7 @@ function updateHeavyGateUi() {
         .map((f) => `<div class="text-amber-300 truncate py-0.5">📄 ${escapeHtml(f.file_name)}</div>`)
         .join('');
     } else {
-      queueListEl.innerHTML = '<p class="text-slate-500 italic">No bespoke checks in scripts/heavy-gate-queue/.</p>';
+      queueListEl.innerHTML = '<p class="text-[var(--text-tertiary)] italic">No bespoke checks in scripts/heavy-gate-queue/.</p>';
     }
   }
 
@@ -1872,7 +1959,7 @@ function updateHeavyGateUi() {
         : (Boolean(latest.pytest_ok) && (latest.vitest_ok === undefined || latest.vitest_ok === null || Boolean(latest.vitest_ok)));
       latestBadge.textContent = ok ? 'PASSED ✅' : 'FAILED ❌';
       latestBadge.className = `text-[10px] px-1.5 py-0.2 rounded font-semibold ${
-        ok ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+        ok ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30'
       }`;
     }
     if (latestSha) latestSha.textContent = `SHA: ${(latest.sha || 'latest').slice(0, 7)}`;
@@ -1892,7 +1979,7 @@ function updateHeavyGateUi() {
   } else {
     if (latestBadge) {
       latestBadge.textContent = 'No runs yet';
-      latestBadge.className = 'text-[10px] px-1.5 py-0.2 rounded font-semibold bg-slate-800 text-slate-400';
+      latestBadge.className = 'text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]';
     }
     if (latestSha) latestSha.textContent = 'SHA: --';
     if (latestTime) latestTime.textContent = '--';
@@ -1941,7 +2028,7 @@ async function startHeavyGate() {
       await fetchHeavyGateStatus();
       await fetchHeavyGateLog();
     } else {
-      alert(`Error starting heavy gate: ${res.error || 'Server error'}`);
+      showToast(`Error starting heavy gate: ${res.error || 'Server error'}`, 'error');
       if (runBtn) {
         runBtn.disabled = false;
         const span = runBtn.querySelector('span');
@@ -1950,7 +2037,7 @@ async function startHeavyGate() {
     }
   } catch (err) {
     console.error('Failed to start heavy gate:', err);
-    alert('Failed to start heavy gate execution.');
+    showToast('Failed to start heavy gate execution.', 'error');
     if (runBtn) {
       runBtn.disabled = false;
       const span = runBtn.querySelector('span');
@@ -1973,7 +2060,7 @@ async function stopHeavyGate() {
       await fetchHeavyGateStatus();
       fetchHeavyGateLog();
     } else {
-      alert(`Error stopping heavy gate: ${res.error || 'Server error'}`);
+      showToast(`Error stopping heavy gate: ${res.error || 'Server error'}`, 'error');
     }
   } catch (err) {
     console.error('Failed to stop heavy gate:', err);
@@ -1996,10 +2083,10 @@ async function fetchSprintGateStatus() {
       if (tbody) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="6" class="text-center py-6 text-amber-400 text-xs">
+            <td colspan="6" class="text-center py-6 text-amber-500 text-xs">
               <div class="flex items-center justify-center gap-2">
-                <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400"></i>
-                <span>Server restart required: endpoint <code class="bg-slate-900 px-1.5 py-0.5 rounded text-amber-300 font-mono">/api/heavy-gate/sprints</code> not found. Please restart <code class="bg-slate-900 px-1.5 py-0.5 rounded text-amber-300 font-mono">scripts/pm.ps1</code>.</span>
+                <i class="ph ph-warning text-amber-500 text-base"></i>
+                <span>Server restart required: endpoint <code class="bg-[var(--bg-surface-tertiary)] text-[var(--status-blue)] px-1.5 py-0.5 rounded border border-[var(--border-medium)] font-mono">/api/heavy-gate/sprints</code> not found. Please restart <code class="bg-[var(--bg-surface-tertiary)] text-[var(--status-blue)] px-1.5 py-0.5 rounded border border-[var(--border-medium)] font-mono">scripts/pm.ps1</code>.</span>
               </div>
             </td>
           </tr>
@@ -2017,10 +2104,10 @@ async function fetchSprintGateStatus() {
     if (tbody) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="6" class="text-center py-6 text-rose-400 text-xs">
+          <td colspan="6" class="text-center py-6 text-rose-500 text-xs">
             <div class="flex items-center justify-center gap-2">
-              <i data-lucide="alert-circle" class="w-4 h-4 text-rose-400"></i>
-              <span>Failed to fetch story audit status. If server is stale, restart <code class="bg-slate-900 px-1.5 py-0.5 rounded font-mono">scripts/pm.ps1</code>.</span>
+              <i class="ph ph-warning-circle text-rose-500 text-base"></i>
+              <span>Failed to fetch story audit status. If server is stale, restart <code class="bg-[var(--bg-surface-tertiary)] text-[var(--status-blue)] px-1.5 py-0.5 rounded border border-[var(--border-medium)] font-mono">scripts/pm.ps1</code>.</span>
             </div>
           </td>
         </tr>
@@ -2197,32 +2284,32 @@ function renderSprintAuditTable() {
         const shortSha = s.sha ? s.sha.slice(0, 7) : '--';
 
         const actionBtn = isCurrentRun
-          ? `<span class="text-[10px] px-2 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono animate-pulse">Running...</span>`
+          ? `<span class="text-[10px] px-2 py-1 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/40 font-mono animate-pulse">Running...</span>`
           : isVerified
-          ? `<span class="text-[10px] px-2 py-1 rounded bg-slate-800 text-slate-500 border border-slate-700 font-mono">Done</span>`
+          ? `<span class="text-[10px] px-2 py-1 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-tertiary)] border border-[var(--border-subtle)] font-mono">Done</span>`
           : isFailed
           ? `<button onclick="startRunSprintGate('${escapeHtml(s.sprint)}', '${escapeHtml(s.sha || '')}')" ${
               isRunning ? 'disabled' : ''
-            } class="px-2.5 py-1 bg-rose-950/60 hover:bg-rose-900 active:bg-rose-950 text-rose-200 hover:text-white text-[11px] font-medium rounded border border-rose-800/60 transition disabled:opacity-40 disabled:cursor-not-allowed">
+            } class="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 active:bg-rose-500/30 text-rose-600 dark:text-rose-300 text-[11px] font-medium rounded-lg border border-rose-500/30 transition shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
               Retry Gate 5
             </button>`
           : `<button onclick="startRunSprintGate('${escapeHtml(s.sprint)}', '${escapeHtml(s.sha || '')}')" ${
               isRunning ? 'disabled' : ''
-            } class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-slate-300 hover:text-white text-[11px] font-medium rounded border border-slate-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+            } class="px-2.5 py-1 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] text-[11px] font-medium rounded-lg border border-[var(--border-medium)] transition shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
               Run Gate 5
             </button>`;
 
         const rowOpacity = isVerified ? 'opacity-60' : '';
 
         return `
-          <tr class="hover:bg-slate-900/40 transition ${rowOpacity}">
-            <td class="py-2 px-3 font-mono font-bold text-slate-200">
+          <tr class="hover:bg-[var(--bg-surface-secondary)] transition ${rowOpacity}">
+            <td class="py-2 px-3 font-mono font-bold text-[var(--text-primary)]">
               Story ${escapeHtml(s.sprint)}
             </td>
-            <td class="py-2 px-3 text-slate-300 max-w-xs truncate" title="${escapeHtml(s.scope)}">
+            <td class="py-2 px-3 text-[var(--text-secondary)] max-w-xs truncate" title="${escapeHtml(s.scope)}">
               ${escapeHtml(s.scope)}
             </td>
-            <td class="py-2 px-3 font-mono text-slate-400 text-[11px]">
+            <td class="py-2 px-3 font-mono text-[var(--text-tertiary)] text-[11px]">
               ${escapeHtml(shortSha)}
             </td>
             <td class="py-2 px-3 whitespace-nowrap">
@@ -2306,16 +2393,16 @@ async function openFailureModal(sprintId, runId) {
                   <span class="text-slate-500">${idx + 1}.</span>
                   <span class="break-all">${testName}</span>
                 </div>
-                <button onclick="copyToClipboard('${cmd}', this)" class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-mono transition group" title="Copy exact pytest command">
-                  <i data-lucide="copy" class="w-3 h-3 text-slate-400 group-hover:text-white"></i>
+                <button onclick="copyToClipboard('${cmd}', this)" class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] text-[11px] font-mono transition shadow-xs group cursor-pointer" title="Copy exact pytest command">
+                  <i class="ph ph-copy text-xs text-[var(--text-quaternary)] group-hover:text-[var(--text-primary)]"></i>
                   <span>Copy command</span>
                 </button>
               </div>
-              <div class="text-[11px] font-mono text-slate-400 mb-2 flex items-center gap-1">
-                <i data-lucide="file-code" class="w-3 h-3 text-slate-500"></i>
+              <div class="text-[11px] font-mono text-[var(--text-tertiary)] mb-2 flex items-center gap-1">
+                <i class="ph ph-file-code text-[var(--text-quaternary)] text-xs"></i>
                 <span class="break-all">${filePath}</span>
               </div>
-              <pre class="bg-slate-950 p-2.5 rounded border border-rose-950/60 text-rose-200 font-mono text-[11px] overflow-x-auto leading-relaxed whitespace-pre-wrap">${msg}</pre>
+              <pre class="bg-[var(--bg-surface-secondary)] p-2.5 rounded-lg border border-rose-500/30 text-rose-600 dark:text-rose-300 font-mono text-[11px] overflow-x-auto leading-relaxed whitespace-pre-wrap">${msg}</pre>
             </div>
           `;
         }).join('')}
@@ -2401,18 +2488,18 @@ async function startRunSprintGate(sprintId, commitSha) {
       await fetchHeavyGateStatus();
       await fetchHeavyGateLog();
     } else {
-      alert(`Error starting heavy gate: ${res.error || 'Server error'}`);
+      showToast(`Error starting heavy gate: ${res.error || 'Server error'}`, 'error');
     }
   } catch (err) {
     console.error(`Failed to start heavy gate for sprint ${sprintId}:`, err);
-    alert('Failed to start heavy gate execution.');
+    showToast('Failed to start heavy gate execution.', 'error');
   }
 }
 
 async function startRunAllPendingSprints() {
   const unverified = (state.sprintGateStatus || []).filter((s) => !s.verified);
   if (unverified.length === 0) {
-    alert('All completed stories have verified Gate 5 runs.');
+    showToast('All completed stories have verified Gate 5 runs.', 'info');
     return;
   }
   const count = unverified.length;
@@ -2435,11 +2522,11 @@ async function startRunAllPendingSprints() {
       await fetchSprintGateStatus();
       fetchHeavyGateLog();
     } else {
-      alert(`Error queuing pending sprints: ${res.error || 'Server error'}`);
+      showToast(`Error queuing pending sprints: ${res.error || 'Server error'}`, 'error');
     }
   } catch (err) {
     console.error('Failed to run all pending sprints:', err);
-    alert('Failed to start sequential heavy gate runs.');
+    showToast('Failed to start sequential heavy gate runs.', 'error');
   }
 }
 
@@ -2979,12 +3066,12 @@ function formatRichText(str) {
   // 2. Escape HTML entities to prevent XSS
   s = escapeHtml(s);
   // 3. Convert markdown links [text](url)
-  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-emerald-400 hover:underline">$1</a>');
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-emerald-600 dark:text-emerald-400 hover:underline font-medium">$1</a>');
   // 4. Convert bold **text** or __text__
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-slate-100">$1</strong>');
-  s = s.replace(/__([^_]+)__/g, '<strong class="font-semibold text-slate-100">$1</strong>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-[var(--text-primary)]">$1</strong>');
+  s = s.replace(/__([^_]+)__/g, '<strong class="font-semibold text-[var(--text-primary)]">$1</strong>');
   // 5. Convert inline code `code` to styled code pill
-  s = s.replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-slate-900 text-sky-300 font-mono text-[11px] border border-slate-800">$1</code>');
+  s = s.replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-[var(--bg-surface-tertiary)] text-[var(--status-blue)] font-mono text-[11px] border border-[var(--border-medium)]">$1</code>');
   // 6. Convert newlines into <br> tags
   s = s.replace(/\r?\n/g, '<br>');
   return s;
@@ -3020,56 +3107,56 @@ function renderChangelogTable(changelog, card = null) {
   });
 
   return `
-    <div class="bg-slate-950 rounded-lg border border-slate-800 overflow-x-auto shadow-sm">
+    <div class="bg-[var(--bg-surface-secondary)] rounded-xl border border-[var(--border-medium)] overflow-x-auto shadow-xs">
       <table class="w-full text-left border-collapse min-w-[500px]">
         <thead>
-          <tr class="bg-slate-900/90 border-b border-slate-800 text-xs font-bold text-slate-300 uppercase tracking-wider">
-            <th class="py-2.5 px-3 w-40 whitespace-nowrap cursor-pointer select-none hover:text-emerald-400 transition-colors group" onclick="toggleChangelogSort('${card ? escapeHtml(card.mn_id) : ''}')" title="Click to toggle ascending/descending order">
+          <tr class="bg-[var(--bg-surface-tertiary)] border-b border-[var(--border-medium)] text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+            <th class="py-2.5 px-3 w-40 whitespace-nowrap cursor-pointer select-none hover:text-emerald-500 transition-colors group" onclick="toggleChangelogSort('${card ? escapeHtml(card.mn_id) : ''}')" title="Click to toggle ascending/descending order">
               <div class="inline-flex items-center gap-1.5">
                 <span>Date &amp; Time</span>
-                <span class="text-[10px] font-mono text-emerald-400 group-hover:scale-110 transition-transform">${order === 'asc' ? '▲ (Asc)' : '▼ (Desc)'}</span>
+                <span class="text-[10px] font-mono text-emerald-500 group-hover:scale-110 transition-transform">${order === 'asc' ? '▲ (Asc)' : '▼ (Desc)'}</span>
               </div>
             </th>
             <th class="py-2.5 px-3 w-44 whitespace-nowrap">Agent</th>
             <th class="py-2.5 px-3">Work & Evidence</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-800/60 text-sm">
+        <tbody class="divide-y divide-[var(--border-subtle)] text-sm">
           ${sorted
             .map(
               (cl) => {
                 const targetRef = card ? (card.sprint || card.mn_id) : '';
                 const reviewBtn = cl.has_review
-                  ? `<button onclick="openReviewModal('${escapeHtml(targetRef)}', ${cl.review_round || 1})" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/40 text-xs font-semibold transition ml-2 shrink-0 group">
-                      <i data-lucide="shield-check" class="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform"></i>
+                  ? `<button onclick="openReviewModal('${escapeHtml(targetRef)}', ${cl.review_round || 1})" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/30 text-xs font-semibold transition ml-2 shrink-0 shadow-xs group cursor-pointer">
+                      <i class="ph ph-shield-check text-purple-500 group-hover:scale-110 transition-transform text-xs"></i>
                       <span>View Review</span>
                     </button>`
                   : '';
 
                 const timeHtml = cl.time
-                  ? `<div class="flex items-center gap-1.5 text-slate-400 font-mono text-xs mt-0.5">
-                      <i data-lucide="clock" class="w-3 h-3 text-slate-500 shrink-0"></i>
+                  ? `<div class="flex items-center gap-1 text-[var(--text-tertiary)] font-mono text-xs mt-0.5">
+                      <i class="ph ph-clock text-[var(--text-quaternary)] text-xs shrink-0"></i>
                       <span>${escapeHtml(cl.time)}</span>
                     </div>`
                   : '';
 
                 return `
-            <tr class="hover:bg-slate-900/40 transition align-top">
-              <td class="py-2.5 px-3 font-mono text-slate-300 font-semibold text-xs whitespace-nowrap">
+            <tr class="hover:bg-[var(--bg-surface-tertiary)] transition align-top">
+              <td class="py-2.5 px-3 font-mono text-[var(--text-secondary)] font-medium text-xs whitespace-nowrap">
                 <div class="flex flex-col pt-0.5">
                   <div class="flex items-center gap-1.5">
-                    <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-500 shrink-0"></i>
+                    <i class="ph ph-calendar-blank text-[var(--text-quaternary)] text-xs shrink-0"></i>
                     <span>${escapeHtml(cl.date)}</span>
                   </div>
                   ${timeHtml}
                 </div>
               </td>
               <td class="py-2.5 px-3 whitespace-nowrap">
-                <span class="inline-block px-2.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono text-xs font-semibold whitespace-nowrap leading-snug">
+                <span class="inline-block px-2.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono text-xs font-semibold whitespace-nowrap leading-snug">
                   ${escapeHtml(cl.agent)}
                 </span>
               </td>
-              <td class="py-2.5 px-3 text-slate-200 font-sans text-sm leading-relaxed break-words">
+              <td class="py-2.5 px-3 text-[var(--text-primary)] font-sans text-xs leading-relaxed break-words">
                 <div class="flex items-start justify-between gap-2">
                   <div class="flex-1">${formatRichText(cl.what)}</div>
                   ${reviewBtn}
@@ -3226,12 +3313,12 @@ function renderActiveReview(rev) {
         const checkedAttr = f.checked ? 'checked' : '';
         const resSha = f.resolution_sha || f.sha;
         const shaBadge = resSha
-          ? `<span class="font-mono text-[10px] text-sky-300 bg-sky-950/60 border border-sky-800/60 px-1.5 py-0.5 rounded ml-2 shrink-0">resolved @ ${escapeHtml(resSha)}</span>`
+          ? `<span class="font-mono text-[10px] text-sky-600 dark:text-sky-300 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded ml-2 shrink-0">resolved @ ${escapeHtml(resSha)}</span>`
           : '';
-        const textClass = f.checked ? 'text-slate-400 line-through' : 'text-slate-200 font-medium';
+        const textClass = f.checked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)] font-medium';
         return `
           <div class="review-finding-item">
-            <input type="checkbox" ${checkedAttr} disabled class="mt-0.5 rounded border-purple-500/50 text-purple-500 bg-slate-900 cursor-not-allowed">
+            <input type="checkbox" ${checkedAttr} disabled class="mt-0.5 rounded border-purple-500/50 text-purple-500 bg-[var(--bg-surface)] cursor-not-allowed">
             <span class="flex-1 ${textClass}">${formatRichText(f.text)}</span>
             ${shaBadge}
           </div>
@@ -3408,11 +3495,11 @@ function renderProjectUi() {
             : '';
           return `<button role="menuitemradio" aria-checked="${active}" data-project-slug="${escapeHtml(p.slug)}" title="${escapeHtml(p.code_path || '')}"
             class="w-full flex items-center gap-2 px-3 py-2 text-left text-xs rounded-lg transition ${
-              active ? 'bg-emerald-500/10 text-emerald-300' : 'text-slate-200 hover:bg-slate-800'
+              active ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 font-semibold' : 'text-[var(--text-primary)] hover:bg-[var(--bg-surface-secondary)]'
             }">
-            <span class="w-3.5 shrink-0">${active ? '<i data-lucide="check" class="w-3.5 h-3.5"></i>' : ''}</span>
+            <span class="w-3.5 shrink-0">${active ? '<i class="ph ph-check text-xs"></i>' : ''}</span>
             <span class="truncate font-semibold">${escapeHtml(p.name)}</span>
-            ${p.prefix ? `<span class="shrink-0 font-mono text-[10px] text-slate-400">${escapeHtml(p.prefix)}</span>` : ''}
+            ${p.prefix ? `<span class="shrink-0 font-mono text-[10px] text-[var(--text-tertiary)]">${escapeHtml(p.prefix)}</span>` : ''}
             ${externalMarkerHtml(p)}
             ${buildingTag}
           </button>`;
@@ -3463,7 +3550,7 @@ async function selectProject(slug) {
     await fetchProjects();
     await fetchAll();
   } catch (err) {
-    alert(`Could not switch project: ${err.message}`);
+    showToast(`Could not switch project: ${err.message}`, 'error');
     showLoadingFeedback(false);
   }
 }

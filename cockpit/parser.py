@@ -919,6 +919,99 @@ class PMParser:
                 if card:
                     cards.append(card)
 
+        # Surface active design grills from PLAN.md in the In-Progress column on the board
+        if self.plan_path.exists():
+            plan_content = ""
+            try:
+                plan_content = self.plan_path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+            if plan_content:
+                grill_matches = re.finditer(
+                    r"###\s+Grill in progress\s*[--\-]\s*(?:(?:Sprint|Story)\s+)?([^\r\n]+)",
+                    plan_content,
+                    re.IGNORECASE,
+                )
+                seen_sprints = {
+                    c.get("sprint", "").lower()
+                    for c in cards
+                    if c.get("sprint") and c.get("status") in ("sprint-backlog", "in-progress", "qa", "completed")
+                }
+                seen_ids = {
+                    c.get("id", "").lower()
+                    for c in cards
+                    if c.get("id")
+                }
+
+                # Roadmap data for scope / story title
+                roadmap_items = self.parse_plan().get("roadmap", [])
+
+                for gm in grill_matches:
+                    g_sprint = gm.group(1).strip()
+                    clean_g_sprint = re.sub(r"^(?:Sprint|Story|Phase)\s+", "", g_sprint, flags=re.IGNORECASE).strip()
+                    if not clean_g_sprint:
+                        continue
+                    if clean_g_sprint.lower() in seen_sprints or f"grill-{clean_g_sprint}".lower() in seen_ids:
+                        continue
+
+                    roadmap_item = next(
+                        (
+                            r
+                            for r in roadmap_items
+                            if str(r.get("sprint", "")).lower() == clean_g_sprint.lower()
+                            or str(r.get("story", "")).lower() == clean_g_sprint.lower()
+                        ),
+                        None,
+                    )
+                    scope_text = roadmap_item["scope"] if roadmap_item and roadmap_item.get("scope") else "Design Grill"
+                    title = f"Story {clean_g_sprint} — {scope_text}"
+
+                    plan_dod = self._extract_sprint_dod(clean_g_sprint)
+                    dod_total = len(plan_dod)
+                    dod_checked = sum(1 for d in plan_dod if d.get("checked"))
+                    progress_pct = round((dod_checked / dod_total * 100)) if dod_total > 0 else 0
+
+                    cards.append({
+                        "mn_id": f"GRILL-{clean_g_sprint}",
+                        "id": f"GRILL-{clean_g_sprint}",
+                        "title": title,
+                        "sprint": clean_g_sprint,
+                        "story": clean_g_sprint,
+                        "schema": "story",
+                        "type": "grill",
+                        "is_grill": True,
+                        "status": "in-progress",
+                        "warnings": [],
+                        "missing_plan_dod": False,
+                        "warning_missing_plan_dod": False,
+                        "validated": False,
+                        "created_date": datetime.date.today().isoformat(),
+                        "description": "Interactive design session in progress in PLAN.md",
+                        "dod": plan_dod,
+                        "dod_total": dod_total,
+                        "dod_checked": dod_checked,
+                        "progress_pct": progress_pct,
+                        "qa_text": "",
+                        "qa_instructions": "",
+                        "qa_items": [],
+                        "changelog": [
+                            {
+                                "agent": "Lead (Grill)",
+                                "what": "Interactive design session in progress in PLAN.md",
+                                "date": datetime.date.today().isoformat(),
+                                "time": "",
+                                "datetime": datetime.date.today().isoformat(),
+                            }
+                        ],
+                        "reviews": [],
+                        "review_count": 0,
+                        "file_name": "PLAN.md",
+                        "file_path": self.rel_path(self.plan_path),
+                        "closeout": None,
+                        "updated_at": datetime.datetime.now().isoformat(),
+                    })
+
         self._cards_cache = cards
         self._cards_cache_time = now
         return cards

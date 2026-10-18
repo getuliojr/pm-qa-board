@@ -66,6 +66,9 @@
   <!-- Mobile Sidebar Backdrop Overlay -->
   <div id="sidebarBackdrop" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-30 hidden transition-opacity duration-300"></div>
 
+  <!-- Top-Center Apple Glass Toast Container -->
+  <div id="toastContainer" class="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 pointer-events-none w-full max-w-md px-4"></div>
+
   <!-- MAIN APP SHELL WRAPPER -->
   <div class="flex h-screen w-screen overflow-hidden bg-[var(--bg-spatial)]">
 
@@ -153,14 +156,18 @@
             <span class="text-[var(--text-tertiary)] font-medium">Active Story:</span>
             <span id="headerActiveSprint" class="font-bold text-emerald-600 dark:text-emerald-400 truncate max-w-[9rem]">...</span>
           </div>
-          <div class="grid grid-cols-2 gap-1.5 text-[11px]">
-            <div class="p-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-between">
-              <span class="text-[var(--text-tertiary)]">Awaiting QA</span>
-              <span id="headerQaCount" class="font-bold text-amber-600 dark:text-amber-400 tabular-nums">0</span>
+          <div class="grid grid-cols-3 gap-1 text-[11px]">
+            <div class="p-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex flex-col items-center justify-center text-center">
+              <span class="text-[var(--text-tertiary)] text-[9px] uppercase tracking-wider font-semibold">In Progress</span>
+              <span id="headerInProgressCount" class="font-bold text-purple-600 dark:text-purple-400 text-xs tabular-nums mt-0.5">0</span>
             </div>
-            <div class="p-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-between">
-              <span class="text-[var(--text-tertiary)]">Cards</span>
-              <span id="headerTotalCount" class="font-bold text-[var(--text-primary)] tabular-nums">0</span>
+            <div class="p-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex flex-col items-center justify-center text-center">
+              <span class="text-[var(--text-tertiary)] text-[9px] uppercase tracking-wider font-semibold">Awaiting QA</span>
+              <span id="headerQaCount" class="font-bold text-amber-600 dark:text-amber-400 text-xs tabular-nums mt-0.5">0</span>
+            </div>
+            <div class="p-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex flex-col items-center justify-center text-center">
+              <span class="text-[var(--text-tertiary)] text-[9px] uppercase tracking-wider font-semibold">Cards</span>
+              <span id="headerTotalCount" class="font-bold text-[var(--text-primary)] text-xs tabular-nums mt-0.5">0</span>
             </div>
           </div>
         </div>

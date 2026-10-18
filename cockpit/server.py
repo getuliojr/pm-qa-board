@@ -361,17 +361,32 @@ def count_building_cards(project: dict[str, Any]) -> int:
     if not docs_path:
         return 0
     cards_dir = Path(docs_path) / "cards"
-    if not cards_dir.is_dir():
-        return 0
     count = 0
-    for card_file in cards_dir.glob("*.md"):
+    building_sprints = set()
+    if cards_dir.is_dir():
+        for card_file in cards_dir.glob("*.md"):
+            try:
+                with open(card_file, "r", encoding="utf-8", errors="ignore") as f:
+                    header = f.read(1024)
+                m = re.search(r"^status:\s*(.+)$", header, re.MULTILINE)
+                if m:
+                    st = m.group(1).strip().lower().strip("\"'")
+                    if st in ("in-progress", "building", "active"):
+                        count += 1
+                        m_sp = re.search(r"^sprint:\s*(.+)$", header, re.MULTILINE)
+                        if m_sp:
+                            building_sprints.add(m_sp.group(1).strip().lower().strip("\"'"))
+            except Exception:
+                pass
+    plan_path = Path(docs_path) / "PLAN.md"
+    if plan_path.is_file():
         try:
-            with open(card_file, "r", encoding="utf-8", errors="ignore") as f:
-                header = f.read(1024)
-            m = re.search(r"^status:\s*(.+)$", header, re.MULTILINE)
-            if m:
-                st = m.group(1).strip().lower().strip("\"'")
-                if st in ("in-progress", "building", "active"):
+            with open(plan_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            grills = re.findall(r"###\s+Grill in progress\s*[--\-]\s*(?:(?:Sprint|Story)\s+)?([^\r\n]+)", content, re.IGNORECASE)
+            for g in grills:
+                clean_g = re.sub(r"^(?:Sprint|Story|Phase)\s+", "", g, flags=re.IGNORECASE).strip().lower()
+                if clean_g and clean_g not in building_sprints:
                     count += 1
         except Exception:
             pass
