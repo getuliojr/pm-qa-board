@@ -222,6 +222,443 @@ function showToast(message, type = 'info', duration = 3500) {
   toast.addEventListener('click', dismiss);
 }
 
+// =============================================================================
+// Web Audio Synth Engine & Sound Controls (Story 8)
+// =============================================================================
+let audioContext = null;
+let soundEnabled = true;
+
+function getAudioContext() {
+  if (!audioContext) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      audioContext = new AudioContextClass();
+    }
+  }
+  if (audioContext && audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => {});
+  }
+  return audioContext;
+}
+
+function unlockAudioContextOnGesture() {
+  const unlock = () => {
+    const ctx = getAudioContext();
+    if (ctx && ctx.state === 'running') {
+      ['click', 'keydown', 'touchstart'].forEach((evt) => {
+        window.removeEventListener(evt, unlock);
+      });
+    }
+  };
+  ['click', 'keydown', 'touchstart'].forEach((evt) => {
+    window.addEventListener(evt, unlock, { passive: true });
+  });
+}
+
+function playNote(ctx, freq, startTime, duration, maxGain = 0.22) {
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, startTime);
+
+    gain.gain.setValueAtTime(0.0001, startTime);
+    gain.gain.linearRampToValueAtTime(maxGain, startTime + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    // Subtle second harmonic for acoustic chime texture
+    const harm = ctx.createOscillator();
+    const harmGain = ctx.createGain();
+    harm.type = 'sine';
+    harm.frequency.setValueAtTime(freq * 2, startTime);
+    harmGain.gain.setValueAtTime(0.0001, startTime);
+    harmGain.gain.linearRampToValueAtTime(maxGain * 0.18, startTime + 0.012);
+    harmGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration * 0.7);
+
+    harm.connect(harmGain);
+    harmGain.connect(ctx.destination);
+
+    osc.start(startTime);
+    harm.start(startTime);
+    osc.stop(startTime + duration);
+    harm.stop(startTime + duration);
+  } catch (_) {}
+}
+
+function playChime(type = 'qa') {
+  if (!soundEnabled) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    const t = ctx.currentTime;
+    if (type === 'qa') {
+      // Ascending 2-tone chime: D5 (587.33 Hz) -> A5 (880.00 Hz)
+      playNote(ctx, 587.33, t, 0.25, 0.2);
+      playNote(ctx, 880.00, t + 0.14, 0.6, 0.25);
+    } else if (type === 'completed') {
+      // Celebratory major triad chord with top octave: C5, E5, G5, C6
+      playNote(ctx, 523.25, t, 1.2, 0.16);
+      playNote(ctx, 659.25, t + 0.04, 1.2, 0.16);
+      playNote(ctx, 783.99, t + 0.08, 1.4, 0.16);
+      playNote(ctx, 1046.50, t + 0.12, 1.6, 0.22);
+    } else if (type === 'test') {
+      playNote(ctx, 659.25, t, 0.18, 0.18);
+      playNote(ctx, 880.00, t + 0.12, 0.35, 0.22);
+    }
+  } catch (err) {
+    console.warn('Audio chime playback failed:', err);
+  }
+}
+
+function updateSoundToggleUi() {
+  const icon = document.getElementById('soundToggleIcon');
+  const label = document.getElementById('soundToggleLabel');
+  const btn = document.getElementById('soundToggleBtn');
+  if (!icon || !btn) return;
+
+  if (soundEnabled) {
+    icon.className = 'ph ph-speaker-high text-xs text-emerald-600 dark:text-emerald-400';
+    if (label) label.textContent = 'Sound';
+    btn.title = 'Sound Alerts Active (Click to mute)';
+  } else {
+    icon.className = 'ph ph-speaker-slash text-xs text-[var(--text-tertiary)]';
+    if (label) label.textContent = 'Muted';
+    btn.title = 'Sound Alerts Muted (Click to unmute)';
+  }
+}
+
+async function toggleSoundMute() {
+  soundEnabled = !soundEnabled;
+  localStorage.setItem('pmqa_sound_enabled', soundEnabled ? 'true' : 'false');
+  updateSoundToggleUi();
+  if (soundEnabled) {
+    playChime('test');
+    showToast('Completion sound alerts enabled.', 'info');
+  } else {
+    showToast('Completion sound alerts muted.', 'info');
+  }
+
+  try {
+    const slug = state.activeProjectSlug || (state.currentProject && state.currentProject.slug);
+    fetch('/api/notifications/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug, sound_enabled: soundEnabled }),
+    }).catch(() => {});
+  } catch (_) {}
+}
+
+async function initSoundControl() {
+  unlockAudioContextOnGesture();
+  const stored = localStorage.getItem('pmqa_sound_enabled');
+  if (stored !== null) {
+    soundEnabled = stored === 'true';
+  } else {
+    soundEnabled = true;
+  }
+  updateSoundToggleUi();
+
+  try {
+    const res = await fetch('/api/notifications/config').then((r) => r.json());
+    if (res && res.success && res.config) {
+      if (stored === null && typeof res.config.sound_enabled === 'boolean') {
+        soundEnabled = res.config.sound_enabled;
+        localStorage.setItem('pmqa_sound_enabled', soundEnabled ? 'true' : 'false');
+        updateSoundToggleUi();
+      }
+    }
+  } catch (_) {}
+}
+
+// =============================================================================
+// Mobile Haptics & Browser Web Notifications (Story 8)
+// =============================================================================
+function triggerHaptic(type = 'default') {
+  if (!navigator.vibrate) return;
+  try {
+    if (type === 'qa') {
+      navigator.vibrate([100, 60, 140]);
+    } else if (type === 'completed') {
+      navigator.vibrate([150, 80, 200, 80, 250]);
+    } else {
+      navigator.vibrate(100);
+    }
+  } catch (_) {}
+}
+
+function updateNotificationPermissionUi() {
+  const badge = document.getElementById('browserNotificationStatusBadge');
+  const btn = document.getElementById('enableNotificationsBtn');
+  if (!badge) return;
+
+  if (!('Notification' in window)) {
+    badge.textContent = 'Unsupported';
+    badge.className = 'px-2 py-0.5 rounded text-[10px] font-medium bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-subtle)]';
+    if (btn) btn.disabled = true;
+    return;
+  }
+
+  const perm = Notification.permission;
+  if (perm === 'granted') {
+    badge.textContent = 'Granted';
+    badge.className = 'px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30';
+    if (btn) {
+      btn.textContent = 'Notifications Active';
+      btn.classList.add('opacity-75');
+      btn.disabled = true;
+    }
+  } else if (perm === 'denied') {
+    badge.textContent = 'Blocked';
+    badge.className = 'px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30';
+    if (btn) {
+      btn.textContent = 'Blocked in Browser';
+      btn.disabled = true;
+    }
+  } else {
+    badge.textContent = 'Not Enabled';
+    badge.className = 'px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30';
+    if (btn) {
+      btn.textContent = 'Enable Notifications';
+      btn.disabled = false;
+    }
+  }
+}
+
+async function requestNotificationPermission() {
+  if (!('Notification' in window)) {
+    showToast('Web Notifications are not supported in this browser.', 'warning');
+    return 'unsupported';
+  }
+  try {
+    const perm = await Notification.requestPermission();
+    updateNotificationPermissionUi();
+    if (perm === 'granted') {
+      showToast('Browser notifications enabled!', 'success');
+      showWebNotification('Notifications Enabled', {
+        body: 'You will receive desktop and mobile alerts when stories are ready for QA or completed.',
+      });
+    } else if (perm === 'denied') {
+      showToast('Notifications blocked in browser settings.', 'warning');
+    }
+    return perm;
+  } catch (err) {
+    console.warn('Failed to request notification permission:', err);
+    return 'error';
+  }
+}
+
+function showWebNotification(title, options = {}) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const notif = new Notification(title, {
+      icon: '/favicon.ico',
+      badge: '/favicon.ico',
+      ...options,
+    });
+    notif.onclick = function (event) {
+      event.preventDefault();
+      window.focus();
+      if (options.data && options.data.url) {
+        window.location.href = options.data.url;
+      }
+    };
+  } catch (err) {
+    console.warn('Web notification failed to display:', err);
+  }
+}
+
+// =============================================================================
+// Mobile Connect Modal Notification Panel Helpers (Story 8)
+// =============================================================================
+async function loadNotificationModalConfig() {
+  updateNotificationPermissionUi();
+  const topicInput = document.getElementById('ntfyTopicInput');
+  const subLink = document.getElementById('ntfySubscribeLink');
+  const curSlug = state.activeProjectSlug || (state.currentProject && state.currentProject.slug) || 'project';
+  const defaultTopic = `pmqa-${curSlug}`;
+
+  if (topicInput) {
+    if (!topicInput.value) topicInput.value = defaultTopic;
+  }
+  if (subLink) {
+    const topic = (topicInput && topicInput.value) ? topicInput.value : defaultTopic;
+    subLink.href = `https://ntfy.sh/${encodeURIComponent(topic)}`;
+  }
+
+  try {
+    const res = await fetch(`/api/notifications/config?slug=${encodeURIComponent(curSlug)}`).then((r) => r.json());
+    if (res && res.success && res.config) {
+      if (topicInput && res.config.ntfy_topic) {
+        topicInput.value = res.config.ntfy_topic;
+      }
+      if (subLink) {
+        const topic = (topicInput && topicInput.value) ? topicInput.value : defaultTopic;
+        subLink.href = `https://ntfy.sh/${encodeURIComponent(topic)}`;
+      }
+    }
+  } catch (_) {}
+}
+
+async function saveNotificationConfig() {
+  const topicInput = document.getElementById('ntfyTopicInput');
+  const subLink = document.getElementById('ntfySubscribeLink');
+  const curSlug = state.activeProjectSlug || (state.currentProject && state.currentProject.slug) || 'project';
+  const topic = topicInput ? topicInput.value.trim().replace(/^\/+/, '') : `pmqa-${curSlug}`;
+
+  if (!topic) {
+    showToast('Please enter a valid push notification topic.', 'warning');
+    return;
+  }
+
+  if (subLink) {
+    subLink.href = `https://ntfy.sh/${encodeURIComponent(topic)}`;
+  }
+
+  try {
+    const res = await fetch('/api/notifications/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: curSlug, ntfy_topic: topic, push_enabled: true }),
+    }).then((r) => r.json());
+
+    if (res && res.success) {
+      showToast(`Cellular push topic saved: ${topic}`, 'success');
+    } else {
+      showToast(`Failed to save config: ${res.error || 'Server error'}`, 'error');
+    }
+  } catch (err) {
+    console.error('Failed to save notification config:', err);
+    showToast('Failed to save notification configuration.', 'error');
+  }
+}
+
+async function sendTestAlert() {
+  const btn = document.getElementById('testAlertBtn');
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ph ph-spinner animate-spin text-xs"></i><span>Testing...</span>';
+  }
+
+  playChime('test');
+  triggerHaptic('qa');
+  showToast('Testing audio chime & remote cellular push...', 'info');
+
+  showWebNotification('PM & QA Board — Test Alert', {
+    body: '🔔 Audio, haptic, and mobile notification test succeeded!',
+  });
+
+  const topicInput = document.getElementById('ntfyTopicInput');
+  const curSlug = state.activeProjectSlug || (state.currentProject && state.currentProject.slug) || 'project';
+  const topic = topicInput && topicInput.value.trim() ? topicInput.value.trim() : `pmqa-${curSlug}`;
+
+  try {
+    const res = await fetch('/api/notifications/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: curSlug, topic }),
+    }).then((r) => r.json());
+
+    if (res && res.success) {
+      showToast(`Remote push delivered to ntfy.sh/${topic}!`, 'success');
+    } else {
+      showToast(`Push warning: ${res.error || 'Check network connection'}`, 'warning');
+    }
+  } catch (err) {
+    console.warn('Test push request error:', err);
+    showToast('Test push alert dispatched (local sound & haptics active).', 'info');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+}
+
+// =============================================================================
+// Client-side Card Transition Watcher & Deep Link Navigation (Story 8)
+// =============================================================================
+let previousCardStatuses = null;
+let cardWatcherInitialized = false;
+
+function detectCardTransitions(cards) {
+  if (!Array.isArray(cards)) return;
+
+  const currentMap = new Map();
+  cards.forEach((c) => {
+    const id = c.mn_id || c.id;
+    if (id) currentMap.set(id, c.status);
+  });
+
+  // Skip notifications on initial page load
+  if (!cardWatcherInitialized || previousCardStatuses === null) {
+    previousCardStatuses = currentMap;
+    cardWatcherInitialized = true;
+    return;
+  }
+
+  cards.forEach((c) => {
+    const id = c.mn_id || c.id;
+    if (!id) return;
+    const oldStatus = previousCardStatuses.get(id);
+    const newStatus = c.status;
+
+    if (oldStatus && oldStatus !== newStatus) {
+      const cardTitle = c.name || c.title || id;
+      if (newStatus === 'qa') {
+        playChime('qa');
+        triggerHaptic('qa');
+        showToast(`Ready for QA: ${id} - ${cardTitle}`, 'info');
+        showWebNotification(`Ready for QA: ${id}`, {
+          body: `${cardTitle} has finished building and is awaiting QA verification.`,
+          data: { url: `/?card=${encodeURIComponent(id)}#qa` },
+        });
+      } else if (newStatus === 'completed') {
+        playChime('completed');
+        triggerHaptic('completed');
+        showToast(`Story Completed: ${id}! 🎉`, 'success');
+        showWebNotification(`Story Completed: ${id}`, {
+          body: `${cardTitle} has been validated and completed! Ready to build something new.`,
+          data: { url: `/?card=${encodeURIComponent(id)}#pipeline` },
+        });
+      }
+    }
+  });
+
+  previousCardStatuses = currentMap;
+}
+
+function handleUrlDeepLink() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetCardId = urlParams.get('card');
+  if (!targetCardId) return;
+
+  const cleanTarget = targetCardId.trim().toLowerCase();
+  const card = (state.cards || []).find((c) => {
+    const id = (c.mn_id || c.id || '').toLowerCase();
+    const story = String(c.story || c.sprint || '').toLowerCase();
+    return id === cleanTarget || story === cleanTarget;
+  });
+
+  if (!card) return;
+
+  const cardId = card.mn_id || card.id;
+  if (card.status === 'qa') {
+    switchTab('qa');
+    selectQaCard(cardId, { forceScrollTop: true });
+  } else {
+    switchTab('pipeline');
+    openCardModalById(cardId);
+  }
+}
+
 function showLoadingFeedback(isLoading) {
   const bar = document.getElementById('loadingBar');
   if (bar) {
@@ -295,6 +732,12 @@ async function fetchAll() {
     state.activity = actRes || {};
 
     try {
+      detectCardTransitions(state.cards);
+    } catch (e) {
+      console.error('Error in detectCardTransitions:', e);
+    }
+
+    try {
       const activeCount = state.cards.filter((c) => c.status === 'in-progress').length;
       if (state.currentProject) state.currentProject.building_count = activeCount;
       const curChoice = (state.projects || []).find((p) => p.slug === state.activeProjectSlug);
@@ -314,6 +757,15 @@ async function fetchAll() {
       fetchHeavyGateStatus(),
       fetchSprintGateStatus(),
     ]);
+
+    if (!window._initialDeepLinkHandled) {
+      window._initialDeepLinkHandled = true;
+      try {
+        handleUrlDeepLink();
+      } catch (e) {
+        console.error('Error in handleUrlDeepLink:', e);
+      }
+    }
   } catch (err) {
     console.error('Failed to load dashboard data:', err);
     if (errBanner) {
@@ -2594,6 +3046,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initProjectUi();
   initMobileKanbanSwipe();
   initKanbanDragDrop();
+  initSoundControl();
   fetchProjects().then(() => fetchAll());
   // Auto refresh every 10 seconds
   setInterval(fetchAll, 10000);
@@ -4048,6 +4501,7 @@ async function openMobileConnectModal() {
   const modal = document.getElementById('mobileConnectModal');
   if (!modal) return;
   modal.classList.remove('hidden');
+  loadNotificationModalConfig();
 
   try {
     const res = await fetch('/api/server-info');

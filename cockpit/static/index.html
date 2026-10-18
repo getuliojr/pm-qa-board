@@ -240,6 +240,12 @@
             <span class="hidden lg:inline">Connect</span>
           </button>
 
+          <!-- Sound Toggle Button -->
+          <button id="soundToggleBtn" type="button" onclick="toggleSoundMute()" class="flex items-center space-x-1.5 px-2.5 py-1 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[var(--text-primary)] text-xs font-medium rounded-lg border border-[var(--border-medium)] transition shadow-sm cursor-pointer" title="Toggle Completion Sound Alerts">
+            <i class="ph ph-speaker-high text-xs text-emerald-600 dark:text-emerald-400" id="soundToggleIcon"></i>
+            <span class="hidden lg:inline" id="soundToggleLabel">Sound</span>
+          </button>
+
           <!-- Refresh Button -->
           <button id="refreshBtn" class="flex items-center space-x-1.5 px-2.5 py-1 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[var(--text-primary)] text-xs font-medium rounded-lg border border-[var(--border-medium)] transition shadow-sm cursor-pointer" title="Refresh Data">
             <i class="ph ph-arrows-clockwise text-xs" id="refreshIcon"></i>
@@ -1126,6 +1132,51 @@
           <div class="flex items-center justify-between">
             <span class="text-[var(--text-tertiary)]">Session Security:</span>
             <span id="mobileTokenBadge" class="font-semibold text-[var(--text-secondary)]">Standard</span>
+          </div>
+        </div>
+
+        <!-- Mobile Alerts & Cellular Push Notifications Panel -->
+        <div class="p-3.5 bg-[var(--bg-surface-secondary)] rounded-xl border border-[var(--border-subtle)] space-y-3 text-[11px]">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-[var(--text-primary)] flex items-center gap-1.5">
+              <i class="ph ph-bell text-emerald-600 dark:text-emerald-400"></i>
+              Mobile Alerts & Cellular Push
+            </span>
+            <span id="browserNotificationStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-medium bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-subtle)]">
+              Checking...
+            </span>
+          </div>
+
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-[var(--text-tertiary)]">Browser Notifications:</span>
+              <button id="enableNotificationsBtn" onclick="requestNotificationPermission()" type="button" class="px-2.5 py-1 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium transition cursor-pointer">
+                Enable Notifications
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider block">Cellular Push Topic (ntfy.sh)</label>
+            <div class="flex items-center gap-2">
+              <input id="ntfyTopicInput" type="text" placeholder="pmqa-myproject" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] font-mono text-[11px] px-2.5 py-1.5 rounded-lg border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
+              <button onclick="saveNotificationConfig()" class="px-2.5 py-1.5 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium rounded-lg transition cursor-pointer" title="Save Topic">
+                Save
+              </button>
+              <a id="ntfySubscribeLink" href="https://ntfy.sh" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1.5 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-emerald-600 dark:text-emerald-400 border border-[var(--border-medium)] font-medium rounded-lg transition flex items-center gap-1" title="Subscribe in phone browser or ntfy app">
+                <i class="ph ph-arrow-square-out text-xs"></i>
+                <span>Subscribe</span>
+              </a>
+            </div>
+            <p class="text-[10px] text-[var(--text-tertiary)]">Delivers lock-screen push notifications to your phone when an agent finishes building or a card is completed.</p>
+          </div>
+
+          <div class="pt-2 flex items-center justify-between border-t border-[var(--border-subtle)]">
+            <span class="text-[var(--text-tertiary)]">Verify Alert System:</span>
+            <button id="testAlertBtn" onclick="sendTestAlert()" type="button" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-medium rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-sm">
+              <i class="ph ph-speaker-high text-xs"></i>
+              <span>Send Test Alert</span>
+            </button>
           </div>
         </div>
 

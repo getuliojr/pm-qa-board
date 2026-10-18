@@ -553,4 +553,34 @@ def test_notification_watcher_transitions(external_project, monkeypatch):
     assert "Story Completed" in dispatched[1]["title"]
 
 
+def test_static_assets_contain_story8_sound_and_notifications():
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+    # Toolbar sound button
+    assert 'id="soundToggleBtn"' in index_html
+    assert 'id="soundToggleIcon"' in index_html
+    assert 'toggleSoundMute()' in index_html
+
+    # Mobile connect notification panel
+    assert 'id="browserNotificationStatusBadge"' in index_html
+    assert 'id="enableNotificationsBtn"' in index_html
+    assert 'id="ntfyTopicInput"' in index_html
+    assert 'id="ntfySubscribeLink"' in index_html
+    assert 'id="testAlertBtn"' in index_html
+    assert 'sendTestAlert()' in index_html
+
+    # app.js functions & engine
+    assert "function playChime(" in app_js
+    assert "function playNote(" in app_js
+    assert "function toggleSoundMute(" in app_js
+    assert "function detectCardTransitions(" in app_js
+    assert "function handleUrlDeepLink(" in app_js
+    assert "function requestNotificationPermission(" in app_js
+    assert "function sendTestAlert(" in app_js
+    assert "navigator.vibrate" in app_js
+
+
+
 
