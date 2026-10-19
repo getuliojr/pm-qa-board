@@ -1717,58 +1717,60 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
       </div>
     </div>
 
-    <!-- Human QA Test Steps -->
-    ${(() => {
-      const hasInstr = card.qa_instructions && card.qa_instructions.trim();
-      const hasItems = card.qa_items && card.qa_items.length > 0;
-      if (!hasInstr && !hasItems) {
-        return `
-    <div class="mb-6">
-      <h4 class="text-sm font-bold text-amber-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-        <i class="ph ph-clipboard-text text-base"></i>
-        <span>Human QA Test Steps</span>
-      </h4>
-      <div class="bg-amber-500/5 border border-amber-500/25 rounded-xl p-4 flex items-start gap-3">
-        <i class="ph ph-warning text-amber-500 mt-0.5 shrink-0 text-base"></i>
-        <div class="text-sm text-amber-700 dark:text-amber-200/90 leading-relaxed">
-          <span class="font-semibold">No Human QA Test section found in this card.</span><br>
-          Ask the dev agent to add a <code class="font-mono text-amber-600 dark:text-amber-300 bg-amber-500/10 px-1 rounded text-xs">## Human QA Test</code> section with explicit step-by-step instructions (where to go, what to click, what to verify).
-        </div>
-      </div>
-    </div>`;
-      }
-      const instrHtml = hasInstr
-        ? `<div class="bg-[var(--bg-subtle)] p-4 rounded-xl border border-[var(--border-subtle)] mb-3 text-[var(--text-primary)]">${renderMarkdown(card.qa_instructions)}</div>`
-        : '';
-      const itemsHtml = hasItems
-        ? `<div class="bg-[var(--bg-subtle)] p-3.5 rounded-xl border border-[var(--border-subtle)] space-y-2">
-            ${card.qa_items.map((item, idx) => `
-              <label class="flex items-start space-x-3 rounded cursor-pointer text-sm transition p-2 hover:bg-[var(--bg-surface-secondary)] touch-target-item">
-                <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-qa" data-card-id="${escapeHtml(card.mn_id)}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-amber-600/50 text-amber-500 focus:ring-amber-500/20 bg-[var(--bg-surface)] cursor-pointer">
-                <span class="${item.checked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)] font-medium'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
-              </label>`).join('')}
-          </div>`
-        : '';
-      return `
-    <div class="mb-6">
-      <h4 class="text-sm font-bold text-amber-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-        <i class="ph ph-clipboard-text text-base"></i>
-        <span>Human QA Test Steps</span>
-        ${hasItems ? `<span class="text-xs px-2 py-0.5 rounded font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/20 ml-1.5">${card.qa_items.filter(i => i.checked).length}/${card.qa_items.length} done</span>` : ''}
-      </h4>
-      ${instrHtml}${itemsHtml}
-    </div>`;
-    })()}
-
     <!-- Implementation Changelog & Evidence -->
     ${changelogHtml}
 
-    <!-- Tester Verification Action -->
-    <div class="mt-auto pt-5 border-t border-[var(--border-subtle)]">
+    <!-- Human QA Test Steps -->
+    <div class="mb-8 pb-4">
+      ${(() => {
+        const hasInstr = card.qa_instructions && card.qa_instructions.trim();
+        const hasItems = card.qa_items && card.qa_items.length > 0;
+        if (!hasInstr && !hasItems) {
+          return `
+      <div>
+        <h4 class="text-sm font-bold text-amber-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <i class="ph ph-clipboard-text text-base"></i>
+          <span>Human QA Test Steps</span>
+        </h4>
+        <div class="bg-amber-500/5 border border-amber-500/25 rounded-xl p-4 flex items-start gap-3">
+          <i class="ph ph-warning text-amber-500 mt-0.5 shrink-0 text-base"></i>
+          <div class="text-sm text-amber-700 dark:text-amber-200/90 leading-relaxed">
+            <span class="font-semibold">No Human QA Test section found in this card.</span><br>
+            Ask the dev agent to add a <code class="font-mono text-amber-600 dark:text-amber-300 bg-amber-500/10 px-1 rounded text-xs">## Human QA Test</code> section with explicit step-by-step instructions (where to go, what to click, what to verify).
+          </div>
+        </div>
+      </div>`;
+        }
+        const instrHtml = hasInstr
+          ? `<div class="bg-[var(--bg-subtle)] p-4 rounded-xl border border-[var(--border-subtle)] mb-3 text-[var(--text-primary)]">${renderMarkdown(card.qa_instructions)}</div>`
+          : '';
+        const itemsHtml = hasItems
+          ? `<div class="bg-[var(--bg-subtle)] p-3.5 rounded-xl border border-[var(--border-subtle)] space-y-2">
+              ${card.qa_items.map((item, idx) => `
+                <label class="flex items-start space-x-3 rounded cursor-pointer text-sm transition p-2 hover:bg-[var(--bg-surface-secondary)] touch-target-item">
+                  <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-qa" data-card-id="${escapeHtml(card.mn_id)}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-amber-600/50 text-amber-500 focus:ring-amber-500/20 bg-[var(--bg-surface)] cursor-pointer">
+                  <span class="${item.checked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)] font-medium'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
+                </label>`).join('')}
+            </div>`
+          : '';
+        return `
+      <div>
+        <h4 class="text-sm font-bold text-amber-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <i class="ph ph-clipboard-text text-base"></i>
+          <span>Human QA Test Steps</span>
+          ${hasItems ? `<span class="text-xs px-2 py-0.5 rounded font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/20 ml-1.5">${card.qa_items.filter(i => i.checked).length}/${card.qa_items.length} done</span>` : ''}
+        </h4>
+        ${instrHtml}${itemsHtml}
+      </div>`;
+      })()}
+    </div>
+
+    <!-- Tester Verification Action (Sticky Action Bar) -->
+    <div class="sticky bottom-0 z-10 bg-[var(--bg-surface)]/95 backdrop-blur-md -mx-6 -mb-6 px-6 pt-3 pb-3 border-t border-[var(--border-subtle)] shadow-md mt-auto">
       <h4 class="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">QA Sign-off</h4>
       <div class="flex flex-col sm:flex-row gap-3">
         <input type="text" id="qaValidateNotes" placeholder="Optional QA validation note (e.g. 'Verified Wise import flow live')" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm rounded-lg px-3.5 py-2.5 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
-        <button data-action="validate-card" data-card-id="${escId}" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 transition cursor-pointer">
+        <button id="qaValidateCardBtn" data-action="validate-card" data-card-id="${escId}" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 transition cursor-pointer">
           <i class="ph ph-checks text-base"></i>
           <span>Validate & Complete Work</span>
         </button>
@@ -1783,6 +1785,9 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
       requestAnimationFrame(() => {
         if (detailEl) detailEl.scrollTop = 0;
       });
+      if (window.innerWidth < 1024) {
+        detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     } else if (prevScrollTop > 0) {
       detailEl.scrollTop = prevScrollTop;
       requestAnimationFrame(() => {
@@ -1852,7 +1857,21 @@ async function toggleQa(mn_id, index, checked) {
   }
 }
 
+let isCardValidationInFlight = false;
+
 async function validateCard(mn_id) {
+  if (isCardValidationInFlight) return;
+
+  const btn = document.querySelector(`button[data-action="validate-card"][data-card-id="${mn_id}"]`) || document.getElementById('qaValidateCardBtn');
+  const originalHtml = btn ? btn.innerHTML : '';
+
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('opacity-50', 'pointer-events-none', 'cursor-not-allowed');
+    btn.innerHTML = `<i class="ph ph-circle-notch animate-spin text-base"></i><span>Validating...</span>`;
+  }
+  isCardValidationInFlight = true;
+
   const notesInput = document.getElementById('qaValidateNotes');
   const notes = notesInput ? notesInput.value : '';
 
@@ -1865,14 +1884,27 @@ async function validateCard(mn_id) {
 
     if (res.success) {
       showToast(res.message, 'success');
+      isCardValidationInFlight = false;
       await fetchAll();
       renderQaStation();
     } else {
       showToast(`Error: ${res.error || 'Failed to validate card'}`, 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('opacity-50', 'pointer-events-none', 'cursor-not-allowed');
+        btn.innerHTML = originalHtml;
+      }
+      isCardValidationInFlight = false;
     }
   } catch (err) {
     console.error('Failed to validate card:', err);
     showToast('Failed to validate card.', 'error');
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('opacity-50', 'pointer-events-none', 'cursor-not-allowed');
+      btn.innerHTML = originalHtml;
+    }
+    isCardValidationInFlight = false;
   }
 }
 
@@ -4018,6 +4050,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   initProjectUi();
   initMobileKanbanSwipe();
+  initMobileMenuSwipe();
   initKanbanDragDrop();
   initSoundControl();
   fetchServerInfo();
@@ -5289,6 +5322,81 @@ function scrollToColumn(colId) {
   document.querySelectorAll('.mobile-col-pill').forEach((btn) => {
     btn.classList.toggle('active', btn.getAttribute('data-col') === colId);
   });
+}
+
+function initMobileMenuSwipe() {
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchStartTime = 0;
+  let canSwipeOpen = false;
+
+  document.addEventListener(
+    'touchstart',
+    (e) => {
+      if (window.innerWidth >= 1024) return;
+      if (!e.touches || e.touches.length !== 1) return;
+      const target = e.target;
+      if (target.closest('input, textarea, select, button, [contenteditable="true"]')) return;
+
+      const touch = e.touches[0];
+      touchStartX = touch.clientX;
+      touchStartY = touch.clientY;
+      touchStartTime = Date.now();
+
+      const sidebar = document.getElementById('appSidebar');
+      const isSidebarOpen = sidebar && (sidebar.classList.contains('translate-x-0') || sidebar.classList.contains('mobile-open'));
+
+      if (isSidebarOpen) {
+        canSwipeOpen = false;
+        return;
+      }
+
+      // Allow swipe open if starting near left edge (<=40px) or horizontal scroll is at leftmost boundary
+      const isNearEdge = touchStartX <= 40;
+      const kanban = document.getElementById('kanbanColumnsContainer');
+      const scrollLeft = kanban ? kanban.scrollLeft : (window.pageXOffset || document.documentElement.scrollLeft || 0);
+      const isAtScrollBoundary = scrollLeft <= 0;
+
+      canSwipeOpen = isNearEdge || isAtScrollBoundary;
+    },
+    { passive: true }
+  );
+
+  document.addEventListener(
+    'touchend',
+    (e) => {
+      if (window.innerWidth >= 1024) return;
+      if (!e.changedTouches || e.changedTouches.length !== 1) return;
+      const target = e.target;
+      if (target.closest('input, textarea, select, button, [contenteditable="true"]')) return;
+
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - touchStartX;
+      const dy = touch.clientY - touchStartY;
+      const dt = Date.now() - touchStartTime;
+
+      // Gesture criteria: horizontal distance > 60px, primarily horizontal (abs(dx) > 1.5 * abs(dy)), duration < 1s
+      if (Math.abs(dx) < 60 || Math.abs(dx) <= 1.5 * Math.abs(dy) || dt > 1000) return;
+
+      const sidebar = document.getElementById('appSidebar');
+      const isSidebarOpen = sidebar && (sidebar.classList.contains('translate-x-0') || sidebar.classList.contains('mobile-open'));
+
+      if (isSidebarOpen) {
+        // Leftward swipe closes the sidebar
+        if (dx < -60) {
+          closeMobileSidebar();
+        }
+      } else {
+        // Rightward swipe opens the sidebar if eligible
+        if (dx > 60 && canSwipeOpen) {
+          if (sidebar && !sidebar.classList.contains('translate-x-0')) {
+            toggleMobileSidebar();
+          }
+        }
+      }
+    },
+    { passive: true }
+  );
 }
 
 function initMobileKanbanSwipe() {

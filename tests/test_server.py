@@ -1100,7 +1100,7 @@ def test_story20_collapsed_sidebar_navigation_and_brand_logo_toggle(server):
     assert 'onclick="toggleSidebarCollapse()"' in index_html
     assert 'id="sidebarActionBar"' in index_html
     assert 'theme-label' in index_html
-    assert 'app.js?v=20261019-pqc20' in index_html
+    assert 'app.js?v=20261019-pqc' in index_html
 
     # 2. Desktop-scoped collapse in style.css
     assert '@media (min-width: 768px)' in style_css
@@ -1116,6 +1116,53 @@ def test_story20_collapsed_sidebar_navigation_and_brand_logo_toggle(server):
     assert 'Expand Sidebar (Cmd/Ctrl + B)' in app_js
     assert 'Collapse Sidebar (Cmd/Ctrl + B)' in app_js
     assert "sidebar.classList.contains('collapsed')" in app_js
+
+
+def test_story22_mobile_swipe_qa_autoscroll_and_sticky_validation(server):
+    """PQC-22: Mobile swipe navigation, QA story auto-scroll, sticky validation bar, and sequence alignment."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+    # 1. Cachebuster bumped
+    assert 'app.js?v=20261019-pqc22' in index_html
+
+    # 2. Mobile swipe-to-open gesture support
+    assert 'function initMobileMenuSwipe(' in app_js
+    assert 'initMobileMenuSwipe();' in app_js
+    assert "target.closest('input, textarea, select, button, [contenteditable=\"true\"]')" in app_js
+    assert 'touchStartX <= 40' in app_js
+    assert 'dx > 60' in app_js
+    assert 'dx < -60' in app_js
+    assert 'closeMobileSidebar();' in app_js
+    assert 'toggleMobileSidebar();' in app_js
+
+    # 3. QA story selection auto-scroll on mobile/stacked viewports
+    assert 'detailEl.scrollIntoView({ behavior: \'smooth\', block: \'start\' });' in app_js
+    assert 'window.innerWidth < 1024' in app_js
+
+    # 4. Sticky QA Validation action bar styling
+    assert 'sticky bottom-0 z-10 bg-[var(--bg-surface)]/95 backdrop-blur-md' in app_js
+    assert 'id="qaValidateCardBtn"' in app_js
+
+    # 5. Detail section sequence: Description -> DoD -> Changelog -> Human QA -> QA Sign-off
+    idx_desc = app_js.index("Description / User Intent")
+    idx_dod = app_js.index("Definition of Done / Acceptance Criteria")
+    idx_changelog = app_js.index("${changelogHtml}")
+    idx_human_qa = app_js.index("Human QA Test Steps")
+    idx_signoff = app_js.index("QA Sign-off")
+    assert idx_desc < idx_dod < idx_changelog < idx_human_qa < idx_signoff
+
+    # 6. Validation button disabling & in-flight guard
+    assert 'let isCardValidationInFlight = false;' in app_js
+    assert 'if (isCardValidationInFlight) return;' in app_js
+    assert 'btn.disabled = true;' in app_js
+    assert 'opacity-50' in app_js
+    assert 'pointer-events-none' in app_js
+    assert 'cursor-not-allowed' in app_js
+    assert 'Validating...' in app_js
+    assert 'btn.disabled = false;' in app_js
+
 
 
 
