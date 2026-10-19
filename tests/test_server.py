@@ -698,6 +698,32 @@ def test_no_browser_native_dialogs_in_frontend():
     assert "pmqa:toast" in app_js
 
 
+def test_static_assets_story12_recessed_trays_and_elevated_cards():
+    """Story 12: Assert recessed tray styling and elevated cards across secondary views."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+    style_css = (static_dir / "style.css").read_text(encoding="utf-8")
+
+    # 1. Trays in HTML
+    assert "lg:col-span-4 bg-[var(--tray-bg)] p-4 rounded-2xl border border-[var(--tray-border)]" in index_html
+    assert "lg:col-span-7 bg-[var(--tray-bg)] p-5 rounded-2xl border border-[var(--tray-border)]" in index_html
+    assert "border-b border-[var(--tray-header-border)]" in index_html
+
+    # 2. Elevated card hierarchy in app.js
+    assert "shadow-[var(--card-shadow)]" in app_js
+    assert "ring-2 ring-amber-500/25" in app_js
+    assert "bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-[var(--card-shadow)]" in app_js
+
+    # 3. CSS variables and hover lift in style.css
+    assert "--tray-bg:" in style_css
+    assert "--tray-border:" in style_css
+    assert "--tray-header-border:" in style_css
+    assert "[data-qa-card-id]:hover" in style_css
+    assert "translateY(-1.5px)" in style_css
+
+
+
 
 
 

@@ -451,6 +451,13 @@ html.dark .count-badge {
   background: var(--brand-bg);
 }
 
+[data-qa-card-id] {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+[data-qa-card-id]:hover {
+  transform: translateY(-1.5px);
+}
+
 /* Type Pills */
 .pill-feature {
   background: var(--brand-bg);

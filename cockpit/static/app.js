@@ -1179,10 +1179,10 @@ function renderQaStation() {
     const item = document.createElement('div');
     const isSelected = state.selectedQaId === card.mn_id;
     item.dataset.qaCardId = card.mn_id;
-    item.className = `p-3.5 rounded-xl border cursor-pointer transition shadow-xs ${
+    item.className = `p-3.5 rounded-xl border cursor-pointer transition-all shadow-[var(--card-shadow)] ${
       isSelected
-        ? 'bg-amber-500/10 border-amber-500 shadow-sm ring-2 ring-amber-500/20'
-        : 'bg-[var(--card-bg)] border-[var(--border-subtle)] hover:border-[var(--card-hover-border)]'
+        ? 'bg-[var(--card-bg)] border-amber-500 ring-2 ring-amber-500/25'
+        : 'bg-[var(--card-bg)] border-[var(--card-border)] hover:border-[var(--card-hover-border)] hover:shadow-[var(--card-hover-shadow)]'
     }`;
     item.onclick = () => {
       const isNew = state.selectedQaId !== card.mn_id;
@@ -1244,10 +1244,10 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
   if (qaContainer) {
     qaContainer.querySelectorAll('[data-qa-card-id]').forEach((el) => {
       const isSelected = el.dataset.qaCardId === mn_id;
-      el.className = `p-3.5 rounded-xl border cursor-pointer transition shadow-xs ${
+      el.className = `p-3.5 rounded-xl border cursor-pointer transition-all shadow-[var(--card-shadow)] ${
         isSelected
-          ? 'bg-amber-500/10 border-amber-500 shadow-sm ring-2 ring-amber-500/20'
-          : 'bg-[var(--card-bg)] border-[var(--border-subtle)] hover:border-[var(--card-hover-border)]'
+          ? 'bg-[var(--card-bg)] border-amber-500 ring-2 ring-amber-500/25'
+          : 'bg-[var(--card-bg)] border-[var(--card-border)] hover:border-[var(--card-hover-border)] hover:shadow-[var(--card-hover-shadow)]'
       }`;
     });
   }
@@ -2345,7 +2345,7 @@ function renderActiveSprintDod() {
               .join('');
 
             return `
-            <div class="bg-[var(--bg-surface-secondary)] p-3.5 rounded-xl border border-[var(--border-subtle)] hover:border-[var(--border-medium)] transition shadow-2xs">
+            <div class="p-3.5 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-[var(--card-shadow)] hover:border-[var(--border-medium)] transition shadow-xs">
               <div class="flex items-center justify-between gap-2 mb-1.5">
                 <div class="flex items-center gap-2">
                   <span class="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400 cursor-pointer hover:underline" data-action="open-card-modal" data-card-id="${escId}">${escId}</span>
