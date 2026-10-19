@@ -148,3 +148,66 @@ def test_shared_docs_repo_holds_many_projects(cockpit_home, tmp_path):
     assert ok and "commit failed" not in msg
     assert "validate APP-3.1" in git(docs_repo, "log", "--oneline", "-1")
     assert git(code_a, "status", "--porcelain") == "" and git(code_b, "status", "--porcelain") == ""
+
+
+def test_card_timestamps_extraction_and_qa_entered_at(legacy_project):
+    cards_dir = legacy_project / "docs" / "cards"
+    c1_path = cards_dir / "MN-1.3 - Timestamp test.md"
+    c1_path.write_text(
+        "---\n"
+        "id: MN-1.3\n"
+        "sprint: '1.3'\n"
+        "type: feature\n"
+        "status: qa\n"
+        "created: 2026-10-18\n"
+        "created_time: '14:35'\n"
+        "---\n\n"
+        "# MN-1.3 - Timestamp test\n\n"
+        "## Changelog\n\n"
+        "| Date & Time | Agent | What |\n"
+        "|---|---|---|\n"
+        "| 2026-10-18 14:35 | Dev | Created card |\n"
+        "| 2026-10-18 16:40 | Reviewer | Review pass, ready for qa |\n",
+        encoding="utf-8",
+    )
+    p = PMParser(legacy_project)
+    card = next(c for c in p.get_all_cards() if c["mn_id"] == "MN-1.3")
+    assert card["created_date"] == "2026-10-18"
+    assert card["created_time"] == "14:35"
+    assert card["created_at"] == "2026-10-18 14:35"
+    assert card["qa_entered_at"] == "2026-10-18 16:40"
+
+
+def test_active_sprint_overview_fifo_ascending_sort(legacy_project):
+    cards_dir = legacy_project / "docs" / "cards"
+    for f in cards_dir.glob("*.md"):
+        f.unlink()
+    # Create two ready-to-build cards with different timestamps
+    (cards_dir / "MN-2.1 - First Oldest.md").write_text(
+        "---\n"
+        "id: MN-2.1\n"
+        "sprint: '2.1'\n"
+        "type: feature\n"
+        "status: sprint-backlog\n"
+        "created: 2026-10-17\n"
+        "created_time: '10:00'\n"
+        "---\n# First\n",
+        encoding="utf-8",
+    )
+    (cards_dir / "MN-2.2 - Second Newer.md").write_text(
+        "---\n"
+        "id: MN-2.2\n"
+        "sprint: '2.2'\n"
+        "type: feature\n"
+        "status: sprint-backlog\n"
+        "created: 2026-10-18\n"
+        "created_time: '09:00'\n"
+        "---\n# Second\n",
+        encoding="utf-8",
+    )
+
+    p = PMParser(legacy_project)
+    overview = p.get_active_sprint_overview()
+    # The default active sprint when nothing is in-progress should pick the oldest ready-to-build story (2.1)
+    assert overview["sprint_id"] == "2.1"
+

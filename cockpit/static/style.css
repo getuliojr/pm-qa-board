@@ -905,3 +905,98 @@ html.dark .audit-filter-pill .pill-count {
 #cardDrawer.drawer-open {
   transform: translateX(0) !important;
 }
+
+/* -----------------------------------------------------------------------------
+   Mobile Landscape Ergonomics (Horizontal Phone Viewport)
+   ----------------------------------------------------------------------------- */
+@media (max-height: 520px), (pointer: coarse) and (max-height: 550px) {
+  /* Off-canvas sidebar overlay drawer */
+  #appSidebar {
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    z-index: 50 !important;
+    width: 16rem !important;
+    max-width: 85vw !important;
+    transform: translateX(-100%) !important;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  #appSidebar.mobile-open,
+  #appSidebar.translate-x-0 {
+    transform: translateX(0) !important;
+  }
+
+  /* Force hamburger menu button visible */
+  #mobileMenuBtn {
+    display: flex !important;
+  }
+
+  /* Compact top toolbar */
+  #unifiedToolbar,
+  header.apple-glass-toolbar {
+    height: 2.75rem !important; /* 44px */
+    min-height: 2.75rem !important;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+
+  /* Title collision protection */
+  #viewTitle {
+    font-size: 0.8125rem !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Action buttons switch to compact square buttons */
+  #toolbarMobileConnectBtn,
+  #soundToggleBtn,
+  #refreshBtn {
+    padding: 0.25rem 0.5rem !important;
+    height: 1.875rem !important;
+  }
+
+  #toolbarMobileConnectBtn span,
+  #soundToggleBtn span,
+  #refreshBtn span {
+    display: none !important;
+  }
+
+  /* Flexible search input in landscape */
+  .relative.w-36.sm\:w-48.md\:w-56 {
+    width: 9rem !important;
+    min-width: 7rem !important;
+  }
+
+  /* Adaptive board columns: fill landscape viewport cleanly without double-scroll */
+  .board-column {
+    height: calc(100dvh - 4.25rem) !important;
+    min-height: 230px !important;
+    min-width: 260px !important;
+    max-width: 320px !important;
+  }
+
+  .board-column-header {
+    padding: 0.375rem 0.625rem !important;
+  }
+
+  /* Main content container compact padding */
+  main {
+    padding: 0.5rem 0.75rem !important;
+  }
+
+  /* QA Testing Station landscape split view */
+  #tab-qa .grid.grid-cols-1.lg\:grid-cols-12 {
+    display: grid !important;
+    grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr) !important;
+    gap: 0.75rem !important;
+  }
+
+  #tab-qa .grid.grid-cols-1.lg\:grid-cols-12 > div {
+    height: calc(100dvh - 4.25rem) !important;
+    min-height: 230px !important;
+    padding: 0.75rem !important;
+  }
+}
+

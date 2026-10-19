@@ -633,11 +633,75 @@ class PMParser:
 
         mtime = datetime.datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
 
+        # Extract created_time
+        created_time = None
+        for fm_key in ("created_time", "time"):
+            val = frontmatter.get(fm_key)
+            if val and re.match(r"^\d{1,2}:\d{2}", str(val)):
+                created_time = str(val)[:5]
+                break
+
+        if not created_time:
+            for fm_key in ("created", "created_date", "date"):
+                val = str(frontmatter.get(fm_key) or "")
+                m_time = re.search(r"[T\s](\d{1,2}:\d{2})", val)
+                if m_time:
+                    created_time = m_time.group(1)
+                    break
+
+        if not created_time and changelog:
+            for c in changelog:
+                if c.get("time") and re.match(r"^\d{1,2}:\d{2}", str(c.get("time"))):
+                    created_time = str(c.get("time"))[:5]
+                    break
+
+        if not created_time:
+            card_map = self.get_card_git_commit_map()
+            commits = card_map.get(file_path.name)
+            if commits:
+                created_time = commits[-1].get("time")
+
+        if not created_time:
+            try:
+                st = file_path.stat()
+                ctime_dt = datetime.datetime.fromtimestamp(st.st_ctime)
+                if ctime_dt.strftime("%Y-%m-%d") == created_date:
+                    created_time = ctime_dt.strftime("%H:%M")
+                else:
+                    mtime_dt = datetime.datetime.fromtimestamp(st.st_mtime)
+                    created_time = mtime_dt.strftime("%H:%M")
+            except Exception:
+                created_time = "12:00"
+
+        created_at = f"{created_date} {created_time}".strip() if (created_date and created_time) else (created_date or "")
+
         reviews = self.get_reviews_for_card(mn_id)
         if not reviews:
             s_val = str(frontmatter.get("sprint", "")).strip()
             if s_val:
                 reviews = self.get_reviews_for_sprint(s_val)
+
+        # Compute qa_entered_at (timestamp when card entered QA)
+        qa_entered_at = None
+        for c in reversed(changelog):
+            what_lower = (c.get("what") or "").lower()
+            agent_lower = (c.get("agent") or "").lower()
+            if any(k in what_lower for k in ("to qa", "ready for qa", "review pass", "card to qa", "reviewer pass")) or "reviewer" in agent_lower:
+                c_dt = c.get("datetime") or f"{c.get('date', '')} {c.get('time', '')}".strip()
+                if c_dt:
+                    qa_entered_at = c_dt
+                    break
+
+        if not qa_entered_at and reviews:
+            rev_date = reviews[-1].get("date")
+            if rev_date:
+                qa_entered_at = str(rev_date)
+
+        if not qa_entered_at and status == "qa":
+            try:
+                qa_entered_at = mtime[:16].replace("T", " ")
+            except Exception:
+                pass
 
         # Check sprint-backlog readiness gate: must have DoD in PLAN.md
         warnings_list: list[str] = []
@@ -666,6 +730,9 @@ class PMParser:
             "warning_missing_plan_dod": missing_plan_dod,
             "validated": frontmatter.get("validated"),
             "created_date": created_date,
+            "created_time": created_time,
+            "created_at": created_at,
+            "qa_entered_at": qa_entered_at,
             "description": description,
             "dod": dod_items,
             "dod_total": total_dod,
@@ -972,6 +1039,12 @@ class PMParser:
                     dod_checked = sum(1 for d in plan_dod if d.get("checked"))
                     progress_pct = round((dod_checked / dod_total * 100)) if dod_total > 0 else 0
 
+                    plan_stat = self.plan_path.stat() if (self.plan_path and self.plan_path.exists()) else None
+                    plan_dt = datetime.datetime.fromtimestamp(plan_stat.st_mtime) if plan_stat else datetime.datetime.now()
+                    plan_date = plan_dt.strftime("%Y-%m-%d")
+                    plan_time = plan_dt.strftime("%H:%M")
+                    plan_created_at = f"{plan_date} {plan_time}".strip()
+
                     cards.append({
                         "mn_id": f"GRILL-{clean_g_sprint}",
                         "id": f"GRILL-{clean_g_sprint}",
@@ -986,7 +1059,10 @@ class PMParser:
                         "missing_plan_dod": False,
                         "warning_missing_plan_dod": False,
                         "validated": False,
-                        "created_date": datetime.date.today().isoformat(),
+                        "created_date": plan_date,
+                        "created_time": plan_time,
+                        "created_at": plan_created_at,
+                        "qa_entered_at": None,
                         "description": "Interactive design session in progress in PLAN.md",
                         "dod": plan_dod,
                         "dod_total": dod_total,
@@ -999,9 +1075,9 @@ class PMParser:
                             {
                                 "agent": "Lead (Grill)",
                                 "what": "Interactive design session in progress in PLAN.md",
-                                "date": datetime.date.today().isoformat(),
-                                "time": "",
-                                "datetime": datetime.date.today().isoformat(),
+                                "date": plan_date,
+                                "time": plan_time,
+                                "datetime": plan_created_at,
                             }
                         ],
                         "reviews": [],
@@ -1009,7 +1085,7 @@ class PMParser:
                         "file_name": "PLAN.md",
                         "file_path": self.rel_path(self.plan_path),
                         "closeout": None,
-                        "updated_at": datetime.datetime.now().isoformat(),
+                        "updated_at": plan_dt.isoformat(),
                     })
 
         self._cards_cache = cards
@@ -1639,10 +1715,14 @@ class PMParser:
                         and "backlog" not in str(c["sprint"]).lower()
                     ]
                     if sprint_backlog_cards:
-                        sprint_backlog_cards.sort(
-                            key=lambda x: str(x.get("created_date") or ""),
-                            reverse=True,
-                        )
+                        def _sb_sort_key(c: dict[str, Any]) -> tuple[int, str, str]:
+                            dt = c.get("created_at") or str(c.get("created_date") or "")
+                            cid = str(c.get("id") or c.get("mn_id") or "")
+                            if not dt:
+                                return (1, "", cid)
+                            return (0, dt, cid)
+
+                        sprint_backlog_cards.sort(key=_sb_sort_key, reverse=False)
                         target_sprint = sprint_backlog_cards[0]["sprint"]
                     else:
                         qa_cards = [
@@ -1724,10 +1804,30 @@ class PMParser:
             if str(c.get("sprint", "")).strip().lower() == clean_sid.lower()
         ]
 
+        def _card_sort_key_asc(card: dict[str, Any]) -> tuple[int, str, str]:
+            c_at = card.get("created_at") or card.get("created_date") or ""
+            c_id = str(card.get("id") or card.get("mn_id") or "")
+            if not c_at:
+                return (1, "", c_id)
+            return (0, c_at, c_id)
+
+        sb_cards = [c for c in cards if c["status"] == "sprint-backlog"]
+        sb_cards.sort(key=_card_sort_key_asc)
+
+        def _card_sort_key_desc(card: dict[str, Any], date_field: str = "created_at") -> tuple[int, str, str]:
+            dt = card.get(date_field) or card.get("created_at") or card.get("created_date") or ""
+            c_id = str(card.get("id") or card.get("mn_id") or "")
+            if not dt:
+                return (1, "", c_id)
+            return (0, dt, c_id)
+
+        qa_cards = [c for c in cards if c["status"] == "qa"]
+        qa_cards.sort(key=lambda c: (0 if c.get("qa_entered_at") else 1, c.get("qa_entered_at") or ""), reverse=True)
+
         cards_by_status = {
-            "sprint-backlog": [c for c in cards if c["status"] == "sprint-backlog"],
+            "sprint-backlog": sb_cards,
             "in-progress": [c for c in cards if c["status"] == "in-progress"],
-            "qa": [c for c in cards if c["status"] == "qa"],
+            "qa": qa_cards,
             "completed": [c for c in cards if c["status"] == "completed"],
         }
 

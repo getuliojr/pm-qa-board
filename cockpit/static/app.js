@@ -883,23 +883,95 @@ function renderPipeline() {
     return true;
   });
 
-  // Sort cards by created_date desc (newest first), tie-breaking by ID asc
-  filtered.sort((a, b) => {
-    const dateA = a.created_date || '';
-    const dateB = b.created_date || '';
-    if (dateB !== dateA) return dateB.localeCompare(dateA);
-    return (a.mn_id || '').localeCompare(b.mn_id || '');
-  });
-
+  // Partition cards into status columns
+  const colBuckets = { backlog: [], 'sprint-backlog': [], 'in-progress': [], qa: [], completed: [] };
   const colCounts = { backlog: 0, 'sprint-backlog': 0, 'in-progress': 0, qa: 0, completed: 0 };
 
   filtered.forEach((card) => {
     const status = card.status || 'backlog';
-    if (cols[status]) {
-      colCounts[status]++;
+    if (colBuckets[status]) {
+      colBuckets[status].push(card);
+    } else {
+      colBuckets.backlog.push(card);
+    }
+  });
+
+  function getCardSortTimestamp(c, preferField) {
+    if (preferField && c[preferField]) return String(c[preferField]);
+    if (c.created_at) return String(c.created_at);
+    if (c.created_date && c.created_time) return `${c.created_date} ${c.created_time}`;
+    if (c.created_date) return `${c.created_date} 00:00`;
+    return '';
+  }
+
+  // 1. Ready to Build (sprint-backlog): Ascending (FIFO oldest to newest), tie-break ID asc, missing timestamps at bottom
+  colBuckets['sprint-backlog'].sort((a, b) => {
+    const tA = getCardSortTimestamp(a, 'created_at');
+    const tB = getCardSortTimestamp(b, 'created_at');
+    if (!tA && !tB) return (a.mn_id || '').localeCompare(b.mn_id || '', undefined, { numeric: true });
+    if (!tA) return 1;
+    if (!tB) return -1;
+    const cmp = tA.localeCompare(tB);
+    if (cmp !== 0) return cmp;
+    return (a.mn_id || '').localeCompare(b.mn_id || '', undefined, { numeric: true });
+  });
+
+  // 2. QA Test (qa): Descending by qa_entered_at, tie-break ID desc
+  colBuckets.qa.sort((a, b) => {
+    const tA = a.qa_entered_at || (a.updated_at ? String(a.updated_at).replace('T', ' ').slice(0, 16) : '') || getCardSortTimestamp(a, 'created_at');
+    const tB = b.qa_entered_at || (b.updated_at ? String(b.updated_at).replace('T', ' ').slice(0, 16) : '') || getCardSortTimestamp(b, 'created_at');
+    if (!tA && !tB) return (b.mn_id || '').localeCompare(a.mn_id || '', undefined, { numeric: true });
+    if (!tA) return 1;
+    if (!tB) return -1;
+    const cmp = tB.localeCompare(tA);
+    if (cmp !== 0) return cmp;
+    return (b.mn_id || '').localeCompare(a.mn_id || '', undefined, { numeric: true });
+  });
+
+  // 3. In Progress (in-progress): Descending by start_time / latest activity / updated_at, tie-break ID desc
+  colBuckets['in-progress'].sort((a, b) => {
+    const tA = a.start_time || (a.updated_at ? String(a.updated_at).replace('T', ' ').slice(0, 16) : '') || getCardSortTimestamp(a, 'created_at');
+    const tB = b.start_time || (b.updated_at ? String(b.updated_at).replace('T', ' ').slice(0, 16) : '') || getCardSortTimestamp(b, 'created_at');
+    if (!tA && !tB) return (b.mn_id || '').localeCompare(a.mn_id || '', undefined, { numeric: true });
+    if (!tA) return 1;
+    if (!tB) return -1;
+    const cmp = tB.localeCompare(tA);
+    if (cmp !== 0) return cmp;
+    return (b.mn_id || '').localeCompare(a.mn_id || '', undefined, { numeric: true });
+  });
+
+  // 4. Backlog (backlog): Descending by created_at, tie-break ID desc
+  colBuckets.backlog.sort((a, b) => {
+    const tA = getCardSortTimestamp(a, 'created_at');
+    const tB = getCardSortTimestamp(b, 'created_at');
+    if (!tA && !tB) return (b.mn_id || '').localeCompare(a.mn_id || '', undefined, { numeric: true });
+    if (!tA) return 1;
+    if (!tB) return -1;
+    const cmp = tB.localeCompare(tA);
+    if (cmp !== 0) return cmp;
+    return (b.mn_id || '').localeCompare(a.mn_id || '', undefined, { numeric: true });
+  });
+
+  // 5. Completed (completed): Descending by completion time, tie-break ID desc
+  colBuckets.completed.sort((a, b) => {
+    const tA = getCardCompletedDate(a);
+    const tB = getCardCompletedDate(b);
+    if (!tA && !tB) return (b.mn_id || '').localeCompare(a.mn_id || '', undefined, { numeric: true });
+    if (!tA) return 1;
+    if (!tB) return -1;
+    const cmp = tB.localeCompare(tA);
+    if (cmp !== 0) return cmp;
+    return (b.mn_id || '').localeCompare(a.mn_id || '', undefined, { numeric: true });
+  });
+
+  // Render cards in their sorted column order
+  Object.keys(cols).forEach((status) => {
+    const bucket = colBuckets[status] || [];
+    colCounts[status] = bucket.length;
+    bucket.forEach((card) => {
       const cardEl = createCardElement(card);
       cols[status].appendChild(cardEl);
-    }
+    });
   });
 
   // Update column count badges
@@ -908,6 +980,61 @@ function renderPipeline() {
     const mEl = document.getElementById(`mcount-${k}`);
     if (mEl) mEl.textContent = colCounts[k] || 0;
   });
+}
+
+function formatSmartTimestamp(dateStr, timeStr) {
+  if (!dateStr) return { relative: 'N/A', full: 'N/A' };
+  const cleanDate = String(dateStr).trim().split('T')[0];
+  let cleanTime = timeStr ? String(timeStr).trim().slice(0, 5) : '';
+  if (!cleanTime && String(dateStr).includes('T')) {
+    cleanTime = String(dateStr).split('T')[1].slice(0, 5);
+  } else if (!cleanTime && String(dateStr).includes(' ')) {
+    cleanTime = String(dateStr).split(' ')[1].slice(0, 5);
+  }
+
+  const full = cleanTime ? `${cleanDate} ${cleanTime}` : cleanDate;
+  if (!cleanTime) {
+    return { relative: cleanDate, full };
+  }
+
+  try {
+    const [y, m, d] = cleanDate.split('-').map(Number);
+    const [hh, mm] = cleanTime.split(':').map(Number);
+    if (!y || !m || !d || isNaN(hh) || isNaN(mm)) {
+      return { relative: cleanDate, full };
+    }
+    const cardDate = new Date(y, m - 1, d, hh, mm);
+    const now = new Date();
+    const diffMs = now.getTime() - cardDate.getTime();
+
+    if (diffMs < 0 && diffMs > -60000) {
+      return { relative: 'Just now', full };
+    }
+
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 5 && diffMin >= 0) {
+      return { relative: 'Just now', full };
+    }
+    if (diffMin < 60 && diffMin >= 5) {
+      return { relative: `${diffMin}m ago`, full };
+    }
+
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const cardDay = new Date(y, m - 1, d);
+    const dayDiffMs = today.getTime() - cardDay.getTime();
+    const dayDiffDays = Math.round(dayDiffMs / 86400000);
+
+    if (dayDiffDays === 0) {
+      return { relative: `Today ${cleanTime}`, full };
+    }
+    if (dayDiffDays === 1) {
+      return { relative: `Yesterday ${cleanTime}`, full };
+    }
+
+    return { relative: cleanDate, full };
+  } catch (e) {
+    return { relative: cleanDate, full };
+  }
 }
 
 function createCardElement(card) {
@@ -972,7 +1099,8 @@ function createCardElement(card) {
   const escTitle = escapeHtml(card.title);
   const escSprint = escapeHtml(card.sprint);
   const escType = isGrill ? 'grill' : escapeHtml(card.type);
-  const escDate = escapeHtml(card.created_date || 'N/A');
+  const smartTime = formatSmartTimestamp(card.created_date, card.created_time || (card.created_at ? card.created_at.slice(11, 16) : ''));
+  const timeIcon = (card.created_time || (card.created_at && card.created_at.includes(':'))) ? 'ph-clock' : 'ph-calendar-blank';
 
   const typePillHtml = isGrill
     ? `<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded pill-grill flex items-center gap-1"><i class="ph ph-flame text-xs"></i>Grill</span>`
@@ -989,7 +1117,7 @@ function createCardElement(card) {
     <h3 class="text-sm font-semibold text-[var(--text-primary)] line-clamp-2 group-hover:text-emerald-500 transition-colors">${escTitle}</h3>
     ${dodBar}
     <div class="mt-2 pt-1.5 border-t border-[var(--border-subtle)] flex items-center justify-between text-xs text-[var(--text-tertiary)] font-mono">
-      <span class="flex items-center"><i class="ph ph-calendar-blank text-[var(--text-quaternary)] mr-1 text-xs"></i>${escDate}</span>
+      <span class="flex items-center cursor-help" title="${escapeHtml(smartTime.full)}"><i class="ph ${timeIcon} text-[var(--text-quaternary)] mr-1 text-xs"></i>${escapeHtml(smartTime.relative)}</span>
       ${card.validated ? `<span class="text-emerald-500 flex items-center"><i class="ph ph-check mr-0.5 text-xs"></i>Done</span>` : ''}
     </div>
     ${closeoutButtonHtml(card, 'mt-2 w-full justify-center')}
@@ -3378,12 +3506,12 @@ function toggleMobileSidebar() {
   const sidebar = document.getElementById('appSidebar');
   const backdrop = document.getElementById('sidebarBackdrop');
   if (!sidebar || !backdrop) return;
-  const isOpen = sidebar.classList.contains('translate-x-0');
+  const isOpen = sidebar.classList.contains('translate-x-0') || sidebar.classList.contains('mobile-open');
   if (isOpen) {
     closeMobileSidebar();
   } else {
     sidebar.classList.remove('-translate-x-full');
-    sidebar.classList.add('translate-x-0');
+    sidebar.classList.add('translate-x-0', 'mobile-open');
     backdrop.classList.remove('hidden');
     setTimeout(() => backdrop.classList.remove('opacity-0'), 10);
   }
@@ -3393,7 +3521,7 @@ function closeMobileSidebar() {
   const sidebar = document.getElementById('appSidebar');
   const backdrop = document.getElementById('sidebarBackdrop');
   if (sidebar) {
-    sidebar.classList.remove('translate-x-0');
+    sidebar.classList.remove('translate-x-0', 'mobile-open');
     sidebar.classList.add('-translate-x-full');
   }
   if (backdrop) {

@@ -210,12 +210,12 @@
       <!-- UNIFIED TRANSLUCENT TOP TOOLBAR -->
       <header id="unifiedToolbar" class="apple-glass-toolbar h-14 px-4 sm:px-6 flex items-center justify-between shrink-0 z-20">
         <!-- Left: Hamburger (mobile) + View Title + Active Project Pill -->
-        <div class="flex items-center space-x-3 min-w-0">
+        <div class="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-shrink-0">
           <button id="mobileMenuBtn" onclick="toggleMobileSidebar()" class="md:hidden text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1.5 rounded-lg hover:bg-[var(--bg-glass-hover)] transition" aria-label="Open Navigation Menu">
             <i class="ph ph-list text-xl"></i>
           </button>
-          <div class="flex items-center space-x-2.5 min-w-0">
-            <h2 id="viewTitle" class="text-sm font-bold tracking-tight text-[var(--text-primary)] whitespace-nowrap">Pipeline Board</h2>
+          <div class="flex items-center space-x-2 sm:space-x-2.5 min-w-0 flex-shrink-0">
+            <h2 id="viewTitle" class="text-sm font-bold tracking-tight text-[var(--text-primary)] whitespace-nowrap min-w-0 flex-shrink-0">Pipeline Board</h2>
             <span id="activeProjectPill" class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 truncate">pm-qa-cockpit</span>
           </div>
         </div>
