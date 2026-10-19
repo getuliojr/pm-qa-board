@@ -833,7 +833,11 @@ async function fetchQaData(signal = undefined) {
     if (gateStatusRes.status === 'fulfilled' && gateStatusRes.value) {
       state.heavyGateWorker = gateStatusRes.value.worker;
       state.heavyGateInfo = gateStatusRes.value.info;
-      updateHeavyGateControls();
+      try {
+        updateHeavyGateUi();
+      } catch (gateErr) {
+        console.warn('Failed to update heavy gate UI:', gateErr);
+      }
     }
     if (sprintGateRes.status === 'fulfilled' && sprintGateRes.value) {
       state.sprintGateStatus = sprintGateRes.value.sprints || [];
@@ -848,7 +852,11 @@ async function fetchQaData(signal = undefined) {
     } catch (qaErr) {
       console.error('Failed to render QA station:', qaErr);
     }
-    updateHeader();
+    try {
+      updateHeader();
+    } catch (headerErr) {
+      console.warn('Failed to update header:', headerErr);
+    }
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error('Failed to load QA data:', err);
@@ -976,22 +984,28 @@ async function fetchAll() {
 // -----------------------------------------------------------------------------
 function updateHeader() {
   renderProjectHeader();
-  document.getElementById('headerBranch').textContent = `Branch: ${state.activity.branch || 'unknown'}`;
-  document.getElementById('headerTotalCount').textContent = state.cards.length;
+  const branchEl = document.getElementById('headerBranch');
+  if (branchEl) branchEl.textContent = `Branch: ${state.activity.branch || 'unknown'}`;
+
+  const totalEl = document.getElementById('headerTotalCount');
+  if (totalEl) totalEl.textContent = state.cards.length;
 
   const inProgCards = state.cards.filter((c) => c.status === 'in-progress');
   const inProgEl = document.getElementById('headerInProgressCount');
   if (inProgEl) inProgEl.textContent = inProgCards.length;
 
   const qaCards = state.cards.filter((c) => c.status === 'qa');
-  document.getElementById('headerQaCount').textContent = qaCards.length;
+  const qaCountEl = document.getElementById('headerQaCount');
+  if (qaCountEl) qaCountEl.textContent = qaCards.length;
 
   const qaBadge = document.getElementById('qaTabBadge');
-  if (qaCards.length > 0) {
-    qaBadge.textContent = qaCards.length;
-    qaBadge.classList.remove('hidden');
-  } else {
-    qaBadge.classList.add('hidden');
+  if (qaBadge) {
+    if (qaCards.length > 0) {
+      qaBadge.textContent = qaCards.length;
+      qaBadge.classList.remove('hidden');
+    } else {
+      qaBadge.classList.add('hidden');
+    }
   }
 
   // Find latest active sprint
@@ -1013,7 +1027,8 @@ function updateHeader() {
         ? state.sprints[state.sprints.length - 1].sprint
         : 'None';
   }
-  document.getElementById('headerActiveSprint').textContent = storyLabel(activeSprintTitle);
+  const activeSprintEl = document.getElementById('headerActiveSprint');
+  if (activeSprintEl) activeSprintEl.textContent = storyLabel(activeSprintTitle);
 }
 
 function populateSprintFilter() {
@@ -2380,6 +2395,10 @@ function switchTab(tabId) {
 
   if (typeof closeMobileSidebar === 'function') {
     closeMobileSidebar();
+  }
+
+  if (tabId === 'qa' && state.cards && state.cards.length > 0) {
+    try { renderQaStation(); } catch (_) {}
   }
 
   fetchCurrentViewData().catch((e) => console.warn('fetchCurrentViewData tab switch error:', e));

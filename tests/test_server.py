@@ -925,6 +925,36 @@ def test_static_assets_contain_story15_features():
     assert "seed the card at `story-backlog` (the Ready to Build lane)" in pm_orchestrate
 
 
+def test_pqc_16_qa_station_fix_and_telemetry():
+    """PQC-16: QA station fix (updateHeavyGateUi call, no undefined updateHeavyGateControls)
+    and 2-metric sidebar telemetry (Awaiting QA + Cards)."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+
+    # 1. No undefined updateHeavyGateControls in app.js
+    assert "updateHeavyGateControls" not in app_js
+    assert "updateHeavyGateUi()" in app_js
+
+    # 2. Defensive rendering in fetchQaData
+    assert "updateHeavyGateUi();" in app_js
+    assert "renderSprintAuditTable();" in app_js
+    assert "renderQaStation();" in app_js
+
+    # 3. Sidebar telemetry widget in index.html is 2 columns (Awaiting QA + Cards)
+    assert 'id="sidebarTelemetryWidget"' in index_html
+    assert 'grid-cols-2' in index_html
+    assert 'headerActiveSprint' not in index_html
+    assert 'headerInProgressCount' not in index_html
+    assert 'headerQaCount' in index_html
+    assert 'headerTotalCount' in index_html
+
+    # 4. DOM null guards in app.js updateHeader
+    assert "const activeSprintEl = document.getElementById('headerActiveSprint');" in app_js
+    assert "if (activeSprintEl) activeSprintEl.textContent =" in app_js
+
+
+
 
 
 
