@@ -954,6 +954,45 @@ def test_pqc_16_qa_station_fix_and_telemetry():
     assert "if (activeSprintEl) activeSprintEl.textContent =" in app_js
 
 
+def test_pqc_17_fast_mode_adaptive_qa_and_high_contrast_badges(server):
+    """PQC-17: High-contrast daylight badges, fast-mode adaptive QA station, and suite run API."""
+    base, srv = server
+
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+
+    # 1. High contrast Apple Daylight badges in app.js
+    assert "bg-emerald-50 text-emerald-700 border border-emerald-200" in app_js
+    assert "dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30" in app_js
+    # Row-level opacity-60 must NOT be present in renderSprintAuditTable
+    assert "rowOpacity" not in app_js
+
+    # 2. Adaptive DOM elements in index.html
+    assert 'id="runTestSuiteBtn"' in index_html
+    assert 'id="qaGateStatusHeader"' in index_html
+    assert 'id="fastGateDrawer"' in index_html
+    assert 'id="heavyGateRunnerSection"' in index_html
+
+    # 3. Fast mode JavaScript functions in app.js
+    assert "startTestSuiteRun" in app_js
+    assert "toggleFastDrawer" in app_js
+    assert "clearFastLog" in app_js
+
+    # 4. Server API returns gates config in heavy-gate status
+    status, body = get(f"{base}/api/heavy-gate/status")
+    assert status == 200
+    data = json.loads(body)
+    assert "gates" in data
+
+    # 5. Fast mode / suite run endpoint exists and responds
+    status, res = post(f"{base}/api/suite/run", {})
+    # Should accept the run or report idle/running status
+    assert status in (200, 400)
+    assert "success" in res
+
+
+
 
 
 

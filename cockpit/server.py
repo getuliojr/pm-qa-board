@@ -224,22 +224,38 @@ Gate 5 (pytest full suite + coverage) failed when run against {sha_display}.
                 pass
 
         def _execute_single(sprint_target: str | None, sha_target: str | None, extra_args: list[str] | None) -> int:
-            heavy = (self.parser.project.get("gates") or {}).get("heavy_script")
-            script = Path(heavy) if heavy else self.root_dir / "scripts" / "finalgates.ps1"
-            if not script.is_absolute():
-                script = self.root_dir / script
-            cmd = ["powershell", "-File", str(script)]
-            if sprint_target:
-                cmd.extend(["-Sprint", str(sprint_target)])
-            if sha_target:
-                cmd.extend(["-Sha", str(sha_target)])
-            if extra_args and isinstance(extra_args, list):
-                for a in extra_args:
-                    if isinstance(a, str) and re.match(r"^-[A-Za-z0-9_]+$", a.strip()):
-                        cmd.append(a.strip())
+            gates = self.parser.project.get("gates") or {}
+            mode = gates.get("mode") or "heavy"
+            heavy = gates.get("heavy_script")
+
+            is_fast_runner = mode == "fast" or (not heavy and gates.get("full"))
+            if is_fast_runner:
+                full_cmd = gates.get("full") or "uv run --system-certs --group dev pytest -q"
+                cmd = full_cmd
+                header = f"\n=== [Test Suite Runner] Running test suite: {full_cmd} ===\n"
+                shell_mode = True
+            else:
+                script = Path(heavy) if heavy else self.root_dir / "scripts" / "finalgates.ps1"
+                if not script.is_absolute():
+                    script = self.root_dir / script
+                cmd = ["powershell", "-File", str(script)]
+                if sprint_target:
+                    cmd.extend(["-Sprint", str(sprint_target)])
+                if sha_target:
+                    cmd.extend(["-Sha", str(sha_target)])
+                if extra_args and isinstance(extra_args, list):
+                    for a in extra_args:
+                        if isinstance(a, str) and re.match(r"^-[A-Za-z0-9_]+$", a.strip()):
+                            cmd.append(a.strip())
+                header = f"\n=== [Sprint Quality Auditor] Running finalgates.ps1"
+                if sprint_target:
+                    header += f" for Sprint {sprint_target}"
+                header += " ===\n"
+                shell_mode = False
 
             p = subprocess.Popen(
                 cmd,
+                shell=shell_mode,
                 cwd=str(self.root_dir),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -253,10 +269,6 @@ Gate 5 (pytest full suite + coverage) failed when run against {sha_display}.
                 self.current_sprint = sprint_target
 
             with open(self.log_file_path, "a", encoding="utf-8", errors="replace") as f:
-                header = f"\n=== [Sprint Quality Auditor] Running finalgates.ps1"
-                if sprint_target:
-                    header += f" for Sprint {sprint_target}"
-                header += " ===\n"
                 f.write(header)
                 f.flush()
                 with self.lock:
@@ -270,7 +282,50 @@ Gate 5 (pytest full suite + coverage) failed when run against {sha_display}.
                     f.flush()
 
             p.stdout.close()
-            return p.wait()
+            code = p.wait()
+
+            # Record latest.json upon completion
+            try:
+                full_log = "\n".join(self.log_lines)
+                m_pass = re.search(r"(\d+)\s+passed", full_log)
+                m_fail = re.search(r"(\d+)\s+failed", full_log)
+                m_xfail = re.search(r"(\d+)\s+xfailed", full_log)
+                m_dur = re.search(r"in\s+([\d.]+)s", full_log)
+
+                head_sha = ""
+                try:
+                    c_proc = subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        cwd=str(self.root_dir),
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    head_sha = c_proc.stdout.strip()[:7].lower()
+                except Exception:
+                    pass
+
+                latest_data = {
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "sha": head_sha or sha_target or "",
+                    "sprint": sprint_target or (self.parser.project.get("prefix") or "QA"),
+                    "pytest_passed": int(m_pass.group(1)) if m_pass else None,
+                    "pytest_failed": int(m_fail.group(1)) if m_fail else 0,
+                    "pytest_xfailed": int(m_xfail.group(1)) if m_xfail else 0,
+                    "elapsed_sec": float(m_dur.group(1)) if m_dur else (time.time() - self.start_time),
+                    "overall_ok": code == 0,
+                    "command": full_cmd if is_fast_runner else str(cmd),
+                }
+                self.parser.heavy_results_dir.mkdir(parents=True, exist_ok=True)
+                (self.parser.heavy_results_dir / "latest.json").write_text(
+                    json.dumps(latest_data, indent=2), encoding="utf-8"
+                )
+                self.parser._sprint_gate_cache_time = 0
+            except Exception:
+                pass
+
+            return code
+
 
         def _run():
             try:
@@ -351,10 +406,17 @@ Gate 5 (pytest full suite + coverage) failed when run against {sha_display}.
             return list(self.log_lines)[-limit:]
 
 
-def _worker_config(parser: PMParser) -> tuple[str, str, str | None]:
+def _worker_config(parser: PMParser) -> tuple[str, str, str | None, str | None, str | None]:
     """What a HeavyGateWorker depends on; a change means the worker must be rebuilt."""
     gates = parser.project.get("gates") or {}
-    return (str(parser.root_dir), str(parser.heavy_results_dir), gates.get("heavy_script"))
+    return (
+        str(parser.root_dir),
+        str(parser.heavy_results_dir),
+        gates.get("heavy_script"),
+        gates.get("mode"),
+        gates.get("full"),
+    )
+
 
 
 _BUILDING_COUNT_CACHE: dict[str, tuple[float, int]] = {}
@@ -1485,20 +1547,24 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/heavy-gate/status":
             gate_info = STATE.parser.get_heavy_gate_info()
             worker_status = STATE.worker.get_status()
-            self.send_json({"worker": worker_status, "gate_info": gate_info})
+            gates = STATE.parser.project.get("gates") or {}
+            self.send_json({"worker": worker_status, "gate_info": gate_info, "gates": gates})
             return
 
         if path == "/api/heavy-gate/sprints":
             sprint_statuses = STATE.parser.get_sprint_gate_status()
             worker_status = STATE.worker.get_status()
+            gates = STATE.parser.project.get("gates") or {}
             self.send_json(
                 {
                     "sprints": sprint_statuses,
                     "total": len(sprint_statuses),
                     "worker": worker_status,
+                    "gates": gates,
                 }
             )
             return
+
 
         if path == "/api/heavy-gate/log":
             query_params = urllib.parse.parse_qs(parsed_url.query)
@@ -1810,7 +1876,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         # ----------------------------------------------------------------------
         # Heavy Gate start/stop
         # ----------------------------------------------------------------------
-        if path == "/api/heavy-gate/start":
+        if path in ("/api/heavy-gate/start", "/api/fast-gate/run", "/api/suite/run"):
             args = body.get("args")
             target_sprint = body.get("sprint")
             target_sha = body.get("sha")

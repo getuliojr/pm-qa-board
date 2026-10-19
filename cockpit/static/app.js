@@ -832,7 +832,10 @@ async function fetchQaData(signal = undefined) {
     }
     if (gateStatusRes.status === 'fulfilled' && gateStatusRes.value) {
       state.heavyGateWorker = gateStatusRes.value.worker;
-      state.heavyGateInfo = gateStatusRes.value.info;
+      state.heavyGateInfo = gateStatusRes.value.gate_info || gateStatusRes.value.info;
+      if (gateStatusRes.value.gates) {
+        state.projectGates = gateStatusRes.value.gates;
+      }
       try {
         updateHeavyGateUi();
       } catch (gateErr) {
@@ -841,6 +844,9 @@ async function fetchQaData(signal = undefined) {
     }
     if (sprintGateRes.status === 'fulfilled' && sprintGateRes.value) {
       state.sprintGateStatus = sprintGateRes.value.sprints || [];
+      if (sprintGateRes.value.gates) {
+        state.projectGates = sprintGateRes.value.gates;
+      }
       try {
         renderSprintAuditTable();
       } catch (auditErr) {
@@ -2930,6 +2936,7 @@ async function fetchHeavyGateStatus() {
     const res = await fetch('/api/heavy-gate/status').then((r) => r.json());
     state.heavyGateWorker = res.worker || {};
     state.heavyGateInfo = res.gate_info || {};
+    if (res.gates) state.projectGates = res.gates;
 
     const prevStatus = lastKnownHeavyStatus;
     const currentStatus = state.heavyGateWorker.status || 'idle';
@@ -2941,6 +2948,26 @@ async function fetchHeavyGateStatus() {
     if (prevStatus === 'running' && currentStatus !== 'running') {
       fetchHeavyGateLog();
       fetchSprintGateStatus();
+      const isFast = state.projectGates && state.projectGates.mode === 'fast';
+      if (isFast) {
+        const suiteBtn = document.getElementById('runTestSuiteBtn');
+        if (suiteBtn) {
+          suiteBtn.disabled = false;
+          const span = suiteBtn.querySelector('span');
+          if (span) span.textContent = 'Run Test Suite';
+        }
+        const fastInd = document.getElementById('fastTerminalIndicator');
+        if (fastInd) {
+          fastInd.className = currentStatus === 'completed'
+            ? 'w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block'
+            : 'w-2.5 h-2.5 rounded-full bg-rose-500 inline-block';
+        }
+        if (currentStatus === 'completed') {
+          showToast('Test suite run completed successfully! ✅', 'success');
+        } else if (currentStatus === 'failed') {
+          showToast('Test suite run finished with failures ❌', 'error');
+        }
+      }
     }
 
     // Schedule next poll if still running
@@ -2979,39 +3006,80 @@ function stopHeavyGatePoll() {
 function updateHeavyGateUi() {
   const worker = state.heavyGateWorker || { status: 'idle' };
   const info = state.heavyGateInfo || { queue_count: 0, queue_items: [], latest_run: null };
+  const isFastMode = state.projectGates && state.projectGates.mode === 'fast';
+
+  const heavySection = document.getElementById('heavyGateRunnerSection');
+  const runTestSuiteBtn = document.getElementById('runTestSuiteBtn');
+  const runAllPendingBtn = document.getElementById('runAllPendingSprintsBtn');
+  const gateStatusHeader = document.getElementById('qaGateStatusHeader');
+  const subtitleEl = document.getElementById('sprintAuditSubtitle');
+
+  if (isFastMode) {
+    if (heavySection) heavySection.classList.add('hidden');
+    if (runTestSuiteBtn) runTestSuiteBtn.classList.remove('hidden');
+    if (runAllPendingBtn) runAllPendingBtn.classList.add('hidden');
+    if (gateStatusHeader) gateStatusHeader.textContent = 'Gate Status';
+    if (subtitleEl) subtitleEl.innerHTML = 'Audit past stories and view inline test suite gate metrics recorded in <code class="font-mono text-[10px] text-emerald-500">docs/QUALITY.md</code>.';
+  } else {
+    if (heavySection) heavySection.classList.remove('hidden');
+    if (runTestSuiteBtn) runTestSuiteBtn.classList.add('hidden');
+    if (runAllPendingBtn) runAllPendingBtn.classList.remove('hidden');
+    if (gateStatusHeader) gateStatusHeader.textContent = 'Gate 5 Status';
+    if (subtitleEl) subtitleEl.innerHTML = 'Audit past stories in isolated detached worktrees (<code class="font-mono text-[10px]">.gate-worktrees/</code>) and auto-record metrics to <code class="font-mono text-[10px] text-emerald-500">docs/QUALITY.md</code>.';
+  }
 
   const badgeEl = document.getElementById('heavyGateStatusBadge');
   const timerEl = document.getElementById('heavyGateTimer');
+  const fastTimerEl = document.getElementById('fastGateTimer');
   const runBtn = document.getElementById('runHeavyGateBtn');
   const stopBtn = document.getElementById('stopHeavyGateBtn');
   const indicator = document.getElementById('terminalIndicator');
+  const fastIndicator = document.getElementById('fastTerminalIndicator');
 
   // Status & timer
   if (worker.status === 'running') {
+    const elapsed = Math.floor(worker.elapsed_seconds || 0);
+    const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const secs = String(elapsed % 60).padStart(2, '0');
+    const timeStr = `${mins}:${secs}`;
+
     if (badgeEl) {
       badgeEl.textContent = 'Running ⚡';
       badgeEl.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse';
     }
     if (timerEl) {
       timerEl.classList.remove('hidden');
-      const elapsed = Math.floor(worker.elapsed_seconds || 0);
-      const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
-      const secs = String(elapsed % 60).padStart(2, '0');
-      timerEl.textContent = `${mins}:${secs}`;
+      timerEl.textContent = timeStr;
+    }
+    if (fastTimerEl) {
+      fastTimerEl.classList.remove('hidden');
+      fastTimerEl.textContent = timeStr;
     }
     if (runBtn) {
       runBtn.disabled = true;
       const span = runBtn.querySelector('span');
       if (span) span.textContent = 'Running...';
     }
+    if (runTestSuiteBtn) {
+      runTestSuiteBtn.disabled = true;
+      const span = runTestSuiteBtn.querySelector('span');
+      if (span) span.textContent = 'Running Suite...';
+    }
     if (stopBtn) stopBtn.classList.remove('hidden');
     if (indicator) indicator.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping inline-block';
+    if (fastIndicator) fastIndicator.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping inline-block';
   } else {
     if (timerEl) timerEl.classList.add('hidden');
+    if (fastTimerEl) fastTimerEl.classList.add('hidden');
     if (runBtn) {
       runBtn.disabled = false;
       const span = runBtn.querySelector('span');
       if (span) span.textContent = 'Run Heavy Gate';
+    }
+    if (runTestSuiteBtn) {
+      runTestSuiteBtn.disabled = false;
+      const span = runTestSuiteBtn.querySelector('span');
+      if (span) span.textContent = 'Run Test Suite';
     }
     if (stopBtn) stopBtn.classList.add('hidden');
 
@@ -3021,18 +3089,21 @@ function updateHeavyGateUi() {
         badgeEl.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
       }
       if (indicator) indicator.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block';
+      if (fastIndicator) fastIndicator.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block';
     } else if (worker.status === 'failed') {
       if (badgeEl) {
         badgeEl.textContent = 'Failed ❌';
         badgeEl.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40';
       }
       if (indicator) indicator.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 inline-block';
+      if (fastIndicator) fastIndicator.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 inline-block';
     } else {
       if (badgeEl) {
         badgeEl.textContent = 'Idle';
         badgeEl.className = 'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]';
       }
       if (indicator) indicator.className = 'w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600 inline-block';
+      if (fastIndicator) fastIndicator.className = 'w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-600 inline-block';
     }
   }
 
@@ -3094,11 +3165,20 @@ async function fetchHeavyGateLog() {
   try {
     const res = await fetch('/api/heavy-gate/log?limit=300').then((r) => r.json());
     const terminal = document.getElementById('heavyGateTerminal');
-    if (terminal && res.lines && res.lines.length > 0) {
-      terminal.textContent = res.lines.join('\n');
+    const fastTerminal = document.getElementById('fastGateTerminal');
+    const text = res.lines && res.lines.length > 0 ? res.lines.join('\n') : '';
+    if (terminal && text) {
+      terminal.textContent = text;
       const autoScroll = document.getElementById('autoScrollTerminal');
       if (autoScroll && autoScroll.checked) {
         terminal.scrollTop = terminal.scrollHeight;
+      }
+    }
+    if (fastTerminal && text) {
+      fastTerminal.textContent = text;
+      const fastAutoScroll = document.getElementById('fastAutoScrollTerminal');
+      if (fastAutoScroll && fastAutoScroll.checked) {
+        fastTerminal.scrollTop = fastTerminal.scrollHeight;
       }
     }
   } catch (err) {
@@ -3148,6 +3228,66 @@ async function startHeavyGate() {
   }
 }
 
+async function startTestSuiteRun() {
+  const btn = document.getElementById('runTestSuiteBtn');
+  const drawer = document.getElementById('fastGateDrawer');
+  const terminal = document.getElementById('fastGateTerminal');
+  const indicator = document.getElementById('fastTerminalIndicator');
+
+  if (drawer) drawer.classList.remove('hidden');
+  if (btn) {
+    btn.disabled = true;
+    const span = btn.querySelector('span');
+    if (span) span.textContent = 'Starting Suite...';
+  }
+  if (terminal) {
+    terminal.textContent = '[Starting inline test suite runner in background...]\n[Collecting tests & streaming output...]\n';
+  }
+  if (indicator) indicator.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping inline-block';
+
+  showToast('Test suite execution started', 'info');
+
+  try {
+    const res = await fetch('/api/heavy-gate/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }).then((r) => r.json());
+
+    if (res.success) {
+      await fetchHeavyGateStatus();
+      await fetchHeavyGateLog();
+    } else {
+      showToast(`Error starting test suite: ${res.error || 'Server error'}`, 'error');
+      if (btn) {
+        btn.disabled = false;
+        const span = btn.querySelector('span');
+        if (span) span.textContent = 'Run Test Suite';
+      }
+      if (indicator) indicator.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 inline-block';
+    }
+  } catch (err) {
+    console.error('Failed to start test suite:', err);
+    showToast('Failed to start test suite execution.', 'error');
+    if (btn) {
+      btn.disabled = false;
+      const span = btn.querySelector('span');
+      if (span) span.textContent = 'Run Test Suite';
+    }
+    if (indicator) indicator.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 inline-block';
+  }
+}
+
+function toggleFastDrawer() {
+  const drawer = document.getElementById('fastGateDrawer');
+  if (drawer) drawer.classList.toggle('hidden');
+}
+
+function clearFastLog() {
+  const terminal = document.getElementById('fastGateTerminal');
+  if (terminal) terminal.textContent = '';
+}
+
 async function stopHeavyGate() {
   showToast('Heavy gate process termination requested', 'info');
   try {
@@ -3171,6 +3311,7 @@ function clearHeavyLog() {
   const terminal = document.getElementById('heavyGateTerminal');
   if (terminal) terminal.textContent = '';
 }
+
 
 // -----------------------------------------------------------------------------
 // Sprint Quality Auditor (Historical Verification per Sprint)
@@ -3197,6 +3338,7 @@ async function fetchSprintGateStatus() {
     }
     const data = await res.json();
     state.sprintGateStatus = data.sprints || [];
+    if (data.gates) state.projectGates = data.gates;
     renderSprintAuditTable();
   } catch (err) {
     console.error('Failed to fetch sprint gate audit status:', err);
@@ -3332,14 +3474,15 @@ function renderSprintAuditTable() {
         const isCurrentRun = isRunning && state.heavyGateWorker.current_sprint === s.sprint;
         const isVerified = s.verified;
         const isFailed = s.status === 'Failed';
+        const isFast = state.projectGates && state.projectGates.mode === 'fast';
 
         let statusBadge;
         if (isCurrentRun) {
-          statusBadge = `<span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">Running ⚡</span>`;
+          statusBadge = `<span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/40 animate-pulse">Running ⚡</span>`;
         } else if (isFailed) {
           const failCount = s.failure_count || (s.failed_tests ? s.failed_tests.length : 0);
           const countBadge = failCount > 0 ? ` (${failCount} tests)` : '';
-          statusBadge = `<button onclick="openFailureModal('${escapeHtml(s.sprint)}', '${escapeHtml(s.run_id || '')}')" class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 cursor-pointer transition shadow-sm hover:scale-105" title="Click to view failure details & copy pytest command">Failed ❌${countBadge}</button>`;
+          statusBadge = `<button onclick="openFailureModal('${escapeHtml(s.sprint)}', '${escapeHtml(s.run_id || '')}')" class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 dark:text-rose-300 dark:border-rose-500/40 cursor-pointer transition shadow-sm hover:scale-105" title="Click to view failure details & copy pytest command">Failed ❌${countBadge}</button>`;
         } else if (isVerified) {
           let viaTip = '';
           if (s.subsumed_by) {
@@ -3350,59 +3493,66 @@ function renderSprintAuditTable() {
           }
           const titleTip = s.subsumed_by
             ? (/^[0-9a-f]{7,40}$/i.test(s.subsumed_by)
-                ? `Verified via cumulative Gate 5 run on commit ${escapeHtml(s.subsumed_by)}`
-                : `Verified via cumulative Gate 5 run on Story ${escapeHtml(s.subsumed_by)}`)
-            : 'Verified Gate 5 run';
+                ? `Verified via cumulative Gate run on commit ${escapeHtml(s.subsumed_by)}`
+                : `Verified via cumulative Gate run on Story ${escapeHtml(s.subsumed_by)}`)
+            : 'Verified Gate run';
           const priorFailNotice = s.prior_failure
-            ? `<span class="ml-1 text-[9px] text-amber-300 font-mono" title="Prior failure on earlier commit was resolved by descendant Gate 5 pass">⚠️</span>`
+            ? `<span class="ml-1 text-[9px] text-amber-500 dark:text-amber-300 font-mono" title="Prior failure on earlier commit was resolved by descendant Gate pass">⚠️</span>`
             : '';
-          statusBadge = `<span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" title="${escapeHtml(titleTip)}">Passed ✅${viaTip}${priorFailNotice}</span>`;
+          statusBadge = `<span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30" title="${escapeHtml(titleTip)}">Passed ✅${viaTip}${priorFailNotice}</span>`;
         } else {
-          statusBadge = `<span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">Owed ⚠️</span>`;
+          statusBadge = `<span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30">Owed ⚠️</span>`;
         }
 
         let metrics = '';
         if (s.pass_count !== null || s.coverage !== null) {
-          const p = s.pass_count !== null ? `${s.pass_count} passed` : '';
-          const c = s.coverage ? `${s.coverage} cov` : '';
-          const colorClass = isFailed ? 'text-rose-400' : 'text-emerald-400';
-          const metricText = [p, c].filter(Boolean).join(' • ');
+          const parts = [];
+          if (s.pass_count !== null) parts.push(`${s.pass_count} passed`);
+          if (s.xfail_count) parts.push(`${s.xfail_count} xfail`);
+          if (s.coverage) parts.push(`${s.coverage} cov`);
+          const colorClass = isFailed ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400';
+          const metricText = parts.length > 0 ? parts.join(' • ') : (s.pass_count !== null ? `${s.pass_count} passed` : '');
           let metricTitle = '';
           if (s.subsumed_by) {
-            metricTitle = `Inherited from Gate 5 run on ${s.subsumed_by}` + (s.run_id ? ` (${s.run_id})` : '');
+            metricTitle = `Inherited from Gate run on ${s.subsumed_by}` + (s.run_id ? ` (${s.run_id})` : '');
           } else if (s.run_id) {
-            metricTitle = `Measured in Gate 5 run ${s.run_id}` + (s.sha ? ` at ${s.sha.slice(0, 7)}` : '');
+            metricTitle = `Measured in Gate run ${s.run_id}` + (s.sha ? ` at ${s.sha.slice(0, 7)}` : '');
+          } else if (s.tested_sha) {
+            metricTitle = `Measured at commit ${s.tested_sha.slice(0, 7)}`;
+          }
+          if (s.duration_sec) {
+            metricTitle += (metricTitle ? ' — ' : '') + `Runtime: ${s.duration_sec}s`;
           }
           const titleAttr = metricTitle ? ` title="${escapeHtml(metricTitle)}"` : '';
           metrics = `<span class="${colorClass} font-mono text-[11px] font-semibold cursor-help"${titleAttr}>${escapeHtml(metricText)}</span>`;
         } else if (isVerified) {
-          metrics = '<span class="text-slate-600 font-mono text-[11px]" title="Verified without recorded test numbers">—</span>';
+          metrics = '<span class="text-slate-500 dark:text-slate-500 font-mono text-[11px]" title="Verified without recorded test numbers">—</span>';
         } else {
-          metrics = '<span class="text-slate-500 italic text-[11px]">Unverified</span>';
+          metrics = '<span class="text-slate-400 dark:text-slate-500 italic text-[11px]">Unverified</span>';
         }
 
         const shortSha = s.sha ? s.sha.slice(0, 7) : '--';
+        const retryLabel = isFast ? 'Retry Suite' : 'Retry Gate 5';
+        const runLabel = isFast ? 'Run Suite' : 'Run Gate 5';
 
         const actionBtn = isCurrentRun
           ? `<span class="text-[10px] px-2 py-1 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/40 font-mono animate-pulse">Running...</span>`
           : isVerified
           ? `<span class="text-[10px] px-2 py-1 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-tertiary)] border border-[var(--border-subtle)] font-mono">Done</span>`
           : isFailed
-          ? `<button onclick="startRunSprintGate('${escapeHtml(s.sprint)}', '${escapeHtml(s.sha || '')}')" ${
+          ? `<button onclick="${isFast ? 'startTestSuiteRun()' : `startRunSprintGate('${escapeHtml(s.sprint)}', '${escapeHtml(s.sha || '')}')`}" ${
               isRunning ? 'disabled' : ''
             } class="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 active:bg-rose-500/30 text-rose-600 dark:text-rose-300 text-[11px] font-medium rounded-lg border border-rose-500/30 transition shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
-              Retry Gate 5
+              ${retryLabel}
             </button>`
-          : `<button onclick="startRunSprintGate('${escapeHtml(s.sprint)}', '${escapeHtml(s.sha || '')}')" ${
+          : `<button onclick="${isFast ? 'startTestSuiteRun()' : `startRunSprintGate('${escapeHtml(s.sprint)}', '${escapeHtml(s.sha || '')}')`}" ${
               isRunning ? 'disabled' : ''
             } class="px-2.5 py-1 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] text-[11px] font-medium rounded-lg border border-[var(--border-medium)] transition shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
-              Run Gate 5
+              ${runLabel}
             </button>`;
 
-        const rowOpacity = isVerified ? 'opacity-60' : '';
-
         return `
-          <tr class="hover:bg-[var(--bg-surface-secondary)] transition ${rowOpacity}">
+          <tr class="hover:bg-[var(--bg-surface-secondary)] transition">
             <td class="py-2 px-3 font-mono font-bold text-[var(--text-primary)]">
               Story ${escapeHtml(s.sprint)}
             </td>

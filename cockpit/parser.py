@@ -1062,6 +1062,7 @@ class PMParser:
                         "created_date": plan_date,
                         "created_time": plan_time,
                         "created_at": plan_created_at,
+                        "start_time": plan_created_at,
                         "qa_entered_at": None,
                         "description": "Interactive design session in progress in PLAN.md",
                         "dod": plan_dod,
@@ -1545,7 +1546,7 @@ class PMParser:
                 "created_date": c.get("created_date"),
                 "elapsed_seconds": c.get("elapsed_seconds", 0),
                 "duration_formatted": c.get("duration_formatted", "< 1m"),
-                "start_time": c.get("start_time"),
+                "start_time": c.get("start_time") or c.get("created_at") or c.get("created_date"),
                 "end_time": c.get("end_time"),
             })
 
@@ -2330,30 +2331,81 @@ class PMParser:
         quality_sprints: dict[str, dict[str, Any]] = {}
         if quality_file.exists():
             try:
-                for line in quality_file.read_text(encoding="utf-8", errors="replace").splitlines():
-                    if line.startswith("|") and "**" in line:
-                        m_row = re.match(r"^\|\s*\*\*([0-9a-zA-Z._-]+)\*\*", line)
-                        if m_row:
-                            q_sprint = m_row.group(1).strip()
-                            parts = [p.strip() for p in line.split("|")]
-                            if len(parts) >= 4:
-                                q_test_cell = parts[2]
-                                q_cov_cell = parts[3]
-                                m_p = re.search(r"(\d+)\s+passed", q_test_cell)
-                                m_c = re.search(r"([\d.]+%)", q_cov_cell) or re.search(r"([\d.]+%)", q_test_cell)
-                                m_r = re.search(r"(?:run\s+|`runs/)(2026\d{4}-\d{6}-[0-9a-zA-Z_-]+)", q_test_cell)
-                                m_sha = re.search(r"@\s*`?([0-9a-fA-F]{7,40})`?", q_test_cell)
-                                is_owed = "owed" in q_test_cell.lower()
-                                if m_p:
-                                    quality_sprints[q_sprint.lower()] = {
-                                        "pass_count": int(m_p.group(1)),
-                                        "coverage": m_c.group(1) if m_c else None,
-                                        "run_id": m_r.group(1) if m_r else None,
-                                        "tested_sha": m_sha.group(1)[:7].lower() if m_sha else None,
-                                        "is_owed": is_owed,
-                                    }
+                current_section = ""
+                in_gate_table = False
+                for raw_line in quality_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                    line = raw_line.strip()
+                    if line.startswith("#"):
+                        current_section = line.lstrip("#").strip().lower()
+                        in_gate_table = False
+                        continue
+                    if not line.startswith("|"):
+                        continue
+                    # Ignore review table headers and sections
+                    if any(k in line.lower() for k in ("round", "verdict", "notable findings")):
+                        in_gate_table = False
+                        continue
+                    # Ignore table divider lines
+                    if re.match(r"^\|\s*[-:]+\s*\|", line):
+                        continue
+                    # Detect gate runs table header
+                    if re.search(r"\|\s*(?:Story|Date|Run|Command|pytest)\s*\|", line, re.I):
+                        in_gate_table = True
+                        continue
+
+                    # If in a review section, never treat rows as gate runs unless in an explicit gate table
+                    is_review_section = any(k in current_section for k in ("review", "rule", "round"))
+                    if is_review_section and not in_gate_table:
+                        continue
+
+                    parts = [p.strip() for p in line.split("|")]
+                    if len(parts) < 3:
+                        continue
+                    # parts[0] is empty string before leading '|', parts[1] is the first column
+                    col1 = parts[1]
+                    # Match story identifier: e.g. "15", "**15**", "Story 15", "**17.16** (2026-09-25...)"
+                    m_sp = re.match(r"^(?:\*\*)?(?:Story|Sprint|Phase)?\s*([0-9a-zA-Z._-]+)", col1, re.I)
+                    if not m_sp:
+                        continue
+                    q_sprint = m_sp.group(1).strip().lower()
+
+                    # Search across the row for tests passed, coverage, sha, etc.
+                    row_text = " | ".join(parts[2:])
+                    m_p = re.search(r"(\d+)\s+passed", row_text)
+                    m_xf = re.search(r"(\d+)\s+xfail(?:ed)?", row_text)
+                    m_c = re.search(r"([\d.]+%)", row_text)
+                    m_r = re.search(r"(?:run\s+|`runs/)(2026\d{4}-\d{6}-[0-9a-zA-Z_-]+)", row_text)
+                    m_dur = re.search(r"(?:in\s+)?(~?\d+(?:\.\d+)?)\s*s\b", row_text)
+
+                    # Tested SHA: look for Tree column backtick sha e.g. `ea020fe` or `@ `ea020fe`` or plain 7-40 hex
+                    m_sha = re.search(r"@\s*`?([0-9a-fA-F]{7,40})`?", row_text)
+                    if not m_sha and len(parts) >= 3:
+                        m_tree = re.search(r"`([0-9a-fA-F]{7,40})`", parts[2])
+                        if m_tree:
+                            m_sha = m_tree
+                    if not m_sha:
+                        m_sha = re.search(r"`([0-9a-fA-F]{7,40})`", row_text)
+
+                    tested_sha = m_sha.group(1)[:7].lower() if m_sha else None
+                    is_owed = "owed" in row_text.lower() or "not run" in row_text.lower()
+
+                    if m_p:
+                        # Prioritize '## gate runs' or rows with explicit tested_sha
+                        existing = quality_sprints.get(q_sprint)
+                        is_priority = "gate" in current_section or (tested_sha and not (existing and existing.get("tested_sha")))
+                        if not existing or is_priority:
+                            quality_sprints[q_sprint] = {
+                                "pass_count": int(m_p.group(1)),
+                                "xfail_count": int(m_xf.group(1)) if m_xf else 0,
+                                "coverage": m_c.group(1) if m_c else None,
+                                "run_id": m_r.group(1) if m_r else None,
+                                "duration_sec": m_dur.group(1) if m_dur else None,
+                                "tested_sha": tested_sha,
+                                "is_owed": is_owed,
+                            }
             except Exception:
                 pass
+
 
         sprint_statuses: list[dict[str, Any]] = []
 
@@ -2573,6 +2625,8 @@ class PMParser:
             verified = False
             latest_run_id = None
             pass_count = None
+            xfail_count = None
+            duration_sec = None
             coverage = None
             status_text = "Owed"
             tested_sha = None
@@ -2587,6 +2641,9 @@ class PMParser:
                 m_pass = re.search(r"(\d+)\s+passed", detail)
                 if m_pass:
                     pass_count = int(m_pass.group(1))
+                m_xf = re.search(r"(\d+)\s+xfail(?:ed)?", detail)
+                if m_xf:
+                    xfail_count = int(m_xf.group(1))
                 m_cov = re.search(r"([\d.]+%)", detail)
                 if m_cov:
                     coverage = m_cov.group(1)
@@ -2620,20 +2677,28 @@ class PMParser:
                 q_info = quality_sprints[s_num.lower()]
                 q_tested_sha = q_info.get("tested_sha")
                 if not q_info.get("is_owed"):
-                    if not q_tested_sha or not sha or is_ancestor(sha, q_tested_sha):
+                    if not q_tested_sha or not sha or is_ancestor(sha, q_tested_sha) or is_ancestor(q_tested_sha, sha):
                         verified = True
                         status_text = "Passed"
                         pass_count = q_info["pass_count"]
+                        xfail_count = q_info.get("xfail_count")
+                        duration_sec = q_info.get("duration_sec")
                         coverage = q_info["coverage"]
                         latest_run_id = q_info["run_id"]
-                        tested_sha = q_tested_sha
+                        tested_sha = q_tested_sha or sha
                     else:
                         status_text = "Owed"
                 else:
                     status_text = "Owed"
 
-            # Rule 2: Anything sprint 15.7 or earlier should be marked as done and complete
-            if is_sprint_15_7_or_earlier(s_num):
+            # Rule 2: Legacy grandfathering (money-nest only): sprints 15.7 or earlier were verified before Gate 5 tracking began
+            is_legacy_money_nest = (
+                self.project.get("slug") == "money-nest"
+                or self.project.get("prefix") == "MN"
+                or self.root_dir.name.lower() == "money-nest"
+                or (self.prefix == "MN" and "pm-qa-cockpit" not in str(self.root_dir).lower() and "pm-qa-cockpit" not in str(self.docs_path).lower())
+            )
+            if is_legacy_money_nest and is_sprint_15_7_or_earlier(s_num):
                 verified = True
                 status_text = "Passed"
 
@@ -2670,6 +2735,8 @@ class PMParser:
                     "card_count": card_count,
                     "run_id": latest_run_id,
                     "pass_count": pass_count,
+                    "xfail_count": xfail_count,
+                    "duration_sec": duration_sec,
                     "coverage": coverage,
                     "subsumed_by": None,
                     "failed_tests": failed_tests,

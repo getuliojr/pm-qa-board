@@ -245,3 +245,89 @@ def test_roadmap_qa_debt_not_marked_complete(tmp_path):
     assert s4["is_complete"] is False
     assert s4["is_built"] is False
 
+
+def test_pqc_17_quality_md_gate_runs_parsing_and_metrics(tmp_path):
+    """PQC-17: Parse 4-column ## Gate runs table in QUALITY.md for fast-mode projects."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    cards_dir = docs_dir / "cards"
+    cards_dir.mkdir()
+
+    # Seed card for Story 15
+    (cards_dir / "PQC-15 - Sample Story.md").write_text(
+        "---\nid: PQC-15\nsprint: '15'\ntype: feature\nstatus: completed\ncreated: 2026-10-18\n---\n"
+        "Closed at `ea020fe`\n",
+        encoding="utf-8",
+    )
+
+    # Seed PLAN.md
+    (tmp_path / "PLAN.md").write_text(
+        "# Plan\n\n| Story | Goal | Status |\n|---|---|---|\n| Story 15 | Testing | ✅ Done 2026-10-18 `@ea020fe` |\n",
+        encoding="utf-8",
+    )
+
+    # Seed QUALITY.md with 4-column Gate runs table
+    (docs_dir / "QUALITY.md").write_text(
+        "# Quality\n\n## Gate runs\n\n"
+        "| Story | Tree | Command | Result |\n"
+        "|---|---|---|---|\n"
+        "| Story 15 | `ea020fe` | `uv run pytest` | ✅ **139 passed, 1 xfailed** in 1.45s (tree clean) |\n"
+        "| Story 16 | `1234567` | `uv run pytest` | ✅ **140 passed** in 2.10s |\n",
+        encoding="utf-8",
+    )
+
+    proj = {
+        "slug": "sample-project",
+        "prefix": "PQC",
+        "code_path": str(tmp_path),
+        "docs_path": str(docs_dir),
+        "gates": {"mode": "fast", "full": "uv run pytest"},
+    }
+
+    p = PMParser(project=proj)
+    sprints = p.get_sprint_gate_status()
+
+    s15 = next((s for s in sprints if s["sprint"] == "15"), None)
+    assert s15 is not None
+    assert s15["verified"] is True
+    assert s15["status"] == "Passed"
+    assert s15["pass_count"] == 139
+    assert s15["xfail_count"] == 1
+    assert s15["duration_sec"] == "1.45"
+    assert s15["tested_sha"] == "ea020fe"
+
+
+def test_pqc_17_non_legacy_project_never_grandfathered(tmp_path):
+    """PQC-17: Non-money-nest projects must never grandfather stories 1-15 as passed."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    cards_dir = docs_dir / "cards"
+    cards_dir.mkdir()
+
+    (cards_dir / "PQC-2 - Story Two.md").write_text(
+        "---\nid: PQC-2\nsprint: '2'\ntype: feature\nstatus: completed\ncreated: 2026-10-18\n---\n"
+        "Closed at `abcd123`\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "PLAN.md").write_text(
+        "# Plan\n\n| Story | Goal | Status |\n|---|---|---|\n| Story 2 | Goal | ✅ Done `@abcd123` |\n",
+        encoding="utf-8",
+    )
+
+    proj = {
+        "slug": "custom-fast-tool",
+        "prefix": "PQC",
+        "code_path": str(tmp_path),
+        "docs_path": str(docs_dir),
+        "gates": {"mode": "fast"},
+    }
+
+    p = PMParser(project=proj)
+    sprints = p.get_sprint_gate_status()
+    s2 = next((s for s in sprints if s["sprint"] == "2"), None)
+    assert s2 is not None
+    # No gate runs or logs recorded, so must be Owed (NOT grandfathered as Passed)
+    assert s2["verified"] is False
+    assert s2["status"] == "Owed"
+
+

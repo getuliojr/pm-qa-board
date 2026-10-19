@@ -520,15 +520,19 @@
                     <span>Story Verification &amp; Quality Audit</span>
                     <span id="sprintAuditPendingBadge" class="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25 tabular-nums">0 Owed</span>
                   </h3>
-                  <p class="text-[11px] text-[var(--text-tertiary)] mt-0.5">Audit past stories in isolated detached worktrees (<code class="font-mono text-[10px]">.gate-worktrees/</code>) and auto-record metrics to <code class="font-mono text-[10px] text-emerald-500">docs/QUALITY.md</code>.</p>
+                  <p id="sprintAuditSubtitle" class="text-[11px] text-[var(--text-tertiary)] mt-0.5">Audit past stories in isolated detached worktrees (<code class="font-mono text-[10px]">.gate-worktrees/</code>) and auto-record metrics to <code class="font-mono text-[10px] text-emerald-500">docs/QUALITY.md</code>.</p>
                 </div>
               </div>
               <div class="flex items-center space-x-2">
-                <button id="runAllPendingSprintsBtn" onclick="startRunAllPendingSprints()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-[11px] font-bold rounded-lg shadow-sm flex items-center space-x-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                <button id="runTestSuiteBtn" onclick="startTestSuiteRun()" class="hidden px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-sm flex items-center space-x-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer" title="Run fast pytest suite inline and record metrics">
+                  <i class="ph ph-play-circle text-sm"></i>
+                  <span>Run Test Suite</span>
+                </button>
+                <button id="runAllPendingSprintsBtn" onclick="startRunAllPendingSprints()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-[11px] font-bold rounded-lg shadow-sm flex items-center space-x-1.5 transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
                   <i class="ph ph-play-circle text-sm"></i>
                   <span>Run All Pending</span>
                 </button>
-                <button onclick="fetchSprintGateStatus()" class="p-1.5 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] rounded-lg border border-[var(--border-medium)] transition shadow-sm" title="Refresh Story Audit Status">
+                <button onclick="fetchSprintGateStatus()" class="p-1.5 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] rounded-lg border border-[var(--border-medium)] transition shadow-sm cursor-pointer" title="Refresh Story Audit Status">
                   <i class="ph ph-arrow-clockwise text-sm"></i>
                 </button>
               </div>
@@ -564,7 +568,7 @@
                     <th class="py-2.5 px-3">Story</th>
                     <th class="py-2.5 px-3">Target Scope</th>
                     <th class="py-2.5 px-3 w-24">Commit SHA</th>
-                    <th class="py-2.5 px-3 w-28">Gate 5 Status</th>
+                    <th class="py-2.5 px-3 w-28" id="qaGateStatusHeader">Gate Status</th>
                     <th class="py-2.5 px-3 w-32">Measured Metrics</th>
                     <th class="py-2.5 px-3 w-28 text-right">Action</th>
                   </tr>
@@ -577,11 +581,32 @@
               </table>
             </div>
 
+            <!-- Fast Mode Live Console Drawer (Collapsible) -->
+            <div id="fastGateDrawer" class="hidden mt-4">
+              <div class="flex items-center justify-between bg-[var(--bg-surface-tertiary)] px-3 py-2 rounded-t-lg border border-b-0 border-[var(--border-subtle)] text-xs">
+                <div class="flex items-center space-x-2 text-[var(--text-tertiary)] font-mono text-[11px]">
+                  <span class="w-2.5 h-2.5 rounded-full bg-[var(--text-quaternary)] inline-block" id="fastTerminalIndicator"></span>
+                  <span>Test Suite Live Console (<code class="text-[var(--text-primary)]">gate-heavy-results/current_run.log</code>)</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <span id="fastGateTimer" class="text-[11px] font-mono text-[var(--text-tertiary)] hidden">00:00</span>
+                  <label class="flex items-center space-x-1.5 text-[11px] text-[var(--text-tertiary)] cursor-pointer">
+                    <input type="checkbox" id="fastAutoScrollTerminal" checked class="rounded border-[var(--border-medium)] text-emerald-500 bg-[var(--bg-surface)]">
+                    <span>Auto-scroll</span>
+                  </label>
+                  <button onclick="clearFastLog()" class="px-2 py-0.5 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[10px] text-[var(--text-secondary)] transition cursor-pointer">Clear</button>
+                  <button onclick="toggleFastDrawer()" class="px-2 py-0.5 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[10px] text-[var(--text-secondary)] transition cursor-pointer">Close</button>
+                </div>
+              </div>
+              <pre id="fastGateTerminal" class="bg-[var(--bg-surface-secondary)] text-[var(--text-primary)] p-3 rounded-b-lg border border-[var(--border-subtle)] font-mono text-[11px] leading-relaxed max-h-56 min-h-[5rem] overflow-y-auto whitespace-pre-wrap select-text">Ready. Click "Run Test Suite" to execute inline verification.</pre>
+            </div>
+
             <div id="sprintAuditShowAllToggle" class="mt-2.5 text-center"></div>
           </div>
 
           <!-- ③ HEAVY GATE 5 RUNNER -->
-          <div class="bg-[var(--bg-surface)] p-5 rounded-2xl border border-[var(--border-subtle)] shadow-sm">
+          <div id="heavyGateRunnerSection" class="bg-[var(--bg-surface)] p-5 rounded-2xl border border-[var(--border-subtle)] shadow-sm">
+
             <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-4 border-b border-[var(--border-subtle)]">
               <div class="flex items-center space-x-3">
                 <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-500 shrink-0">
@@ -1431,6 +1456,7 @@
   </div>
 
   <script src="qrcode.min.js"></script>
-  <script src="app.js?v=20261019-pqc16"></script>
+  <script src="app.js?v=20261019-pqc17"></script>
 </body>
 </html>
+
