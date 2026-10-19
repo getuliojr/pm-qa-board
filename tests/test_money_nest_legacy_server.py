@@ -282,13 +282,6 @@ def run_tests():
     server.server_close()
     print("\nALL SERVER INTEGRATION TESTS PASSED SUCCESSFULLY!")
 
-@pytest.mark.xfail(
-    reason="Pre-existing (fails identically in money-nest's tools/pm-dashboard/test_server.py): an "
-    "in-process urllib client gets WinError 10054 reading the ~4 MB /api/cards body; an out-of-process "
-    "client (curl, the browser) receives it in full.",
-    raises=ConnectionResetError,
-    strict=False,
-)
 def test_server():
     run_tests()
 
