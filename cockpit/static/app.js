@@ -4333,19 +4333,50 @@ function updateThemeIcon(isDark) {
 // -----------------------------------------------------------------------------
 // Sidebar Collapse & Mobile Drawer
 // -----------------------------------------------------------------------------
+function updateSidebarCollapseUi(isCollapsed) {
+  const collapseBtn = document.getElementById('sidebarCollapseBtn');
+  if (collapseBtn) {
+    collapseBtn.innerHTML = isCollapsed
+      ? '<i class="ph ph-arrow-line-right text-sm"></i>'
+      : '<i class="ph ph-sidebar-simple text-sm"></i>';
+    collapseBtn.setAttribute(
+      'title',
+      isCollapsed ? 'Expand Sidebar (Cmd/Ctrl + B)' : 'Collapse Sidebar (Cmd/Ctrl + B)'
+    );
+    collapseBtn.setAttribute(
+      'aria-label',
+      isCollapsed ? 'Expand Sidebar (Cmd/Ctrl + B)' : 'Collapse Sidebar (Cmd/Ctrl + B)'
+    );
+  }
+  const brandBtn = document.getElementById('brandLogoBtn');
+  if (brandBtn) {
+    brandBtn.setAttribute(
+      'title',
+      isCollapsed ? 'Expand Sidebar (Cmd/Ctrl + B)' : 'Collapse Sidebar (Cmd/Ctrl + B)'
+    );
+    brandBtn.setAttribute(
+      'aria-label',
+      isCollapsed ? 'Expand Sidebar (Cmd/Ctrl + B)' : 'Collapse Sidebar (Cmd/Ctrl + B)'
+    );
+  }
+}
+
 function toggleSidebarCollapse() {
   const sidebar = document.getElementById('appSidebar');
   if (!sidebar) return;
   const isCollapsed = sidebar.classList.toggle('collapsed');
   localStorage.setItem('pmqa_sidebar_collapsed', isCollapsed ? 'true' : 'false');
+  updateSidebarCollapseUi(isCollapsed);
 }
 
 function initSidebarState() {
   const sidebar = document.getElementById('appSidebar');
   if (!sidebar) return;
-  if (localStorage.getItem('pmqa_sidebar_collapsed') === 'true') {
+  const isCollapsed = localStorage.getItem('pmqa_sidebar_collapsed') === 'true';
+  if (isCollapsed) {
     sidebar.classList.add('collapsed');
   }
+  updateSidebarCollapseUi(isCollapsed);
 }
 
 function toggleMobileSidebar() {
@@ -5080,6 +5111,10 @@ function initProjectUi() {
   if (btn && menu) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
+      const sidebar = document.getElementById('appSidebar');
+      if (sidebar && sidebar.classList.contains('collapsed')) {
+        toggleSidebarCollapse();
+      }
       if (isProjectMenuOpen()) closeProjectMenu(); else openProjectMenu();
     });
     btn.addEventListener('keydown', (e) => {

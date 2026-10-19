@@ -1062,7 +1062,7 @@ def test_story19_secondary_tab_refresh_skeletons_and_state_hygiene(server):
     assert "${inProgCards.length} active" in app_js
 
     # 6. Cachebuster bumped
-    assert "app.js?v=20261019-pqc19" in index_html
+    assert re.search(r"app\.js\?v=20261019-pqc\d+", index_html)
 
     # 7. Server endpoints for secondary tabs respond validly
     base, srv = server
@@ -1072,6 +1072,37 @@ def test_story19_secondary_tab_refresh_skeletons_and_state_hygiene(server):
     assert status_sprints == 200 and "roadmap" in json.loads(body_sprints)
     status_active, body_active = get(f"{base}/api/active-sprint")
     assert status_active == 200 and "active_count" in json.loads(body_active)
+
+
+def test_story20_collapsed_sidebar_navigation_and_brand_logo_toggle(server):
+    """PQC-20: Collapsed sidebar navigation ergonomics, icon button symmetry, and brand logo toggle."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    style_css = (static_dir / "style.css").read_text(encoding="utf-8")
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+    # 1. Interactive brand logo button in index.html
+    assert 'id="brandLogoBtn"' in index_html
+    assert 'onclick="toggleSidebarCollapse()"' in index_html
+    assert 'id="sidebarActionBar"' in index_html
+    assert 'theme-label' in index_html
+    assert 'app.js?v=20261019-pqc20' in index_html
+
+    # 2. Desktop-scoped collapse in style.css
+    assert '@media (min-width: 768px)' in style_css
+    assert '#appSidebar.collapsed #sidebarActionBar' in style_css
+    assert 'flex-direction: column !important' in style_css
+    assert '#appSidebar.collapsed .theme-label' in style_css
+    assert '#appSidebar.collapsed #projectSwitcherBtn' in style_css
+
+    # 3. Dynamic collapse icon, tooltip, and auto-expand in app.js
+    assert 'updateSidebarCollapseUi' in app_js
+    assert 'ph-arrow-line-right' in app_js
+    assert 'ph-sidebar-simple' in app_js
+    assert 'Expand Sidebar (Cmd/Ctrl + B)' in app_js
+    assert 'Collapse Sidebar (Cmd/Ctrl + B)' in app_js
+    assert "sidebar.classList.contains('collapsed')" in app_js
+
 
 
 

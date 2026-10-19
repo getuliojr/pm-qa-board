@@ -79,9 +79,10 @@
       <div class="p-4 border-b border-[var(--border-glass)] flex flex-col gap-3 shrink-0">
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-2.5 min-w-0">
-            <div class="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-bold shadow-sm shrink-0">
+            <button id="brandLogoBtn" type="button" onclick="toggleSidebarCollapse()" aria-label="Toggle Sidebar (Cmd/Ctrl + B)" title="Toggle Sidebar (Cmd/Ctrl + B)"
+              class="w-8 h-8 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-bold shadow-sm shrink-0 cursor-pointer transition">
               <i class="ph ph-shield-check text-lg"></i>
-            </div>
+            </button>
             <div class="min-w-0 sidebar-header-title">
               <h1 class="font-bold text-sm text-[var(--text-primary)] tracking-tight whitespace-nowrap truncate">PM &amp; QA Board</h1>
               <p class="text-[11px] text-[var(--text-tertiary)] truncate" id="headerBranch">Branch: loading...</p>
@@ -165,7 +166,7 @@
         </div>
 
         <!-- Sidebar Utility Action Bar -->
-        <div class="flex items-center justify-between gap-1.5">
+        <div id="sidebarActionBar" class="flex items-center justify-between gap-1.5">
           <!-- Dual-Theme Toggle Button -->
           <button id="themeToggleBtn" type="button" onclick="toggleTheme()" class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[var(--text-primary)] border border-[var(--border-medium)] text-xs font-medium transition cursor-pointer shadow-sm" title="Toggle Theme (Apple Daylight / Carbon Zinc)">
             <i class="ph ph-moon text-indigo-500 text-sm"></i>
@@ -178,7 +179,7 @@
           </button>
 
           <!-- Desktop Sidebar Collapse Toggle -->
-          <button id="sidebarCollapseBtn" onclick="toggleSidebarCollapse()" class="hidden md:flex items-center justify-center p-2 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-medium)] transition cursor-pointer shadow-sm" title="Toggle Sidebar (Cmd/Ctrl + B)">
+          <button id="sidebarCollapseBtn" onclick="toggleSidebarCollapse()" class="hidden md:flex items-center justify-center p-2 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-medium)] transition cursor-pointer shadow-sm" title="Collapse Sidebar (Cmd/Ctrl + B)" aria-label="Collapse Sidebar (Cmd/Ctrl + B)">
             <i class="ph ph-sidebar-simple text-sm"></i>
           </button>
         </div>
@@ -1464,7 +1465,7 @@
   </div>
 
   <script src="qrcode.min.js"></script>
-  <script src="app.js?v=20261019-pqc19"></script>
+  <script src="app.js?v=20261019-pqc20"></script>
 </body>
 </html>
 
