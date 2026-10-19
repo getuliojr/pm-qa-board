@@ -747,6 +747,73 @@ def test_static_assets_contain_story13_instant_qr_and_connection_hygiene():
     assert "Mobile URL copied to clipboard" in app_js
 
 
+def test_building_cards_cache_avoids_redundant_disk_reads(tmp_path):
+    """Story 14: Verify count_building_cards caches results and invalidation works properly."""
+    cards_dir = tmp_path / "cards"
+    cards_dir.mkdir(parents=True)
+    c1 = cards_dir / "TEST-1.md"
+    c1.write_text("---\nstatus: in-progress\n---\n# Test", encoding="utf-8")
+
+    import server as srv
+
+    project = {"docs_path": str(tmp_path)}
+    srv.invalidate_building_count_cache(tmp_path)
+    count1 = srv.count_building_cards(project)
+    assert count1 == 1
+
+    # Add second in-progress card without invalidation
+    c2 = cards_dir / "TEST-2.md"
+    c2.write_text("---\nstatus: in-progress\n---\n# Test 2", encoding="utf-8")
+
+    # Cached value should still be 1
+    count_cached = srv.count_building_cards(project)
+    assert count_cached == 1
+
+    # Invalidate cache -> should now be 2
+    srv.invalidate_building_count_cache(tmp_path)
+    count_fresh = srv.count_building_cards(project)
+    assert count_fresh == 2
+
+
+def test_project_select_returns_complete_view(server, legacy_project):
+    """Story 14: Verify POST /api/projects/select returns complete project payload for zero-lag switching."""
+    base, srv = server
+    projects.upsert_project(projects.build_project("Legacy", legacy_project, prefix="MN"))
+    req = urllib.request.Request(
+        f"{base}/api/projects/select",
+        data=json.dumps({"slug": "legacy"}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as r:
+        assert r.status == 200
+        payload = json.loads(r.read().decode("utf-8"))
+        assert payload.get("success") is True
+        assert "current" in payload
+        assert "projects" in payload
+        assert isinstance(payload["projects"], list)
+
+
+def test_static_assets_contain_story14_lazy_loading_and_abort_hygiene():
+    """Story 14: Verify view-scoped data fetchers, non-overlapping polling, and in-flight abort in app.js."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+    # View-scoped fetchers
+    assert "function fetchBoardData(" in app_js
+    assert "function fetchQaData(" in app_js
+    assert "function fetchRoadmapData(" in app_js
+    assert "function fetchActivityData(" in app_js
+    assert "function fetchActiveSprintData(" in app_js
+    assert "function fetchCurrentViewData(" in app_js
+
+    # Non-overlapping chained polling
+    assert "function scheduleNextPoll(" in app_js
+    assert "currentFetchAbortController" in app_js
+    assert "renderLoadingSkeletons(" in app_js
+
+
+
 
 
 

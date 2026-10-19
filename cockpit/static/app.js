@@ -681,11 +681,11 @@ function showLoadingFeedback(isLoading) {
   }
 }
 
-function renderLoadingSkeletons() {
+function renderLoadingSkeletons(force = false) {
   const cols = ['backlog', 'sprint-backlog', 'in-progress', 'qa', 'completed'];
   cols.forEach((colId) => {
     const el = document.getElementById(`cards-${colId}`);
-    if (el && state.cards.length === 0) {
+    if (el && (force || state.cards.length === 0)) {
       el.innerHTML = `
         <div class="board-skeleton-card p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2.5 my-2">
           <div class="flex justify-between items-center">
@@ -711,34 +711,70 @@ function renderLoadingSkeletons() {
 // -----------------------------------------------------------------------------
 // Data Fetching
 // -----------------------------------------------------------------------------
-async function fetchAll() {
-  showLoadingFeedback(true);
-  if (state.cards.length === 0) {
-    renderLoadingSkeletons();
-  }
+let currentFetchAbortController = null;
+let pollTimeoutId = null;
+let isPollingActive = true;
+let isFetching = false;
+let consecutivePollErrors = 0;
 
+function scheduleNextPoll(delayMs = 10000) {
+  if (pollTimeoutId) {
+    clearTimeout(pollTimeoutId);
+    pollTimeoutId = null;
+  }
+  if (!isPollingActive) return;
+
+  pollTimeoutId = setTimeout(async () => {
+    if (isFetching || document.hidden) {
+      scheduleNextPoll(isFetching ? 2000 : 10000);
+      return;
+    }
+    isFetching = true;
+    try {
+      await fetchCurrentViewData();
+      consecutivePollErrors = 0;
+      scheduleNextPoll(10000);
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        consecutivePollErrors = Math.min(consecutivePollErrors + 1, 5);
+        console.warn('Polling error:', err);
+      }
+      const backoff = 10000 + (consecutivePollErrors * 5000);
+      scheduleNextPoll(backoff);
+    } finally {
+      isFetching = false;
+    }
+  }, delayMs);
+}
+
+// -----------------------------------------------------------------------------
+// View-Scoped Data Fetching
+// -----------------------------------------------------------------------------
+async function fetchBoardData(signal = undefined) {
+  showLoadingFeedback(true);
   const errBanner = document.getElementById('globalErrorBanner');
   if (errBanner) errBanner.classList.add('hidden');
 
   try {
-    const [cardsRes, sprintsRes, actRes] = await Promise.all([
-      fetch('/api/cards').then((r) => {
+    const fetchPromises = [
+      fetch('/api/cards', { signal }).then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status} fetching cards`);
         return r.json();
       }),
-      fetch('/api/sprints').then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status} fetching sprints`);
-        return r.json();
-      }),
-      fetch('/api/activity').then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status} fetching activity`);
-        return r.json();
-      }),
-    ]);
-
+    ];
+    if (state.sprints.length === 0) {
+      fetchPromises.push(
+        fetch('/api/sprints', { signal }).then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status} fetching sprints`);
+          return r.json();
+        })
+      );
+    }
+    const [cardsRes, sprintsRes] = await Promise.all(fetchPromises);
     state.cards = cardsRes.cards || [];
-    state.sprints = sprintsRes.roadmap || [];
-    state.activity = actRes || {};
+    if (sprintsRes) {
+      state.sprints = sprintsRes.roadmap || [];
+    }
 
     try {
       detectCardTransitions(state.cards);
@@ -757,15 +793,6 @@ async function fetchAll() {
     try { updateHeader(); } catch (e) { console.error('Error in updateHeader:', e); }
     try { populateSprintFilter(); } catch (e) { console.error('Error in populateSprintFilter:', e); }
     try { renderPipeline(); } catch (e) { console.error('Error in renderPipeline:', e); }
-    try { renderQaStation(); } catch (e) { console.error('Error in renderQaStation:', e); }
-    try { renderRoadmap(); } catch (e) { console.error('Error in renderRoadmap:', e); }
-    try { renderActivity(); } catch (e) { console.error('Error in renderActivity:', e); }
-
-    await Promise.allSettled([
-      fetchActiveSprint(),
-      fetchHeavyGateStatus(),
-      fetchSprintGateStatus(),
-    ]);
 
     if (!window._initialDeepLinkHandled) {
       window._initialDeepLinkHandled = true;
@@ -776,16 +803,158 @@ async function fetchAll() {
       }
     }
   } catch (err) {
-    console.error('Failed to load dashboard data:', err);
-    if (errBanner) {
-      const errMsg = document.getElementById('globalErrorMessage');
-      if (errMsg) errMsg.textContent = `Connection error: ${err.message || 'Server unreachable'}. Check that server is running.`;
-      errBanner.classList.remove('hidden');
+    if (err.name !== 'AbortError') {
+      console.error('Failed to load board data:', err);
+      if (errBanner) {
+        const errMsg = document.getElementById('globalErrorMessage');
+        if (errMsg) errMsg.textContent = `Connection error: ${err.message || 'Server unreachable'}. Check that server is running.`;
+        errBanner.classList.remove('hidden');
+      }
+      throw err;
     }
   } finally {
     showLoadingFeedback(false);
     if (window.lucide) lucide.createIcons();
   }
+}
+
+async function fetchQaData(signal = undefined) {
+  showLoadingFeedback(true);
+  try {
+    const [cardsRes, gateStatusRes, sprintGateRes] = await Promise.allSettled([
+      fetch('/api/cards', { signal }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
+      fetch('/api/heavy-gate/status', { signal }).then((r) => r.ok ? r.json() : null),
+      fetch('/api/heavy-gate/sprints', { signal }).then((r) => r.ok ? r.json() : null),
+    ]);
+    if (cardsRes.status === 'fulfilled' && cardsRes.value) {
+      state.cards = cardsRes.value.cards || [];
+      try { detectCardTransitions(state.cards); } catch (_) {}
+    }
+    if (gateStatusRes.status === 'fulfilled' && gateStatusRes.value) {
+      state.heavyGateWorker = gateStatusRes.value.worker;
+      state.heavyGateInfo = gateStatusRes.value.info;
+      updateHeavyGateControls();
+    }
+    if (sprintGateRes.status === 'fulfilled' && sprintGateRes.value) {
+      state.sprintGateStatus = sprintGateRes.value.sprints || [];
+      renderSprintQualityAudit();
+    }
+    renderQaStation();
+    updateHeader();
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('Failed to load QA data:', err);
+      throw err;
+    }
+  } finally {
+    showLoadingFeedback(false);
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+async function fetchRoadmapData(signal = undefined) {
+  showLoadingFeedback(true);
+  try {
+    const fetchPromises = [
+      fetch('/api/sprints', { signal }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
+    ];
+    if (state.cards.length === 0) {
+      fetchPromises.push(
+        fetch('/api/cards', { signal }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      );
+    }
+    const [sprintsRes, cardsRes] = await Promise.all(fetchPromises);
+    state.sprints = sprintsRes.roadmap || [];
+    if (cardsRes) {
+      state.cards = cardsRes.cards || [];
+    }
+    renderRoadmap();
+    updateHeader();
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('Failed to load roadmap data:', err);
+      throw err;
+    }
+  } finally {
+    showLoadingFeedback(false);
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+async function fetchActivityData(signal = undefined) {
+  showLoadingFeedback(true);
+  try {
+    const res = await fetch('/api/activity', { signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    state.activity = data || {};
+    renderActivity();
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('Failed to load activity data:', err);
+      throw err;
+    }
+  } finally {
+    showLoadingFeedback(false);
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+async function fetchActiveSprintData(sprintId = null, signal = undefined) {
+  showLoadingFeedback(true);
+  if (sprintId !== null) {
+    state.activeSprintId = sprintId;
+  }
+  try {
+    const param = state.activeSprintId && state.activeSprintId !== 'ACTIVE'
+      ? `?sprint=${encodeURIComponent(state.activeSprintId)}`
+      : '';
+    const fetchPromises = [
+      fetch(`/api/active-sprint${param}`, { signal }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
+    ];
+    if (state.cards.length === 0) {
+      fetchPromises.push(
+        fetch('/api/cards', { signal }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      );
+    }
+    const [dodRes, cardsRes] = await Promise.all(fetchPromises);
+    state.sprintDodData = dodRes;
+    if (cardsRes) {
+      state.cards = cardsRes.cards || [];
+    }
+    renderActiveSprintDod();
+    updateHeader();
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('Failed to load active sprint data:', err);
+      throw err;
+    }
+  } finally {
+    showLoadingFeedback(false);
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+async function fetchCurrentViewData(signal = undefined) {
+  const currentTab = state.activeTab || 'pipeline';
+  switch (currentTab) {
+    case 'pipeline':
+      return await fetchBoardData(signal);
+    case 'qa':
+      return await fetchQaData(signal);
+    case 'sprints':
+      return await fetchRoadmapData(signal);
+    case 'activity':
+      return await fetchActivityData(signal);
+    case 'sprint-dod':
+      return await fetchActiveSprintData(state.activeSprintId, signal);
+    default:
+      return await fetchBoardData(signal);
+  }
+}
+
+async function fetchAll() {
+  return await fetchCurrentViewData();
 }
 
 // -----------------------------------------------------------------------------
@@ -1867,6 +2036,9 @@ function switchTab(tabId) {
     closeMobileSidebar();
   }
 
+  fetchCurrentViewData().catch((e) => console.warn('fetchCurrentViewData tab switch error:', e));
+  scheduleNextPoll(10000);
+
   if (window.lucide) lucide.createIcons();
 }
 
@@ -1874,21 +2046,7 @@ function switchTab(tabId) {
 // Active Sprint & Live DoD Tracker
 // -----------------------------------------------------------------------------
 async function fetchActiveSprint(targetSprint = null) {
-  if (targetSprint !== null) {
-    state.activeSprintId = targetSprint;
-  }
-  try {
-    const param =
-      state.activeSprintId && state.activeSprintId !== 'ACTIVE'
-        ? `?sprint=${encodeURIComponent(state.activeSprintId)}`
-        : '';
-    const data = await fetch(`/api/active-sprint${param}`).then((r) => r.json());
-    state.sprintDodData = data;
-    renderActiveSprintDod();
-    updateHeader();
-  } catch (err) {
-    console.error('Failed to fetch active sprint DoD:', err);
-  }
+  return await fetchActiveSprintData(targetSprint);
 }
 
 // -----------------------------------------------------------------------------
@@ -3180,9 +3338,10 @@ document.addEventListener('DOMContentLoaded', () => {
   initKanbanDragDrop();
   initSoundControl();
   fetchServerInfo();
-  fetchProjects().then(() => fetchAll());
-  // Auto refresh every 10 seconds
-  setInterval(fetchAll, 10000);
+  fetchProjects().then(() => {
+    fetchAll();
+    scheduleNextPoll(10000);
+  });
 
   // Global Keyboard Shortcuts
   document.addEventListener('keydown', (e) => {
@@ -4123,7 +4282,24 @@ function renderProjectUi() {
 async function selectProject(slug) {
   closeProjectMenu();
   if (!slug || slug === state.activeProjectSlug) return;
+
+  // 1. Abort in-flight requests from the previous project
+  if (currentFetchAbortController) {
+    try { currentFetchAbortController.abort(); } catch (_) {}
+    currentFetchAbortController = null;
+  }
+
+  // 2. Immediate optimistic feedback
+  const targetProject = (state.projects || []).find((p) => p.slug === slug);
+  const targetName = targetProject ? targetProject.name : slug;
+  const nameEl = document.getElementById('headerProjectName');
+  if (nameEl) {
+    nameEl.innerHTML = `<span class="inline-flex items-center gap-1.5"><i class="ph ph-spinner animate-spin text-emerald-500"></i> ${escapeHtml(targetName)}</span>`;
+  }
   showLoadingFeedback(true);
+  resetProjectScopedState();
+  renderLoadingSkeletons(true);
+
   try {
     const res = await fetch('/api/projects/select', {
       method: 'POST',
@@ -4132,11 +4308,20 @@ async function selectProject(slug) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
-    resetProjectScopedState();
-    await fetchProjects();
-    await fetchAll();
+
+    // Populate project state directly from response, skipping redundant GET /api/projects
+    state.activeProjectSlug = slug;
+    if (data.projects) state.projects = data.projects;
+    if (data.current) state.currentProject = data.current;
+    renderProjectUi();
+
+    // Fetch view-scoped data for active tab
+    await fetchCurrentViewData();
+    scheduleNextPoll(10000);
   } catch (err) {
-    showToast(`Could not switch project: ${err.message}`, 'error');
+    if (err.name !== 'AbortError') {
+      showToast(`Could not switch project: ${err.message}`, 'error');
+    }
     showLoadingFeedback(false);
   }
 }

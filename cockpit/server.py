@@ -14,6 +14,7 @@ import datetime
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -355,11 +356,31 @@ def _worker_config(parser: PMParser) -> tuple[str, str, str | None]:
     return (str(parser.root_dir), str(parser.heavy_results_dir), gates.get("heavy_script"))
 
 
-def count_building_cards(project: dict[str, Any]) -> int:
-    """Count how many stories are currently in progress ('building') for a project."""
+_BUILDING_COUNT_CACHE: dict[str, tuple[float, int]] = {}
+
+
+def invalidate_building_count_cache(docs_path: str | None = None) -> None:
+    """Invalidate building count cache for a specific project docs_path or entirely."""
+    global _BUILDING_COUNT_CACHE
+    if docs_path:
+        _BUILDING_COUNT_CACHE.pop(str(docs_path), None)
+    else:
+        _BUILDING_COUNT_CACHE.clear()
+
+
+def count_building_cards(project: dict[str, Any], *, max_age_seconds: float = 30.0) -> int:
+    """Count how many stories are currently in progress ('building') for a project, with in-memory TTL caching."""
     docs_path = project.get("docs_path")
     if not docs_path:
         return 0
+
+    norm_path = str(docs_path)
+    now = time.time()
+    if norm_path in _BUILDING_COUNT_CACHE:
+        cached_time, cached_count = _BUILDING_COUNT_CACHE[norm_path]
+        if (now - cached_time) < max_age_seconds:
+            return cached_count
+
     cards_dir = Path(docs_path) / "cards"
     count = 0
     building_sprints = set()
@@ -394,6 +415,8 @@ def count_building_cards(project: dict[str, Any]) -> int:
                     count += 1
         except Exception:
             pass
+
+    _BUILDING_COUNT_CACHE[norm_path] = (now, count)
     return count
 
 
@@ -1443,6 +1466,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 checked = body.get("checked", False)
                 ok, msg = STATE.parser.toggle_dod_item(mn_id, index, checked)
                 if ok:
+                    invalidate_building_count_cache(STATE.project.get("docs_path"))
                     self.send_json({"success": True, "message": msg})
                 else:
                     self.send_json({"success": False, "error": msg}, status=400)
@@ -1460,6 +1484,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 checked = body.get("checked", False)
                 ok, msg = STATE.parser.toggle_qa_item(mn_id, index, checked)
                 if ok:
+                    invalidate_building_count_cache(STATE.project.get("docs_path"))
                     self.send_json({"success": True, "message": msg})
                 else:
                     self.send_json({"success": False, "error": msg}, status=400)
@@ -1476,6 +1501,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 commit = body.get("commit", True)
                 ok, msg = STATE.parser.validate_card(mn_id, notes=notes, do_commit=commit)
                 if ok:
+                    invalidate_building_count_cache(STATE.project.get("docs_path"))
                     self.send_json({"success": True, "message": msg})
                 else:
                     self.send_json({"success": False, "error": msg}, status=400)
@@ -1494,6 +1520,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 checked = body.get("checked", False)
                 ok, msg = STATE.parser.toggle_sprint_dod_item(sprint_id, index, checked)
                 if ok:
+                    invalidate_building_count_cache(STATE.project.get("docs_path"))
                     self.send_json({"success": True, "message": msg})
                 else:
                     self.send_json({"success": False, "error": msg}, status=400)
