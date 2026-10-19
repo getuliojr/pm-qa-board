@@ -142,9 +142,9 @@ if (-not $PSBoundParameters.ContainsKey('Mobile') -and
         Write-Host "    PM & QA Board Launcher" -ForegroundColor Cyan
         Write-Host "  ================================================" -ForegroundColor Cyan
         Write-Host "  Select dashboard access mode:" -ForegroundColor Cyan
-        Write-Host "    [1] Public Tunnel (Cloudflare Quick Tunnel with secure session token) [default]" -ForegroundColor Green
-        Write-Host "    [2] Mobile Wi-Fi (LAN access for phone on same Wi-Fi, keep-awake)" -ForegroundColor Yellow
-        Write-Host "    [3] Local only   (127.0.0.1 loopback, PC only)" -ForegroundColor DarkGray
+        Write-Host "    [1] Public Tunnel (Cloudflare Quick Tunnel with secure session token) [default]" -ForegroundColor Yellow
+        Write-Host "    [2] Mobile Wi-Fi (LAN access for phone on same Wi-Fi, keep-awake)" -ForegroundColor Gray
+        Write-Host "    [3] Local only   (127.0.0.1 loopback, PC only)" -ForegroundColor Gray
         Write-Host ""
         $choice = Read-Host "  Choose mode [1]"
         $choice = if ($choice) { $choice.Trim() } else { "" }

@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -933,6 +934,255 @@ def apply_system_update(target_code_path: str | None = None) -> tuple[bool, dict
     }
 
 
+def get_active_code_dir() -> Path:
+    """Return Path to active project's code_path, or current directory if not set."""
+    if STATE.project and STATE.project.get("code_path"):
+        p = Path(STATE.project["code_path"])
+        if p.is_dir():
+            return p
+    return Path.cwd()
+
+
+def get_git_sync_status(code_dir: Path | None = None) -> dict[str, Any]:
+    """Inspect branch, upstream tracking, ahead/behind counts, current commit and porcelain status."""
+    if code_dir is None:
+        code_dir = get_active_code_dir()
+    git_cmd = "git"
+
+    branch = "main"
+    try:
+        res = subprocess.run(
+            [git_cmd, "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(code_dir),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            branch = res.stdout.strip()
+    except Exception:
+        pass
+
+    ahead_count = 0
+    behind_count = 0
+    upstream = ""
+    try:
+        res = subprocess.run(
+            [git_cmd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            cwd=str(code_dir),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            upstream = res.stdout.strip()
+            res2 = subprocess.run(
+                [git_cmd, "rev-list", "--left-right", "--count", "HEAD...@{u}"],
+                cwd=str(code_dir),
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if res2.returncode == 0:
+                parts = res2.stdout.strip().split()
+                if len(parts) >= 2:
+                    ahead_count = int(parts[0])
+                    behind_count = int(parts[1])
+    except Exception:
+        pass
+
+    current_sha = ""
+    try:
+        res = subprocess.run(
+            [git_cmd, "rev-parse", "HEAD"],
+            cwd=str(code_dir),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if res.returncode == 0:
+            current_sha = res.stdout.strip()
+    except Exception:
+        pass
+
+    is_dirty = False
+    dirty_files: list[dict[str, str]] = []
+    try:
+        res = subprocess.run(
+            [git_cmd, "status", "--porcelain"],
+            cwd=str(code_dir),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if res.returncode == 0:
+            for raw_line in res.stdout.splitlines():
+                line = raw_line.rstrip("\r\n")
+                if not line.strip():
+                    continue
+                is_dirty = True
+                if len(line) >= 4 and line[2] == " ":
+                    status = line[:2]
+                    path = line[3:].strip()
+                else:
+                    parts = line.split(maxsplit=1)
+                    status = parts[0] if parts else ""
+                    path = parts[1].strip() if len(parts) > 1 else ""
+                dirty_files.append({"status": status.strip(), "path": path, "raw": line})
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "branch": branch,
+        "upstream": upstream,
+        "ahead_count": ahead_count,
+        "behind_count": behind_count,
+        "current_sha": current_sha,
+        "is_dirty": is_dirty,
+        "dirty_files": dirty_files,
+    }
+
+
+def git_commit_changes(
+    message: str,
+    files: list[str] | None = None,
+    code_dir: Path | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Stage files (or all changes) and create a git commit with the given message."""
+    if code_dir is None:
+        code_dir = get_active_code_dir()
+    git_cmd = "git"
+    msg = (message or "").strip()
+    if not msg:
+        return False, {"success": False, "error": "Commit message cannot be empty."}
+
+    # 1. Stage files
+    try:
+        if files and len(files) > 0:
+            stage_cmd = [git_cmd, "add", "-A", "--"] + files
+            res_add = subprocess.run(
+                stage_cmd,
+                cwd=str(code_dir),
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            if res_add.returncode != 0:
+                return False, {"success": False, "error": f"Failed to stage files: {res_add.stderr.strip()}"}
+        else:
+            res_add = subprocess.run(
+                [git_cmd, "add", "-A"],
+                cwd=str(code_dir),
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            if res_add.returncode != 0:
+                return False, {"success": False, "error": f"Failed to stage files: {res_add.stderr.strip()}"}
+    except Exception as e:
+        return False, {"success": False, "error": f"Staging error: {e}"}
+
+    # 2. Commit using temporary file
+    tf_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as tf:
+            tf.write(msg)
+            tf_path = tf.name
+
+        res_commit = subprocess.run(
+            [git_cmd, "commit", "-F", tf_path],
+            cwd=str(code_dir),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if res_commit.returncode != 0:
+            err = res_commit.stderr.strip() or res_commit.stdout.strip()
+            return False, {"success": False, "error": f"Commit failed: {err}"}
+
+        res_sha = subprocess.run(
+            [git_cmd, "rev-parse", "HEAD"],
+            cwd=str(code_dir),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        new_sha = res_sha.stdout.strip() if res_sha.returncode == 0 else ""
+
+        return True, {
+            "success": True,
+            "sha": new_sha,
+            "message": msg,
+            "output": res_commit.stdout.strip(),
+        }
+    except Exception as e:
+        return False, {"success": False, "error": f"Commit execution error: {e}"}
+    finally:
+        if tf_path:
+            try:
+                Path(tf_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def git_push_branch(code_dir: Path | None = None) -> tuple[bool, dict[str, Any]]:
+    """Push local branch commits to remote."""
+    if code_dir is None:
+        code_dir = get_active_code_dir()
+    git_cmd = "git"
+    try:
+        res = subprocess.run(
+            [git_cmd, "push"],
+            cwd=str(code_dir),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if res.returncode == 0:
+            out = res.stdout.strip() or res.stderr.strip()
+            return True, {"success": True, "output": out}
+        else:
+            err = res.stderr.strip() or res.stdout.strip()
+            return False, {"success": False, "error": f"Push failed: {err}"}
+    except Exception as e:
+        return False, {"success": False, "error": f"Push execution error: {e}"}
+
+
+def git_pull_branch(code_dir: Path | None = None) -> tuple[bool, dict[str, Any]]:
+    """Pull upstream commits to local branch."""
+    if code_dir is None:
+        code_dir = get_active_code_dir()
+    git_cmd = "git"
+    try:
+        res = subprocess.run(
+            [git_cmd, "pull"],
+            cwd=str(code_dir),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if res.returncode == 0:
+            out = res.stdout.strip() or res.stderr.strip()
+            return True, {"success": True, "output": out}
+        else:
+            err = res.stderr.strip() or res.stdout.strip()
+            return False, {"success": False, "error": f"Pull failed: {err}"}
+    except Exception as e:
+        return False, {"success": False, "error": f"Pull execution error: {e}"}
+
+
 
 class PMRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
@@ -1227,6 +1477,11 @@ class PMRequestHandler(BaseHTTPRequestHandler):
             self.send_json(info)
             return
 
+        if path == "/api/git/sync-status":
+            info = get_git_sync_status()
+            self.send_json(info)
+            return
+
         if path == "/api/heavy-gate/status":
             gate_info = STATE.parser.get_heavy_gate_info()
             worker_status = STATE.worker.get_status()
@@ -1447,6 +1702,32 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/system/update-apply":
             target_code = body.get("code_path") if isinstance(body, dict) else None
             ok, result = apply_system_update(target_code)
+            if ok:
+                self.send_json(result)
+            else:
+                self.send_json(result, status=400)
+            return
+
+        if path == "/api/git/commit":
+            message = body.get("message", "") if isinstance(body, dict) else ""
+            files = body.get("files") if isinstance(body, dict) else None
+            ok, result = git_commit_changes(message, files)
+            if ok:
+                self.send_json(result)
+            else:
+                self.send_json(result, status=400)
+            return
+
+        if path == "/api/git/push":
+            ok, result = git_push_branch()
+            if ok:
+                self.send_json(result)
+            else:
+                self.send_json(result, status=400)
+            return
+
+        if path == "/api/git/pull":
+            ok, result = git_pull_branch()
             if ok:
                 self.send_json(result)
             else:

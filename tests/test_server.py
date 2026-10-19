@@ -813,6 +813,119 @@ def test_static_assets_contain_story14_lazy_loading_and_abort_hygiene():
     assert "renderLoadingSkeletons(" in app_js
 
 
+def test_git_sync_status_endpoint(server):
+    """Story 15: Verify GET /api/git/sync-status returns branch, ahead/behind, current SHA."""
+    base, srv = server
+    status, body = get(f"{base}/api/git/sync-status")
+    assert status == 200
+    res = json.loads(body)
+    assert res.get("success") is True
+    assert "branch" in res
+    assert "ahead_count" in res
+    assert "behind_count" in res
+    assert "current_sha" in res
+
+
+def test_git_commit_endpoint(server, monkeypatch):
+    """Story 15: Verify POST /api/git/commit validates message and executes commit."""
+    base, srv = server
+    import server as srv_mod
+
+    # 1. Empty message rejection
+    status, res = post(f"{base}/api/git/commit", {"message": ""})
+    assert status == 400
+    assert "error" in res
+
+    # 2. Successful commit
+    monkeypatch.setattr(
+        srv_mod,
+        "git_commit_changes",
+        lambda msg, files=None, code_dir=None: (
+            True,
+            {"success": True, "sha": "1234567890abcdef", "message": msg, "output": "[main 1234567] test commit"},
+        ),
+    )
+    status, res = post(f"{base}/api/git/commit", {"message": "feat: test commit", "files": ["test.txt"]})
+    assert status == 200
+    assert res.get("success") is True
+    assert res.get("sha") == "1234567890abcdef"
+
+
+def test_git_push_and_pull_endpoints(server, monkeypatch):
+    """Story 15: Verify POST /api/git/push and POST /api/git/pull."""
+    base, srv = server
+    import server as srv_mod
+
+    # Push
+    monkeypatch.setattr(
+        srv_mod,
+        "git_push_branch",
+        lambda code_dir=None: (True, {"success": True, "output": "Everything up-to-date"}),
+    )
+    status, res = post(f"{base}/api/git/push", {})
+    assert status == 200
+    assert res.get("success") is True
+
+    # Pull
+    monkeypatch.setattr(
+        srv_mod,
+        "git_pull_branch",
+        lambda code_dir=None: (True, {"success": True, "output": "Already up to date."}),
+    )
+    status, res = post(f"{base}/api/git/pull", {})
+    assert status == 200
+    assert res.get("success") is True
+
+
+def test_static_assets_contain_story15_features():
+    """Story 15: Verify status badge classes, QA station bugfix, card-driven roadmap and git UI."""
+    repo_root = Path(__file__).resolve().parent.parent
+    static_dir = repo_root / "cockpit" / "static"
+    style_css = (static_dir / "style.css").read_text(encoding="utf-8")
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+    dashboard_ps1 = (repo_root / "dashboard.ps1").read_text(encoding="utf-8")
+    pm_orchestrate = (repo_root / "skills" / "pm-orchestrate" / "SKILL.md").read_text(encoding="utf-8")
+
+    # 1. High contrast status badge classes in style.css
+    assert ".badge-status-building" in style_css
+    assert ".badge-status-qa" in style_css
+    assert ".badge-status-complete" in style_css
+    assert ".badge-status-in-progress" in style_css
+    assert "#b45309" in style_css
+    assert "#fcd34d" in style_css
+
+    # 2. QA Station crash fix in app.js
+    assert "renderSprintAuditTable()" in app_js
+    assert "renderSprintQualityAudit" not in app_js
+
+    # 3. Card-driven story status in app.js
+    assert "function getStoryStatusInfo(" in app_js
+    assert "badge-status-complete" in app_js
+    assert "badge-status-qa" in app_js
+
+    # 4. In-App Git UI in index.html & app.js
+    assert 'id="activityCommitBtn"' in index_html
+    assert 'id="gitSyncBar"' in index_html
+    assert 'id="gitSyncBranch"' in index_html
+    assert 'id="gitPushBtn"' in index_html
+    assert 'id="gitPullBtn"' in index_html
+    assert 'id="gitCommitModal"' in index_html
+    assert 'id="gitConfirmModal"' in index_html
+    assert "function openCommitModal(" in app_js
+    assert "function submitGitCommit(" in app_js
+    assert "function promptGitPush(" in app_js
+    assert "function promptGitPull(" in app_js
+
+    # 5. Launcher default option yellow & gray
+    assert '[1] Public Tunnel (Cloudflare Quick Tunnel with secure session token) [default]" -ForegroundColor Yellow' in dashboard_ps1
+    assert '[2] Mobile Wi-Fi (LAN access for phone on same Wi-Fi, keep-awake)" -ForegroundColor Gray' in dashboard_ps1
+
+    # 6. Orchestration alignment
+    assert "seed the card at `story-backlog` (the Ready to Build lane)" in pm_orchestrate
+
+
+
 
 
 

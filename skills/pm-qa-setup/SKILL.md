@@ -2,7 +2,7 @@
 name: pm-qa-setup
 description: Use when the user asks to set up, install, onboard, register, upgrade or check PM & QA Cockpit in a project (or on this machine), or to clean up old cockpit skills. Inspects what the project and this machine already have, says in plain words where each thing belongs, asks a few plain questions, and changes only what the user approves; never overwrites a user's rules or skills. Ends with a read-only doctor check.
 metadata:
-  version: 0.6.1
+  version: 0.6.2
   source: pm-qa-cockpit
 ---
 

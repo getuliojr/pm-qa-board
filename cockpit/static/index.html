@@ -748,7 +748,13 @@
                   <i class="ph ph-file-text text-purple-500 mr-2 text-base"></i>
                   Active Agent Work (Uncommitted Changes)
                 </h3>
-                <span id="activityFileCount" class="text-xs px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] font-mono tabular-nums">0 files</span>
+                <div class="flex items-center gap-2">
+                  <span id="activityFileCount" class="text-xs px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] font-mono tabular-nums">0 files</span>
+                  <button id="activityCommitBtn" onclick="openCommitModal()" class="hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-xs transition cursor-pointer" title="Review and commit changes">
+                    <i class="ph ph-check-circle text-xs"></i>
+                    <span>Commit Changes</span>
+                  </button>
+                </div>
               </div>
               <div class="mt-4 font-mono text-xs text-[var(--text-secondary)] space-y-1.5 max-h-96 overflow-y-auto" id="activityFileList">
                 <p class="text-[var(--text-quaternary)] italic">Working directory is clean.</p>
@@ -762,6 +768,19 @@
                   <i class="ph ph-git-commit text-emerald-500 mr-2 text-base"></i>
                   Recent Commits on Branch
                 </h3>
+                <!-- Branch Sync Bar -->
+                <div id="gitSyncBar" class="flex items-center gap-2">
+                  <span id="gitSyncBranch" class="text-xs font-mono px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">main</span>
+                  <span id="gitSyncStatusBadge" class="hidden text-[10px] font-mono px-2 py-0.5 rounded font-semibold"></span>
+                  <button id="gitPushBtn" onclick="promptGitPush()" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold hover:bg-emerald-500/25 transition cursor-pointer" title="Push commits to remote">
+                    <i class="ph ph-arrow-up text-xs"></i>
+                    <span>Push Commits</span>
+                  </button>
+                  <button id="gitPullBtn" onclick="promptGitPull()" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30 text-xs font-semibold hover:bg-blue-500/25 transition cursor-pointer" title="Pull updates from remote">
+                    <i class="ph ph-arrow-down text-xs"></i>
+                    <span>Pull Updates</span>
+                  </button>
+                </div>
               </div>
               <div class="mt-4 space-y-3 max-h-96 overflow-y-auto" id="activityCommitList"></div>
             </div>
@@ -1334,6 +1353,86 @@
       <div class="px-6 py-3 border-t border-[var(--border-glass)] bg-[var(--bg-surface-secondary)] flex justify-end">
         <button onclick="closeSoftwareUpdateModal()" class="px-4 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium transition text-xs cursor-pointer">
           Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- GIT COMMIT MODAL                                                          -->
+  <!-- ========================================================================= -->
+  <div id="gitCommitModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity" role="dialog" aria-modal="true" aria-labelledby="gitCommitModalTitle">
+    <div class="apple-glass-modal rounded-2xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden max-h-[90vh]">
+      <!-- Header -->
+      <div class="px-6 py-4 border-b border-[var(--border-glass)] flex items-center justify-between apple-glass-toolbar shrink-0">
+        <div>
+          <h3 id="gitCommitModalTitle" class="text-sm font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+            <i class="ph ph-git-commit text-emerald-500"></i>
+            <span>Commit Changes</span>
+          </h3>
+          <p class="text-xs text-[var(--text-tertiary)]">Review files to stage and enter a commit message</p>
+        </div>
+        <button onclick="closeCommitModal()" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1.5 rounded-lg hover:bg-[var(--bg-glass-hover)] transition" aria-label="Close modal">
+          <i class="ph ph-x text-lg"></i>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-6 overflow-y-auto space-y-4 text-xs">
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="font-semibold text-[var(--text-secondary)] uppercase tracking-wider text-[11px] flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="gitCommitSelectAll" onchange="toggleCommitSelectAll(this.checked)" checked class="rounded border-[var(--border-medium)] text-emerald-600 focus:ring-emerald-500/20 cursor-pointer">
+              <span>Files to Stage</span>
+            </label>
+            <span id="gitCommitSelectedCount" class="font-mono text-[11px] text-[var(--text-tertiary)]">0 of 0 selected</span>
+          </div>
+          <div id="gitCommitFileList" class="space-y-1 max-h-48 overflow-y-auto border border-[var(--border-subtle)] rounded-xl p-2 bg-[var(--bg-surface-secondary)] font-mono text-[11px]">
+          </div>
+        </div>
+
+        <div>
+          <label for="gitCommitMessageInput" class="block font-semibold text-[var(--text-secondary)] uppercase tracking-wider text-[11px] mb-1.5">Commit Message</label>
+          <textarea id="gitCommitMessageInput" rows="3" placeholder="e.g., feat: implement card-driven roadmap status" class="w-full bg-[var(--bg-surface)] text-[var(--text-primary)] p-3 rounded-xl border border-[var(--border-medium)] focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none text-xs leading-relaxed font-sans"></textarea>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="px-6 py-3.5 border-t border-[var(--border-glass)] bg-[var(--bg-surface-secondary)] flex items-center justify-between shrink-0">
+        <button onclick="closeCommitModal()" type="button" class="px-4 py-2 rounded-xl bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium transition text-xs cursor-pointer">
+          Cancel
+        </button>
+        <button onclick="submitGitCommit()" id="gitCommitSubmitBtn" type="button" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-xs transition text-xs cursor-pointer flex items-center gap-1.5">
+          <i class="ph ph-check text-xs"></i>
+          <span>Commit Changes</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- GIT CONFIRM ACTION MODAL                                                  -->
+  <!-- ========================================================================= -->
+  <div id="gitConfirmModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity" role="dialog" aria-modal="true" aria-labelledby="gitConfirmModalTitle">
+    <div class="apple-glass-modal rounded-2xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-[var(--border-glass)] flex items-center justify-between apple-glass-toolbar">
+        <h3 id="gitConfirmModalTitle" class="text-sm font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+          <i class="ph ph-git-branch text-purple-500"></i>
+          <span id="gitConfirmModalHeading">Confirm Git Action</span>
+        </h3>
+        <button onclick="closeGitConfirmModal()" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 rounded-lg hover:bg-[var(--bg-glass-hover)] transition" aria-label="Close modal">
+          <i class="ph ph-x text-base"></i>
+        </button>
+      </div>
+      <div class="p-5 text-xs text-[var(--text-primary)] space-y-2">
+        <p id="gitConfirmModalMessage" class="leading-relaxed"></p>
+      </div>
+      <div class="px-5 py-3 border-t border-[var(--border-glass)] bg-[var(--bg-surface-secondary)] flex items-center justify-end gap-2">
+        <button onclick="closeGitConfirmModal()" type="button" class="px-3.5 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium transition text-xs cursor-pointer">
+          Cancel
+        </button>
+        <button id="gitConfirmActionBtn" type="button" class="px-3.5 py-1.5 rounded-lg text-white font-semibold shadow-xs transition text-xs cursor-pointer flex items-center gap-1.5">
+          <span>Confirm</span>
         </button>
       </div>
     </div>

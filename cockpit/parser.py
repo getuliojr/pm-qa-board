@@ -1147,7 +1147,8 @@ class PMParser:
 
                 # Determine status badge
                 st_lower = status_col.lower()
-                is_complete = "✅" in status_col or "complete" in st_lower or "completed" in st_lower
+                has_qa_debt = "owed" in st_lower or "card in qa" in st_lower or "in qa" in st_lower or "awaiting qa" in st_lower
+                is_complete = ("✅" in status_col or "complete" in st_lower or "completed" in st_lower) and not has_qa_debt
                 is_built = "built" in st_lower or "pass" in st_lower or "qa" in st_lower or is_complete
                 is_partial = "⚠️" in status_col or "partial" in st_lower
 

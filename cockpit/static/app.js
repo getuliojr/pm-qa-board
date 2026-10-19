@@ -837,9 +837,17 @@ async function fetchQaData(signal = undefined) {
     }
     if (sprintGateRes.status === 'fulfilled' && sprintGateRes.value) {
       state.sprintGateStatus = sprintGateRes.value.sprints || [];
-      renderSprintQualityAudit();
+      try {
+        renderSprintAuditTable();
+      } catch (auditErr) {
+        console.warn('Failed to render sprint audit table:', auditErr);
+      }
     }
-    renderQaStation();
+    try {
+      renderQaStation();
+    } catch (qaErr) {
+      console.error('Failed to render QA station:', qaErr);
+    }
     updateHeader();
   } catch (err) {
     if (err.name !== 'AbortError') {
@@ -884,10 +892,16 @@ async function fetchRoadmapData(signal = undefined) {
 async function fetchActivityData(signal = undefined) {
   showLoadingFeedback(true);
   try {
-    const res = await fetch('/api/activity', { signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    state.activity = data || {};
+    const [actRes, syncRes] = await Promise.allSettled([
+      fetch('/api/activity', { signal }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
+      fetch('/api/git/sync-status', { signal }).then((r) => r.ok ? r.json() : null),
+    ]);
+    if (actRes.status === 'fulfilled' && actRes.value) {
+      state.activity = actRes.value || {};
+    }
+    if (syncRes.status === 'fulfilled' && syncRes.value) {
+      state.gitSync = syncRes.value || {};
+    }
     renderActivity();
   } catch (err) {
     if (err.name !== 'AbortError') {
@@ -1759,6 +1773,89 @@ function filterBoardBySprint(sprintNum) {
   renderPipeline();
 }
 
+function getStoryStatusInfo(sprint, cards) {
+  const sName = (sprint.sprint || '').toLowerCase();
+  const isBacklog = sName.includes('backlog') || sName.includes('unscheduled');
+  const sprintIdNum = sprint.sprint.replace(/^(?:Sprint|Story|Phase)\s+/i, '').trim();
+  const assignedCards = (cards || []).filter((c) => c.sprint === sprintIdNum || c.sprint === sprint.sprint);
+
+  if (assignedCards.length > 0) {
+    const allCompleted = assignedCards.every((c) => c.status === 'completed');
+    const hasQa = assignedCards.some((c) => c.status === 'qa');
+    const hasInProgress = assignedCards.some((c) => c.status === 'in-progress');
+    const hasStoryBacklog = assignedCards.some((c) => c.status === 'story-backlog' || c.status === 'sprint-backlog');
+
+    if (allCompleted) {
+      return {
+        status: 'COMPLETE',
+        badge: '<span class="badge-status-complete">Complete ✅</span>',
+        assignedCards,
+      };
+    }
+    if (hasQa) {
+      return {
+        status: 'ACTIVE',
+        badge: '<span class="badge-status-qa">Built / In QA</span>',
+        assignedCards,
+      };
+    }
+    if (hasInProgress) {
+      return {
+        status: 'ACTIVE',
+        badge: '<span class="badge-status-in-progress">In Progress</span>',
+        assignedCards,
+      };
+    }
+    if (hasStoryBacklog) {
+      return {
+        status: 'PLANNED',
+        badge: '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">Planned</span>',
+        assignedCards,
+      };
+    }
+    return {
+      status: 'PLANNED',
+      badge: '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">Planned</span>',
+      assignedCards,
+    };
+  }
+
+  // Fallback to PLAN.md metadata when no cards exist for this story
+  if (sprint.is_complete) {
+    return {
+      status: 'COMPLETE',
+      badge: '<span class="badge-status-complete">Complete ✅</span>',
+      assignedCards,
+    };
+  }
+  if (sprint.is_built) {
+    return {
+      status: 'ACTIVE',
+      badge: '<span class="badge-status-qa">Built / In QA</span>',
+      assignedCards,
+    };
+  }
+  if (isBacklog) {
+    return {
+      status: 'BACKLOG',
+      badge: '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">Backlog</span>',
+      assignedCards,
+    };
+  }
+  if (sprint.is_partial) {
+    return {
+      status: 'ACTIVE',
+      badge: '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">Partial ⚠️</span>',
+      assignedCards,
+    };
+  }
+  return {
+    status: 'NEXT_TO_DEFINE',
+    badge: '<span class="badge-next-to-define"><i class="ph ph-sparkle text-xs mr-1 inline"></i>Next to Define</span>',
+    assignedCards,
+  };
+}
+
 function renderRoadmap() {
   const table = document.getElementById('sprintRoadmapTable');
   if (!table) return;
@@ -1773,28 +1870,13 @@ function renderRoadmap() {
   let countBacklog = 0;
 
   state.sprints.forEach((s) => {
-    const sName = (s.sprint || '').toLowerCase();
-    const isBacklog = sName.includes('backlog') || sName.includes('unscheduled');
-    const sprintIdNum = s.sprint.replace(/^(?:Sprint|Story|Phase)\s+/i, '').trim();
-    const assignedCards = state.cards.filter((c) => c.sprint === sprintIdNum || c.sprint === s.sprint);
-    const hasActiveCards = assignedCards.some((c) => c.status === 'in-progress' || c.status === 'qa');
-    const hasSprintBacklogCards = assignedCards.some((c) => c.status === 'sprint-backlog');
-
-    if (s.is_complete) {
-      countComplete++;
-    }
-    if (isBacklog) {
-      countBacklog++;
-    }
-    if (s.is_built || hasActiveCards) {
-      countActive++;
-    }
-    if (!s.is_complete && !s.is_built && !hasActiveCards && !isBacklog && hasSprintBacklogCards) {
-      countPlanned++;
-    }
-    if (!s.is_complete && !s.is_built && !hasActiveCards && !isBacklog && !hasSprintBacklogCards) {
-      countNextToDefine++;
-    }
+    const info = getStoryStatusInfo(s, state.cards);
+    if (info.status === 'COMPLETE') countComplete++;
+    else if (info.status === 'ACTIVE') countActive++;
+    else if (info.status === 'PLANNED') countPlanned++;
+    else if (info.status === 'NEXT_TO_DEFINE') countNextToDefine++;
+    else if (info.status === 'BACKLOG') countBacklog++;
+    else if (s.sprint && (s.sprint.toLowerCase().includes('backlog') || s.sprint.toLowerCase().includes('unscheduled'))) countBacklog++;
   });
 
   const elAll = document.getElementById('rfCountAll');
@@ -1812,25 +1894,21 @@ function renderRoadmap() {
 
   // 2. Filter sprints
   const filtered = state.sprints.filter((sprint) => {
+    const info = getStoryStatusInfo(sprint, state.cards);
     const sName = (sprint.sprint || '').toLowerCase();
     const isBacklog = sName.includes('backlog') || sName.includes('unscheduled');
-    const sprintIdNum = sprint.sprint.replace(/^(?:Sprint|Story|Phase)\s+/i, '').trim();
-    const assignedCards = state.cards.filter((c) => c.sprint === sprintIdNum || c.sprint === sprint.sprint);
-    const hasActiveCards = assignedCards.some((c) => c.status === 'in-progress' || c.status === 'qa');
 
     // Status filter
     if (state.roadmapFilter === 'ACTIVE') {
-      if (!sprint.is_built && !hasActiveCards) return false;
+      if (info.status !== 'ACTIVE') return false;
     } else if (state.roadmapFilter === 'PLANNED') {
-      const hasSprintBacklogCards = assignedCards.some((c) => c.status === 'sprint-backlog');
-      if (sprint.is_complete || sprint.is_built || hasActiveCards || isBacklog || !hasSprintBacklogCards) return false;
+      if (info.status !== 'PLANNED') return false;
     } else if (state.roadmapFilter === 'NEXT_TO_DEFINE') {
-      const hasSprintBacklogCards = assignedCards.some((c) => c.status === 'sprint-backlog');
-      if (sprint.is_complete || isBacklog || hasActiveCards || sprint.is_built || hasSprintBacklogCards) return false;
+      if (info.status !== 'NEXT_TO_DEFINE') return false;
     } else if (state.roadmapFilter === 'COMPLETE') {
-      if (!sprint.is_complete) return false;
+      if (info.status !== 'COMPLETE') return false;
     } else if (state.roadmapFilter === 'BACKLOG') {
-      if (!isBacklog) return false;
+      if (info.status !== 'BACKLOG' && !isBacklog) return false;
     }
 
     // Search filter
@@ -1865,27 +1943,10 @@ function renderRoadmap() {
     const tr = document.createElement('tr');
     tr.className = 'hover:bg-[var(--bg-surface-secondary)] transition-colors';
 
-    const sName = (sprint.sprint || '').toLowerCase();
-    const isBacklog = sName.includes('backlog') || sName.includes('unscheduled');
+    const info = getStoryStatusInfo(sprint, state.cards);
     const sprintIdNum = sprint.sprint.replace(/^(?:Sprint|Story|Phase)\s+/i, '').trim();
-    const assignedCards = state.cards.filter((c) => c.sprint === sprintIdNum || c.sprint === sprint.sprint);
-    const hasActiveCards = assignedCards.some((c) => c.status === 'in-progress' || c.status === 'qa');
-    const hasSprintBacklogCards = assignedCards.some((c) => c.status === 'sprint-backlog');
-
-    let badge = '';
-    if (sprint.is_complete) {
-      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Complete ✅</span>';
-    } else if (sprint.is_built || hasActiveCards) {
-      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">Built / In QA</span>';
-    } else if (isBacklog) {
-      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">Backlog</span>';
-    } else if (!hasSprintBacklogCards) {
-      badge = '<span class="badge-next-to-define"><i class="ph ph-sparkle text-xs mr-1 inline"></i>Next to Define</span>';
-    } else if (sprint.is_partial) {
-      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">Partial ⚠️</span>';
-    } else {
-      badge = '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">Planned</span>';
-    }
+    const assignedCards = info.assignedCards;
+    const badge = info.badge;
 
     // Card column representation
     let cardsHtml = '';
@@ -1896,7 +1957,7 @@ function renderRoadmap() {
           <i class="ph ph-arrow-square-out text-xs opacity-70"></i>
         </button>
       `;
-    } else if (!sprint.is_complete && !isBacklog) {
+    } else if (info.status === 'NEXT_TO_DEFINE') {
       cardsHtml = `<span class="badge-next-to-define"><i class="ph ph-sparkle text-xs mr-1 inline"></i>Next to Define</span>`;
     } else {
       cardsHtml = `<span class="text-[var(--text-quaternary)] font-mono text-[11px]">0 cards</span>`;
@@ -1931,9 +1992,18 @@ function renderActivity() {
   const fileList = document.getElementById('activityFileList');
   const commitList = document.getElementById('activityCommitList');
   const fileCount = document.getElementById('activityFileCount');
+  const commitBtn = document.getElementById('activityCommitBtn');
 
   const modified = state.activity.modified_files || [];
   fileCount.textContent = `${modified.length} files`;
+
+  if (commitBtn) {
+    if (modified.length > 0) {
+      commitBtn.classList.remove('hidden');
+    } else {
+      commitBtn.classList.add('hidden');
+    }
+  }
 
   if (modified.length === 0) {
     fileList.innerHTML = '<p class="text-[var(--text-tertiary)] italic">Working directory is clean.</p>';
@@ -1981,6 +2051,8 @@ function renderActivity() {
       .join('');
   }
 
+  renderGitSyncBar();
+
   const commits = state.activity.commits || [];
   commitList.innerHTML = commits
     .map(
@@ -1997,6 +2069,280 @@ function renderActivity() {
     )
     .join('');
   if (window.lucide) lucide.createIcons();
+}
+
+function renderGitSyncBar() {
+  const sync = state.gitSync || {};
+  const branchEl = document.getElementById('gitSyncBranch');
+  const badgeEl = document.getElementById('gitSyncStatusBadge');
+  const pushBtn = document.getElementById('gitPushBtn');
+  const pullBtn = document.getElementById('gitPullBtn');
+
+  if (branchEl) {
+    branchEl.textContent = sync.branch || 'main';
+  }
+
+  const ahead = sync.ahead_count || 0;
+  const behind = sync.behind_count || 0;
+
+  if (badgeEl) {
+    if (ahead > 0 && behind > 0) {
+      badgeEl.textContent = `Ahead ${ahead} • Behind ${behind}`;
+      badgeEl.className = 'font-mono text-[10px] px-2 py-0.5 rounded font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30';
+      badgeEl.classList.remove('hidden');
+    } else if (ahead > 0) {
+      badgeEl.textContent = `Ahead by ${ahead}`;
+      badgeEl.className = 'font-mono text-[10px] px-2 py-0.5 rounded font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30';
+      badgeEl.classList.remove('hidden');
+    } else if (behind > 0) {
+      badgeEl.textContent = `Behind by ${behind}`;
+      badgeEl.className = 'font-mono text-[10px] px-2 py-0.5 rounded font-semibold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30';
+      badgeEl.classList.remove('hidden');
+    } else if (sync.branch) {
+      badgeEl.textContent = 'Up to date';
+      badgeEl.className = 'font-mono text-[10px] px-2 py-0.5 rounded font-medium bg-[var(--bg-surface-secondary)] text-[var(--text-tertiary)] border border-[var(--border-subtle)]';
+      badgeEl.classList.remove('hidden');
+    } else {
+      badgeEl.classList.add('hidden');
+    }
+  }
+
+  if (pushBtn) {
+    if (ahead > 0) {
+      pushBtn.classList.remove('hidden');
+      pushBtn.innerHTML = `<i class="ph ph-arrow-up text-xs"></i><span>Push (${ahead})</span>`;
+    } else {
+      pushBtn.classList.add('hidden');
+    }
+  }
+
+  if (pullBtn) {
+    if (behind > 0) {
+      pullBtn.classList.remove('hidden');
+      pullBtn.innerHTML = `<i class="ph ph-arrow-down text-xs"></i><span>Pull (${behind})</span>`;
+    } else {
+      pullBtn.classList.add('hidden');
+    }
+  }
+}
+
+function openCommitModal() {
+  const modal = document.getElementById('gitCommitModal');
+  const fileList = document.getElementById('gitCommitFileList');
+  const msgInput = document.getElementById('gitCommitMessageInput');
+  const selectAll = document.getElementById('gitCommitSelectAll');
+  if (!modal || !fileList) return;
+
+  const modified = state.activity.modified_files || [];
+  if (modified.length === 0) {
+    showToast('No uncommitted changes to commit.', 'info');
+    return;
+  }
+
+  if (selectAll) selectAll.checked = true;
+  if (msgInput) msgInput.value = '';
+
+  fileList.innerHTML = modified.map((f) => {
+    let status = '';
+    let path = '';
+    if (typeof f === 'string') {
+      if (f.length >= 4 && f.charAt(2) === ' ') {
+        status = f.slice(0, 2).trim();
+        path = f.slice(3).trim();
+      } else {
+        const firstSpace = f.indexOf(' ');
+        status = firstSpace !== -1 ? f.slice(0, firstSpace).trim() : f.trim();
+        path = firstSpace !== -1 ? f.slice(firstSpace + 1).trim() : '';
+      }
+    } else if (f && typeof f === 'object') {
+      status = f.status || '';
+      path = f.path || '';
+    }
+    if (path.startsWith('"') && path.endsWith('"') && path.length >= 2) {
+      path = path.slice(1, -1);
+    }
+
+    let statusColor = 'text-amber-500';
+    if (status === '??') statusColor = 'text-sky-500';
+    else if (status.includes('D')) statusColor = 'text-rose-500';
+    else if (status.includes('A')) statusColor = 'text-emerald-500';
+
+    return `
+      <label class="flex items-center space-x-2.5 py-1.5 px-2 rounded-lg hover:bg-[var(--bg-surface-tertiary)] cursor-pointer">
+        <input type="checkbox" checked data-commit-file="${escapeHtml(path)}" onchange="updateCommitSelectedCount()" class="commit-file-checkbox rounded border-[var(--border-medium)] text-emerald-600 focus:ring-emerald-500/20 cursor-pointer">
+        <span class="${statusColor} font-bold w-5 shrink-0 text-[10px]">${escapeHtml(status)}</span>
+        <span class="text-[var(--text-primary)] truncate font-medium flex-1 text-[11px]" title="${escapeHtml(path)}">${escapeHtml(path)}</span>
+      </label>
+    `;
+  }).join('');
+
+  updateCommitSelectedCount();
+  modal.classList.remove('hidden');
+  if (msgInput) msgInput.focus();
+}
+
+function closeCommitModal() {
+  const modal = document.getElementById('gitCommitModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function toggleCommitSelectAll(checked) {
+  const checkboxes = document.querySelectorAll('.commit-file-checkbox');
+  checkboxes.forEach((cb) => { cb.checked = checked; });
+  updateCommitSelectedCount();
+}
+
+function updateCommitSelectedCount() {
+  const checkboxes = Array.from(document.querySelectorAll('.commit-file-checkbox'));
+  const checked = checkboxes.filter((cb) => cb.checked);
+  const countEl = document.getElementById('gitCommitSelectedCount');
+  const selectAll = document.getElementById('gitCommitSelectAll');
+  const submitBtn = document.getElementById('gitCommitSubmitBtn');
+
+  if (countEl) {
+    countEl.textContent = `${checked.length} of ${checkboxes.length} selected`;
+  }
+  if (selectAll) {
+    selectAll.checked = checked.length === checkboxes.length && checkboxes.length > 0;
+    selectAll.indeterminate = checked.length > 0 && checked.length < checkboxes.length;
+  }
+  if (submitBtn) {
+    submitBtn.disabled = checked.length === 0;
+    submitBtn.classList.toggle('opacity-50', checked.length === 0);
+  }
+}
+
+async function submitGitCommit() {
+  const msgInput = document.getElementById('gitCommitMessageInput');
+  const message = (msgInput ? msgInput.value : '').trim();
+  if (!message) {
+    showToast('Please enter a commit message.', 'warning');
+    if (msgInput) msgInput.focus();
+    return;
+  }
+
+  const checkboxes = Array.from(document.querySelectorAll('.commit-file-checkbox'));
+  const checkedFiles = checkboxes.filter((cb) => cb.checked).map((cb) => cb.getAttribute('data-commit-file'));
+
+  if (checkedFiles.length === 0) {
+    showToast('Please select at least one file to commit.', 'warning');
+    return;
+  }
+
+  const submitBtn = document.getElementById('gitCommitSubmitBtn');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="ph ph-circle-notch animate-spin text-xs"></i><span>Committing...</span>';
+  }
+
+  try {
+    const res = await fetch('/api/git/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, files: checkedFiles }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Commit failed');
+    }
+
+    const shortSha = data.sha ? data.sha.slice(0, 7) : '';
+    showToast(`Committed ${shortSha}: ${message.slice(0, 40)}`, 'success');
+    closeCommitModal();
+    await fetchActivityData();
+  } catch (err) {
+    showToast(err.message || 'Failed to commit changes.', 'error');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="ph ph-check text-xs"></i><span>Commit Changes</span>';
+    }
+  }
+}
+
+function promptGitPush() {
+  const sync = state.gitSync || {};
+  const ahead = sync.ahead_count || 1;
+  const branch = sync.branch || 'main';
+
+  const modal = document.getElementById('gitConfirmModal');
+  const heading = document.getElementById('gitConfirmModalHeading');
+  const msg = document.getElementById('gitConfirmModalMessage');
+  const btn = document.getElementById('gitConfirmActionBtn');
+
+  if (heading) heading.textContent = 'Push Commits';
+  if (msg) msg.textContent = `Are you sure you want to push ${ahead} commit(s) on branch '${branch}' to remote?`;
+  if (btn) {
+    btn.textContent = 'Push Commits';
+    btn.className = 'px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-xs transition text-xs cursor-pointer flex items-center gap-1.5';
+    btn.onclick = executeGitPush;
+  }
+  if (modal) modal.classList.remove('hidden');
+}
+
+function promptGitPull() {
+  const sync = state.gitSync || {};
+  const behind = sync.behind_count || 1;
+  const branch = sync.branch || 'main';
+
+  const modal = document.getElementById('gitConfirmModal');
+  const heading = document.getElementById('gitConfirmModalHeading');
+  const msg = document.getElementById('gitConfirmModalMessage');
+  const btn = document.getElementById('gitConfirmActionBtn');
+
+  if (heading) heading.textContent = 'Pull Updates';
+  if (msg) msg.textContent = `Are you sure you want to pull ${behind} update(s) for branch '${branch}' from remote?`;
+  if (btn) {
+    btn.textContent = 'Pull Updates';
+    btn.className = 'px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold shadow-xs transition text-xs cursor-pointer flex items-center gap-1.5';
+    btn.onclick = executeGitPull;
+  }
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeGitConfirmModal() {
+  const modal = document.getElementById('gitConfirmModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function executeGitPush() {
+  closeGitConfirmModal();
+  showToast('Pushing commits to remote...', 'info');
+  try {
+    const res = await fetch('/api/git/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Push failed');
+    }
+    showToast('Commits pushed to remote successfully!', 'success');
+    await fetchActivityData();
+  } catch (err) {
+    showToast(err.message || 'Failed to push commits.', 'error');
+  }
+}
+
+async function executeGitPull() {
+  closeGitConfirmModal();
+  showToast('Pulling updates from remote...', 'info');
+  try {
+    const res = await fetch('/api/git/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Pull failed');
+    }
+    showToast('Updates pulled successfully!', 'success');
+    await fetchActivityData();
+  } catch (err) {
+    showToast(err.message || 'Failed to pull updates.', 'error');
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -2198,7 +2544,7 @@ function renderActiveSprintDod() {
 
             const statusBadgeHtml = isGrill
               ? '<span class="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30 flex items-center gap-1"><i class="ph ph-flame text-sm text-purple-500"></i>Design Grill</span>'
-              : '<span class="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>In Progress</span>';
+              : '<span class="badge-status-building text-xs px-2.5 py-0.5 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>🔨 Building...</span>';
 
             const sprintBadgeHtml = `<span class="text-xs px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)] font-mono font-medium">Story ${escSprint}</span>`;
 
@@ -2410,12 +2756,8 @@ function renderActiveSprintDod() {
     if (scopeEl) scopeEl.textContent = data.scope || 'No explicit scope defined in PLAN.md.';
 
     if (statusBadge) {
-      statusBadge.textContent = data.status_raw || (data.is_complete ? 'Complete ✅' : 'Active');
-      statusBadge.className = `text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
-        data.is_complete
-          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-          : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-      }`;
+      statusBadge.textContent = data.status_raw || (data.is_complete ? 'Complete ✅' : 'Building...');
+      statusBadge.className = data.is_complete ? 'badge-status-complete' : 'badge-status-building';
     }
 
     if (navBadge) {
@@ -2486,11 +2828,11 @@ function renderActiveSprintDod() {
             const escTitle = escapeHtml(c.title);
             let statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">Backlog</span>';
             if (c.status === 'in-progress') {
-              statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">In Progress</span>';
+              statusBadge = '<span class="badge-status-in-progress">In Progress</span>';
             } else if (c.status === 'qa') {
-              statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">Awaiting QA</span>';
+              statusBadge = '<span class="badge-status-qa">Awaiting QA</span>';
             } else if (c.status === 'completed') {
-              statusBadge = '<span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Done</span>';
+              statusBadge = '<span class="badge-status-complete">Done</span>';
             }
 
             const dodItemsHtml = (c.dod || [])

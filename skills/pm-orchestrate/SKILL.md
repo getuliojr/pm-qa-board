@@ -2,7 +2,7 @@
 name: pm-orchestrate
 description: Use at the start of any new feature, story or nontrivial change in a project tracked by the PM & QA Cockpit, before writing code or spawning agents; also when onboarding a project (cli.py init), choosing gate mode (profile-gates), or closing a story (close-out artifact).
 metadata:
-  version: 0.6.1
+  version: 0.6.2
   source: pm-qa-cockpit
 ---
 
@@ -25,7 +25,7 @@ file has none). If the project has no Roster or no agent for that role, use the 
    (recommended option first). **Persist after every round**: append settled Qs (id, choice, one-line WHY)
    under `### Grill in progress - Story <id>` in `<docs>/PLAN.md` immediately. Close in five parts:
    (a) write the settled design into PLAN.md (decisions + WHY, rejected alternatives, non-goals, an
-   *unchecked* DoD), promoting the in-progress block; (b) seed the card at `story-backlog`;
+   *unchecked* DoD), promoting the in-progress block; (b) seed the card at `story-backlog` (the Ready to Build lane);
    (c) emit a self-contained handoff prompt (decisions + rationale, file:line touchpoints, traps, DoD);
    (d) commit the grill locally, separate from build work; (e) delete any scratch plan file.
    The grilling session designs; a **new** session builds.

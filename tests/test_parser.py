@@ -211,3 +211,37 @@ def test_active_sprint_overview_fifo_ascending_sort(legacy_project):
     # The default active sprint when nothing is in-progress should pick the oldest ready-to-build story (2.1)
     assert overview["sprint_id"] == "2.1"
 
+
+def test_roadmap_qa_debt_not_marked_complete(tmp_path):
+    """Story 15: Status with QA debt ('owed: Human QA', 'Card in qa') must not be marked is_complete."""
+    plan_file = tmp_path / "PLAN.md"
+    plan_content = """# Project PLAN
+
+| Story | Goal | Status |
+|---|---|---|
+| Story 1 | Completed story | ✅ Done 2026-10-16 |
+| Story 2 | Built awaiting QA | ✅ **Built 2026-10-16**: Card in `qa`; owed: Human QA |
+| Story 3 | Another QA debt | 🔨 Built; awaiting qa |
+| Story 4 | In progress story | 🔨 Building (start SHA 1234567) |
+"""
+    plan_file.write_text(plan_content, encoding="utf-8")
+    p = PMParser(tmp_path)
+    plan_data = p.parse_plan()
+    roadmap = plan_data["roadmap"]
+
+    s1 = next(r for r in roadmap if "Story 1" in r["sprint"])
+    assert s1["is_complete"] is True
+    assert s1["is_built"] is True
+
+    s2 = next(r for r in roadmap if "Story 2" in r["sprint"])
+    assert s2["is_complete"] is False
+    assert s2["is_built"] is True
+
+    s3 = next(r for r in roadmap if "Story 3" in r["sprint"])
+    assert s3["is_complete"] is False
+    assert s3["is_built"] is True
+
+    s4 = next(r for r in roadmap if "Story 4" in r["sprint"])
+    assert s4["is_complete"] is False
+    assert s4["is_built"] is False
+

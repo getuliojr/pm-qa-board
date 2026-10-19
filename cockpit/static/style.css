@@ -747,6 +747,54 @@ html.dark .count-badge {
   letter-spacing: 0.025em;
 }
 
+/* ==========================================================================
+   Design System Status Badges (WCAG AA Compliant >=4.5:1)
+   ========================================================================== */
+
+.badge-status-building,
+.badge-status-in-progress,
+.badge-status-qa {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309; /* Amber-700: >=4.5:1 contrast in light mode */
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  letter-spacing: 0.02em;
+}
+
+html.dark .badge-status-building,
+html.dark .badge-status-in-progress,
+html.dark .badge-status-qa {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d; /* Amber-300 luminous text in dark mode */
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.badge-status-complete {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857; /* Emerald-700 in light mode */
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  letter-spacing: 0.02em;
+}
+
+html.dark .badge-status-complete {
+  background: rgba(16, 185, 129, 0.16);
+  color: #6ee7b7; /* Emerald-300 in dark mode */
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
 /* QA Pending Item */
 .qa-pending-item {
   border: 1px solid var(--status-orange-border);
