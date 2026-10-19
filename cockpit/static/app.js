@@ -131,6 +131,8 @@ window.lucide = {
 let state = {
   cards: [],
   sprints: [],
+  serverInfo: null,
+  serverInfoTime: 0,
   activity: {},
   activeTab: 'pipeline',
   selectedQaId: null,
@@ -3004,25 +3006,29 @@ function closeFailureModal() {
   if (modal) modal.classList.add('hidden');
 }
 
-function copyToClipboard(text, btn) {
+function copyToClipboard(text, btn, toastMessage = '') {
+  const onSuccess = () => {
+    if (btn) {
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = `<i class="ph ph-check text-emerald-500"></i> <span class="text-emerald-500 font-medium">Copied!</span>`;
+      setTimeout(() => {
+        btn.innerHTML = origHtml;
+      }, 2000);
+    }
+    const finalToast = toastMessage || (btn && btn.id === 'copyMobileUrlBtn' ? 'Mobile URL copied to clipboard' : '');
+    if (finalToast) {
+      showToast(finalToast, 'success');
+    }
+  };
+
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      if (btn) {
-        const origHtml = btn.innerHTML;
-        btn.innerHTML = `<i data-lucide="check" class="w-3 h-3 text-emerald-400"></i><span class="text-emerald-400">Copied!</span>`;
-        if (window.lucide) lucide.createIcons();
-        setTimeout(() => {
-          btn.innerHTML = origHtml;
-          if (window.lucide) lucide.createIcons();
-        }, 2000);
-      }
-    }).catch(() => fallbackCopy(text, btn));
+    navigator.clipboard.writeText(text).then(onSuccess).catch(() => fallbackCopy(text, btn, onSuccess));
   } else {
-    fallbackCopy(text, btn);
+    fallbackCopy(text, btn, onSuccess);
   }
 }
 
-function fallbackCopy(text, btn) {
+function fallbackCopy(text, btn, onSuccess) {
   const textarea = document.createElement('textarea');
   textarea.value = text;
   textarea.style.position = 'fixed';
@@ -3031,19 +3037,21 @@ function fallbackCopy(text, btn) {
   textarea.select();
   try {
     document.execCommand('copy');
-    if (btn) {
+    if (onSuccess) {
+      onSuccess();
+    } else if (btn) {
       const origHtml = btn.innerHTML;
-      btn.innerHTML = `<i data-lucide="check" class="w-3 h-3 text-emerald-400"></i><span class="text-emerald-400">Copied!</span>`;
-      if (window.lucide) lucide.createIcons();
+      btn.innerHTML = `<i class="ph ph-check text-emerald-500"></i> <span class="text-emerald-500 font-medium">Copied!</span>`;
       setTimeout(() => {
         btn.innerHTML = origHtml;
-        if (window.lucide) lucide.createIcons();
       }, 2000);
     }
   } catch (err) {
     console.error('Fallback copy failed', err);
   }
-  document.body.removeChild(textarea);
+  if (textarea.parentNode) {
+    textarea.parentNode.removeChild(textarea);
+  }
 }
 
 
@@ -3171,6 +3179,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initMobileKanbanSwipe();
   initKanbanDragDrop();
   initSoundControl();
+  fetchServerInfo();
   fetchProjects().then(() => fetchAll());
   // Auto refresh every 10 seconds
   setInterval(fetchAll, 10000);
@@ -4623,10 +4632,72 @@ function generateQrSvg(text) {
 // -----------------------------------------------------------------------------
 let currentServerInfo = null;
 
+function renderQrCodeGraphic(container, url) {
+  if (!container) return;
+  container.innerHTML = '';
+  try {
+    if (typeof QRCode !== 'undefined') {
+      new QRCode(container, {
+        text: url,
+        width: 200,
+        height: 200,
+        colorDark: '#0f172a',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+      return;
+    }
+  } catch (err) {
+    console.warn('QRCode canvas generation failed, falling back to SVG QR:', err);
+  }
+  container.innerHTML = generateQrSvg(url);
+}
+
+async function fetchServerInfo(force = false) {
+  if (!force && state.serverInfo && (Date.now() - (state.serverInfoTime || 0) < 60000)) {
+    return state.serverInfo;
+  }
+  try {
+    let controller = null;
+    let signal = undefined;
+    if (typeof AbortController !== 'undefined') {
+      controller = new AbortController();
+      signal = controller.signal;
+      setTimeout(() => {
+        try { controller.abort(); } catch (_) {}
+      }, 3000);
+    }
+    const res = await fetch('/api/server-info', { signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const info = await res.json();
+    state.serverInfo = info;
+    state.serverInfoTime = Date.now();
+    currentServerInfo = info;
+    return info;
+  } catch (err) {
+    console.warn('fetchServerInfo aborted or failed:', err);
+    return state.serverInfo || currentServerInfo || null;
+  }
+}
+
+function updateMobileBadges(info) {
+  if (!info) return;
+  const kaBadge = document.getElementById('mobileKeepAliveBadge');
+  if (kaBadge) {
+    kaBadge.textContent = info.keep_alive ? 'Active (Sleep Prevented)' : 'Standard';
+    kaBadge.className = `font-semibold ${info.keep_alive ? 'text-cyan-500 dark:text-cyan-400' : 'text-slate-400'}`;
+  }
+  const tokBadge = document.getElementById('mobileTokenBadge');
+  if (tokBadge) {
+    tokBadge.textContent = info.token_required ? 'Session Token Active' : 'Unauthenticated (Local)';
+    tokBadge.className = `font-semibold ${info.token_required ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400'}`;
+  }
+}
+
 function switchConnectionPath(mode) {
   const tunnelBtn = document.getElementById('pathTunnelBtn');
   const lanBtn = document.getElementById('pathLanBtn');
-  const info = currentServerInfo || {};
+  const info = state.serverInfo || currentServerInfo || {};
   const hasTunnel = Boolean(info.tunnel_url);
 
   if (mode === 'tunnel' && !hasTunnel) {
@@ -4664,11 +4735,11 @@ function switchConnectionPath(mode) {
   const token = info.token || storedToken || '';
   let mobileUrl = '';
   if (activeMode === 'tunnel') {
-    mobileUrl = info.tunnel_url + (token ? `?token=${encodeURIComponent(token)}` : '');
+    mobileUrl = (info.tunnel_url || window.location.origin) + (token ? `?token=${encodeURIComponent(token)}` : '');
   } else {
-    const port = info.port || 3333;
+    const port = info.port || window.location.port || 3333;
     const host = info.lan_ip || window.location.hostname;
-    mobileUrl = `http://${host}:${port}` + (token ? `?token=${encodeURIComponent(token)}` : '');
+    mobileUrl = `${window.location.protocol}//${host}${port ? `:${port}` : ''}` + (token ? `?token=${encodeURIComponent(token)}` : '');
   }
 
   const input = document.getElementById('mobileConnectUrlInput');
@@ -4676,19 +4747,7 @@ function switchConnectionPath(mode) {
 
   const qrContainer = document.getElementById('mobileQrGraphic');
   if (qrContainer) {
-    qrContainer.innerHTML = '';
-    if (typeof QRCode !== 'undefined') {
-      new QRCode(qrContainer, {
-        text: mobileUrl,
-        width: 200,
-        height: 200,
-        colorDark: '#0f172a',
-        colorLight: '#ffffff',
-        correctLevel: QRCode.CorrectLevel.M,
-      });
-    } else {
-      qrContainer.innerHTML = generateQrSvg(mobileUrl);
-    }
+    renderQrCodeGraphic(qrContainer, mobileUrl);
   }
 
   const netBadge = document.getElementById('mobileNetworkModeBadge');
@@ -4704,40 +4763,38 @@ async function openMobileConnectModal() {
   modal.classList.remove('hidden');
   loadNotificationModalConfig();
 
-  try {
-    const res = await fetch('/api/server-info');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const info = await res.json();
-    currentServerInfo = info;
-
-    const storedToken = sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
-    const token = info.token || storedToken || '';
-    if (token) {
-      try { sessionStorage.setItem('cockpit_token', token); } catch (_) {}
-      try { localStorage.setItem('cockpit_token', token); } catch (_) {}
-    }
-
+  // 1. Instant (0ms) synchronous rendering using cached server info or origin fallback
+  const cached = state.serverInfo || currentServerInfo;
+  if (cached) {
     const savedPath = localStorage.getItem('pmqa_connection_path');
-    const defaultMode = (info.tunnel_url && savedPath !== 'lan') ? 'tunnel' : (info.tunnel_url ? savedPath : 'lan');
+    const defaultMode = (cached.tunnel_url && savedPath !== 'lan') ? 'tunnel' : (cached.tunnel_url ? savedPath : 'lan');
     switchConnectionPath(defaultMode);
+    updateMobileBadges(cached);
+  } else {
+    const input = document.getElementById('mobileConnectUrlInput');
+    const fallbackUrl = window.location.href;
+    if (input) input.value = fallbackUrl;
+    const qrContainer = document.getElementById('mobileQrGraphic');
+    if (qrContainer) renderQrCodeGraphic(qrContainer, fallbackUrl);
+  }
 
-    const kaBadge = document.getElementById('mobileKeepAliveBadge');
-    if (kaBadge) {
-      kaBadge.textContent = info.keep_alive ? 'Active (Sleep Prevented)' : 'Standard';
-      kaBadge.className = `font-semibold ${info.keep_alive ? 'text-cyan-500 dark:text-cyan-400' : 'text-slate-400'}`;
-    }
-
-    const tokBadge = document.getElementById('mobileTokenBadge');
-    if (tokBadge) {
-      tokBadge.textContent = info.token_required ? 'Session Token Active' : 'Unauthenticated (Local)';
-      tokBadge.className = `font-semibold ${info.token_required ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400'}`;
+  // 2. Quiet background refresh with 3s timeout
+  try {
+    const freshInfo = await fetchServerInfo(true);
+    if (freshInfo) {
+      const storedToken = sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
+      const token = freshInfo.token || storedToken || '';
+      if (token) {
+        try { sessionStorage.setItem('cockpit_token', token); } catch (_) {}
+        try { localStorage.setItem('cockpit_token', token); } catch (_) {}
+      }
+      const savedPath = localStorage.getItem('pmqa_connection_path');
+      const defaultMode = (freshInfo.tunnel_url && savedPath !== 'lan') ? 'tunnel' : (freshInfo.tunnel_url ? savedPath : 'lan');
+      switchConnectionPath(defaultMode);
+      updateMobileBadges(freshInfo);
     }
   } catch (err) {
-    console.error('Failed to load server info for mobile connect:', err);
-    const input = document.getElementById('mobileConnectUrlInput');
-    if (input) input.value = window.location.href;
-    const qrContainer = document.getElementById('mobileQrGraphic');
-    if (qrContainer) qrContainer.innerHTML = generateQrSvg(window.location.href);
+    console.warn('Background server info refresh failed:', err);
   }
 
   if (window.lucide) lucide.createIcons();
@@ -4751,7 +4808,7 @@ function closeMobileConnectModal() {
 function copyMobileUrl() {
   const input = document.getElementById('mobileConnectUrlInput');
   if (!input || !input.value) return;
-  copyToClipboard(input.value, document.getElementById('copyMobileUrlBtn'));
+  copyToClipboard(input.value, document.getElementById('copyMobileUrlBtn'), 'Mobile URL copied to clipboard');
 }
 
 // -----------------------------------------------------------------------------

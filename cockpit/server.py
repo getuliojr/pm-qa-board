@@ -923,13 +923,21 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.end_headers()
         self.wfile.write(payload)
 
     def do_OPTIONS(self) -> None:
         # The UI is same-origin; no cross-origin access is granted (no Access-Control-Allow-* headers).
         self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.end_headers()
+
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        self.close_connection = True
+        super().send_error(code, message, explain)
 
     def is_authenticated(self) -> bool:
         """Check if request is authorized when session token protection is active."""
@@ -1050,6 +1058,8 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 b"</div></body></html>"
             )
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.close_connection = True
             self.end_headers()
             self.wfile.write(body)
             return
@@ -1275,6 +1285,8 @@ class PMRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
+            self.send_header("Connection", "close")
+            self.close_connection = True
             if TOKEN and (path == "/" or path == "/index.html"):
                 is_secure = (
                     self.headers.get("X-Forwarded-Proto") == "https"
@@ -1300,6 +1312,8 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", f"{mime_type or 'application/octet-stream'}; charset=utf-8")
         self.send_header("Content-Length", str(len(content)))
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.end_headers()
         self.wfile.write(content)
 

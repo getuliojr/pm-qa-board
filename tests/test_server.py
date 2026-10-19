@@ -723,6 +723,31 @@ def test_static_assets_story12_recessed_trays_and_elevated_cards():
     assert "translateY(-1.5px)" in style_css
 
 
+def test_server_sends_connection_close_header(server):
+    """Story 13: Verify Connection: close header is sent to prevent browser connection pool exhaustion."""
+    base, srv = server
+    with urllib.request.urlopen(f"{base}/api/server-info") as r:
+        assert r.headers.get("Connection") == "close"
+
+    with urllib.request.urlopen(f"{base}/") as r:
+        assert r.headers.get("Connection") == "close"
+
+
+def test_static_assets_contain_story13_instant_qr_and_connection_hygiene():
+    """Story 13: Verify instant QR helper, server-info caching, and Phosphor copy feedback."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+    assert "function renderQrCodeGraphic(" in app_js
+    assert "function fetchServerInfo(" in app_js
+    assert "function updateMobileBadges(" in app_js
+    assert "serverInfoTime" in app_js
+    assert "generateQrSvg" in app_js
+    assert "ph ph-check text-emerald-500" in app_js
+    assert "Mobile URL copied to clipboard" in app_js
+
+
+
 
 
 
