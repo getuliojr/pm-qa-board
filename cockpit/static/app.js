@@ -632,9 +632,9 @@ function detectCardTransitions(cards) {
       } else if (newStatus === 'completed') {
         playChime('completed');
         triggerHaptic('completed');
-        showToast(`Story Completed: ${id}! 🎉`, 'success');
+        showToast(`Story Completed: ${id}`, 'success');
         showWebNotification(`Story Completed: ${id}`, {
-          body: `${cardTitle} has been validated and completed! Ready to build something new.`,
+          body: `${cardTitle} has been validated and completed.`,
           data: { url: `/?card=${encodeURIComponent(id)}#pipeline` },
         });
       }

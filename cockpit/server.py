@@ -713,13 +713,13 @@ class NotificationWatcher(threading.Thread):
             message = f"{card_name} has finished building and is awaiting QA verification."
             click_url = f"{base}/?card={card_id}{token_q}#qa"
             priority = 4
-            tags = ["tada", "white_check_mark", "sparkles"]
+            tags = ["bell", "inbox_tray"]
         elif new_status == "completed":
-            title = f"🎉 Story Completed: {card_id}"
-            message = f"{card_name} has been validated and completed! Ready to build something new."
+            title = f"Story Completed: {card_id}"
+            message = f"{card_name} has been validated and completed."
             click_url = f"{base}/?card={card_id}{token_q}#pipeline"
             priority = 3
-            tags = ["party_popper", "tada"]
+            tags = ["white_check_mark"]
         else:
             return None
 
@@ -1756,7 +1756,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 title="PM & QA Board — Test Alert",
                 message="🔔 Test alert from PM & QA Board! Audio, haptic, and mobile push alerts are operational.",
                 priority=3,
-                tags=["bell", "tada"],
+                tags=["bell"],
                 click_url=click_url,
             )
             if ok:

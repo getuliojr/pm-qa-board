@@ -541,7 +541,8 @@ def test_notification_watcher_transitions(cockpit_home, external_project, monkey
     assert alerts[0]["new_status"] == "qa"
     assert alerts[0]["card_id"] == "APP-3.1"
     assert len(dispatched) == 1
-    assert "Ready for QA" in dispatched[0]["title"]
+    assert dispatched[0]["title"] == "🔔 Ready for QA: APP-3.1"
+    assert dispatched[0]["tags"] == ["bell", "inbox_tray"]
 
     # Transition to completed
     content = card_file.read_text(encoding="utf-8")
@@ -551,7 +552,15 @@ def test_notification_watcher_transitions(cockpit_home, external_project, monkey
     assert len(alerts) == 1
     assert alerts[0]["new_status"] == "completed"
     assert len(dispatched) == 2
-    assert "Story Completed" in dispatched[1]["title"]
+    assert dispatched[1]["title"] == "Story Completed: APP-3.1"
+    assert "🎉" not in dispatched[1]["title"]
+    assert dispatched[1]["tags"] == ["white_check_mark"]
+    assert dispatched[1]["message"] == "APP-3.1 - New story card has been validated and completed."
+    assert "party_popper" not in dispatched[1]["tags"]
+    assert "tada" not in dispatched[1]["tags"]
+    assert "tada" not in dispatched[0]["tags"]
+    assert "sparkles" not in dispatched[0]["tags"]
+    assert "Ready to build something new." not in dispatched[1]["message"]
 
 
 def test_static_assets_contain_story8_sound_and_notifications():
@@ -581,6 +590,11 @@ def test_static_assets_contain_story8_sound_and_notifications():
     assert "function requestNotificationPermission(" in app_js
     assert "function sendTestAlert(" in app_js
     assert "navigator.vibrate" in app_js
+
+    # Clean notification assertions (Story 21)
+    assert "Story Completed: ${id}" in app_js
+    assert "🎉" not in app_js
+    assert "${cardTitle} has been validated and completed." in app_js
 
 
 def test_system_update_status_endpoint(server):
