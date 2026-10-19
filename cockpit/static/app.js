@@ -682,30 +682,146 @@ function showLoadingFeedback(isLoading) {
 }
 
 function renderLoadingSkeletons(force = false) {
-  const cols = ['backlog', 'sprint-backlog', 'in-progress', 'qa', 'completed'];
-  cols.forEach((colId) => {
-    const el = document.getElementById(`cards-${colId}`);
-    if (el && (force || state.cards.length === 0)) {
-      el.innerHTML = `
-        <div class="board-skeleton-card p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2.5 my-2">
+  const activeTab = state.activeTab || 'pipeline';
+
+  if (activeTab === 'pipeline') {
+    const cols = ['backlog', 'sprint-backlog', 'in-progress', 'qa', 'completed'];
+    cols.forEach((colId) => {
+      const el = document.getElementById(`cards-${colId}`);
+      if (el && (force || state.cards.length === 0)) {
+        el.innerHTML = `
+          <div class="board-skeleton-card p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2.5 my-2">
+            <div class="flex justify-between items-center">
+              <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16"></div>
+              <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-12"></div>
+            </div>
+            <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-4/5"></div>
+            <div class="h-2 bg-[var(--bg-surface-tertiary)] rounded w-full"></div>
+            <div class="h-2 bg-[var(--bg-surface-tertiary)] rounded w-1/3 pt-1"></div>
+          </div>
+          <div class="board-skeleton-card p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2.5 my-2 opacity-50">
+            <div class="flex justify-between items-center">
+              <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-14"></div>
+              <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-10"></div>
+            </div>
+            <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-3/5"></div>
+          </div>
+        `;
+      }
+    });
+  } else if (activeTab === 'qa') {
+    const qaList = document.getElementById('qaListContainer');
+    if (qaList) {
+      qaList.innerHTML = `
+        <div class="p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2 my-1">
           <div class="flex justify-between items-center">
             <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16"></div>
             <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-12"></div>
           </div>
-          <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-4/5"></div>
-          <div class="h-2 bg-[var(--bg-surface-tertiary)] rounded w-full"></div>
-          <div class="h-2 bg-[var(--bg-surface-tertiary)] rounded w-1/3 pt-1"></div>
+          <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-3/4"></div>
+          <div class="h-2.5 bg-[var(--bg-surface-tertiary)] rounded w-1/2"></div>
         </div>
-        <div class="board-skeleton-card p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2.5 my-2 opacity-50">
+        <div class="p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2 my-1 opacity-60">
           <div class="flex justify-between items-center">
             <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-14"></div>
             <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-10"></div>
           </div>
-          <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-3/5"></div>
+          <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-2/3"></div>
         </div>
       `;
     }
-  });
+    const qaDetail = document.getElementById('qaDetailContainer');
+    if (qaDetail) {
+      qaDetail.innerHTML = `
+        <div class="h-full flex flex-col items-center justify-center text-[var(--text-tertiary)]">
+          <i class="ph ph-stack text-4xl mb-3 text-[var(--text-quaternary)]"></i>
+          <p class="text-sm">Select a card on the left to inspect acceptance criteria and validate work.</p>
+        </div>
+      `;
+    }
+    const auditTbody = document.getElementById('sprintAuditTableBody');
+    if (auditTbody) {
+      auditTbody.innerHTML = `
+        <tr class="animate-pulse">
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-12"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-48"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16"></div></td>
+          <td class="py-3 px-4"><div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-20"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-24"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16"></div></td>
+        </tr>
+        <tr class="animate-pulse opacity-50">
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-12"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-36"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16"></div></td>
+          <td class="py-3 px-4"><div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-20"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-24"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16"></div></td>
+        </tr>
+      `;
+    }
+  } else if (activeTab === 'sprint-dod') {
+    const streamsEl = document.getElementById('activeStreamsView');
+    if (streamsEl) {
+      streamsEl.innerHTML = `
+        <div class="stream-card p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] animate-pulse space-y-4 my-2">
+          <div class="flex justify-between items-center">
+            <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-40"></div>
+            <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-20"></div>
+          </div>
+          <div class="h-2 bg-[var(--bg-surface-tertiary)] rounded w-full"></div>
+          <div class="space-y-2 pt-2">
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-3/4"></div>
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-2/3"></div>
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-1/2"></div>
+          </div>
+        </div>
+      `;
+    }
+  } else if (activeTab === 'sprints') {
+    const roadmapTbody = document.getElementById('sprintRoadmapTable');
+    if (roadmapTbody) {
+      roadmapTbody.innerHTML = `
+        <tr class="animate-pulse">
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-14"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-64"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-12"></div></td>
+          <td class="py-3 px-4"><div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-20"></div></td>
+          <td class="py-3 px-4 text-right"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16 ml-auto"></div></td>
+        </tr>
+        <tr class="animate-pulse opacity-50">
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-14"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-48"></div></td>
+          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-12"></div></td>
+          <td class="py-3 px-4"><div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-20"></div></td>
+          <td class="py-3 px-4 text-right"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16 ml-auto"></div></td>
+        </tr>
+      `;
+    }
+  } else if (activeTab === 'activity') {
+    const fileList = document.getElementById('activityFileList');
+    if (fileList) {
+      fileList.innerHTML = `
+        <div class="p-3 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2">
+          <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-3/4"></div>
+          <div class="h-2.5 bg-[var(--bg-surface-tertiary)] rounded w-1/3"></div>
+        </div>
+      `;
+    }
+    const commitList = document.getElementById('activityCommitList');
+    if (commitList) {
+      commitList.innerHTML = `
+        <div class="p-3 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2">
+          <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-3/4"></div>
+          <div class="h-2.5 bg-[var(--bg-surface-tertiary)] rounded w-1/3"></div>
+        </div>
+        <div class="p-3 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2 opacity-50">
+          <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-2/3"></div>
+          <div class="h-2.5 bg-[var(--bg-surface-tertiary)] rounded w-1/4"></div>
+        </div>
+      `;
+    }
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -1012,6 +1128,11 @@ function updateHeader() {
     } else {
       qaBadge.classList.add('hidden');
     }
+  }
+
+  const dodNavBadge = document.getElementById('sprintDodNavBadge');
+  if (dodNavBadge) {
+    dodNavBadge.textContent = `${inProgCards.length} active`;
   }
 
   // Find latest active sprint
@@ -1374,19 +1495,32 @@ function renderQaStation() {
       if (cmp !== 0) return cmp;
       return (b.mn_id || '').localeCompare(a.mn_id || '');
     });
-  document.getElementById('qaStationCount').textContent = qaCards.length;
+  const countEl = document.getElementById('qaStationCount');
+  if (countEl) countEl.textContent = qaCards.length;
 
   const container = document.getElementById('qaListContainer');
   const prevListScroll = container ? container.scrollTop : 0;
-  container.innerHTML = '';
+  if (container) container.innerHTML = '';
 
   if (qaCards.length === 0) {
-    container.innerHTML = `
-      <div class="p-4 text-center text-[var(--text-tertiary)] text-xs">
-        <i class="ph ph-sparkle text-lg mx-auto mb-2 text-emerald-500/70 block"></i>
-        No cards currently awaiting QA!
-      </div>
-    `;
+    state.selectedQaId = null;
+    if (container) {
+      container.innerHTML = `
+        <div class="p-4 text-center text-[var(--text-tertiary)] text-xs">
+          <i class="ph ph-sparkle text-lg mx-auto mb-2 text-emerald-500/70 block"></i>
+          No cards currently awaiting QA!
+        </div>
+      `;
+    }
+    const detailContainer = document.getElementById('qaDetailContainer');
+    if (detailContainer) {
+      detailContainer.innerHTML = `
+        <div class="h-full flex flex-col items-center justify-center text-[var(--text-tertiary)]">
+          <i class="ph ph-stack text-4xl mb-3 text-[var(--text-quaternary)]"></i>
+          <p class="text-sm">Select a card on the left to inspect acceptance criteria and validate work.</p>
+        </div>
+      `;
+    }
     return;
   }
 
@@ -1746,8 +1880,9 @@ async function validateCard(mn_id) {
 // Sprint Roadmap & Decisions (Sorting & Filtering)
 // -----------------------------------------------------------------------------
 function parseSprintTokens(sprintStr) {
-  if (!sprintStr) return { type: 0, tokens: [] };
-  const s = sprintStr.trim();
+  if (sprintStr === null || sprintStr === undefined) return { type: 0, tokens: [] };
+  const s = String(sprintStr).trim();
+  if (!s) return { type: 0, tokens: [] };
   if (/backlog/i.test(s) || /unscheduled/i.test(s)) return { type: 1, tokens: [] };
   const mPhase = s.match(/^Phase\s+(\d+)/i);
   if (mPhase) return { type: 2, tokens: [parseInt(mPhase[1], 10)] };
@@ -4867,10 +5002,36 @@ async function selectProject(slug) {
 function resetProjectScopedState() {
   state.cards = [];
   state.sprints = [];
+  state.activity = {};
+  state.gitSync = {};
   state.selectedQaId = null;
   state.activeSprintId = 'ACTIVE';
   state.sprintDodData = null;
+  state.heavyGateWorker = null;
+  state.heavyGateInfo = null;
+  state.sprintGateStatus = [];
+  state.projectGates = null;
+  state.sprintAuditFilter = 'needs_attention';
+  state.currentReviews = [];
+  state.currentReviewIndex = 0;
+  state.roadmapSearch = '';
   state.filters.sprint = 'ALL';
+  state.filters.search = '';
+
+  const pipelineSearch = document.getElementById('pipelineSearch');
+  if (pipelineSearch) pipelineSearch.value = '';
+  const roadmapSearch = document.getElementById('roadmapSearchInput');
+  if (roadmapSearch) roadmapSearch.value = '';
+
+  const qaDetail = document.getElementById('qaDetailContainer');
+  if (qaDetail) {
+    qaDetail.innerHTML = `
+      <div class="h-full flex flex-col items-center justify-center text-[var(--text-tertiary)]">
+        <i class="ph ph-stack text-4xl mb-3 text-[var(--text-quaternary)]"></i>
+        <p class="text-sm">Select a card on the left to inspect acceptance criteria and validate work.</p>
+      </div>
+    `;
+  }
 }
 
 function isProjectMenuOpen() {

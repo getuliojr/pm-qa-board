@@ -1018,6 +1018,60 @@ def test_story18_mobile_landscape_and_future_timestamp_resilience(server):
     assert '#sidebarTelemetryWidget' in style_css
 
 
+def test_story19_secondary_tab_refresh_skeletons_and_state_hygiene(server):
+    """PQC-19: Secondary tab reactive refresh, view-specific skeletons, and state hygiene on project switch."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+
+    # 1. View-specific loading skeletons for secondary tabs
+    assert "activeTab === 'qa'" in app_js
+    assert "activeTab === 'sprint-dod'" in app_js
+    assert "activeTab === 'sprints'" in app_js
+    assert "activeTab === 'activity'" in app_js
+    assert "qaListContainer" in app_js
+    assert "sprintAuditTableBody" in app_js
+    assert "activeStreamsView" in app_js
+    assert "sprintRoadmapTable" in app_js
+    assert "activityCommitList" in app_js
+
+    # 2. Comprehensive project state hygiene
+    assert "state.sprintGateStatus = []" in app_js
+    assert "state.heavyGateWorker = null" in app_js
+    assert "state.heavyGateInfo = null" in app_js
+    assert "state.projectGates = null" in app_js
+    assert "state.activity = {}" in app_js
+    assert "state.gitSync = {}" in app_js
+    assert "state.sprintAuditFilter = 'needs_attention'" in app_js
+    assert "pipelineSearch" in app_js
+    assert "roadmapSearchInput" in app_js
+    assert "qaDetailContainer" in app_js
+
+    # 3. Safe sprint token parsing (no trim() TypeError on integer stories)
+    assert "String(sprintStr).trim()" in app_js
+
+    # 4. QA station empty state clears detail container
+    assert "state.selectedQaId = null" in app_js
+    assert "Select a card on the left to inspect acceptance criteria" in app_js
+
+    # 5. Header updates sprintDodNavBadge
+    assert "sprintDodNavBadge" in app_js
+    assert "${inProgCards.length} active" in app_js
+
+    # 6. Cachebuster bumped
+    assert "app.js?v=20261019-pqc19" in index_html
+
+    # 7. Server endpoints for secondary tabs respond validly
+    base, srv = server
+    status_cards, body_cards = get(f"{base}/api/cards")
+    assert status_cards == 200 and "cards" in json.loads(body_cards)
+    status_sprints, body_sprints = get(f"{base}/api/sprints")
+    assert status_sprints == 200 and "roadmap" in json.loads(body_sprints)
+    status_active, body_active = get(f"{base}/api/active-sprint")
+    assert status_active == 200 and "active_count" in json.loads(body_active)
+
+
+
 
 
 
