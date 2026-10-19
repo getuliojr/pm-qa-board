@@ -2,7 +2,7 @@
 name: pm-orchestrate
 description: Use at the start of any new feature, story or nontrivial change in a project tracked by the PM & QA Cockpit, before writing code or spawning agents; also when onboarding a project (cli.py init), choosing gate mode (profile-gates), or closing a story (close-out artifact).
 metadata:
-  version: 0.6.0
+  version: 0.6.1
   source: pm-qa-cockpit
 ---
 
@@ -36,8 +36,8 @@ file has none). If the project has no Roster or no agent for that role, use the 
 4. **Gates** per the project's gate mode (below). Fast gates run once per state, on the tree that ships.
 5. **Commit everything** (code repo, and docs repo if external) before review: a diff/worktree sees only commits.
 6. **Cold review** via `pm-review` (separate stronger agent, diff-only, max 3 rounds).
-7. **Close:** card to `qa` in the same turn as PASS, write the close-out artifact, hand the user the Human
-   QA steps. The user's explicit chat confirmation moves it to `completed` (`cli.py validate`).
+7. **Close:** card to `qa` in the same turn as PASS, write the close-out **file** (every card, one or many:
+   see *Story Close-Out Artifact*), hand the user the Human QA steps. The user's explicit chat confirmation moves it to `completed` (`cli.py validate`).
 
 Also: `docs/WORKLOG.md` entry at the end of every session; PLAN.md boxes ticked as work completes;
 add a row to `E2E_CANDIDATES.md` naming the *business rule* the story promises, in plain words.
@@ -80,6 +80,14 @@ the steps below and never changes the project's rules without approval.
    (auto-push, blocking edit guards). Report; never silently change them.
 
 ## Story Close-Out Artifact (required at every close)
+**The file in the repo is the deliverable.** The Cockpit draws a card's **Story Close-Out** button only
+when `<docs_path>/artifacts/<PREFIX>-<story>-closeout.html` exists: no file, no button. A page published
+to claude.ai (or shown in chat) leaves nothing the Cockpit can see, so it never replaces the file. Every
+card that reaches `qa` gets one, big or small, and an agent checks `ls <docs_path>/artifacts/` shows the
+id before calling the close done. If the agent can also publish the page elsewhere, it publishes this
+same file. Commit it (`docs(<story>): close-out page`) before the card moves to `qa`; with an external
+docs repo, commit there. Agents without any publish tool still write the file.
+
 Write `<docs_path>/artifacts/<PREFIX>-<story>-closeout.html`: **self-contained** (inline CSS/JS, no CDN),
 light + dark via `prefers-color-scheme`, usable at phone width. Sections:
 1. **Goal & Scope explorer** - what was asked, what shipped, non-goals; expandable per DoD line.

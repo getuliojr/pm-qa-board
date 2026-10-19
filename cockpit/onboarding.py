@@ -46,8 +46,10 @@ Cards: `{cards}` with prefix `{prefix}-<story>`. Dashboard: `pm-qa-cockpit` on h
 5. **Commit everything** before review.
 6. **Cold review** — a separate reviewer reads the diff from the start SHA (`pm-review`); up to 3
    rounds, fewer when nothing is worth another. Persist to `reviews/<PREFIX>-<story>-round-<n>.md`.
-7. **Close** — card to `qa`, write the interactive Story Close-Out artifact
-   `artifacts/<PREFIX>-<story>-closeout.html`, hand the user the Human QA steps. Only the user's
+7. **Close** — card to `qa`, write and commit the interactive Story Close-Out file
+   `artifacts/<PREFIX>-<story>-closeout.html` for **every** card (the Cockpit's Close-Out button
+   exists only when that file does; a page published elsewhere does not count), hand the user the
+   Human QA steps. Only the user's
    confirmation sets `completed`. **Never push** — pushing is always the user's call.
 
 <!-- pm-qa-cockpit:roster:start -->

@@ -2,7 +2,7 @@
 name: pm-qa-cockpit
 description: Use when creating, reading or updating story cards, PLAN.md, reviews or close-out artifacts for a project tracked by the PM & QA Cockpit (local dashboard on :3333), or when asked to launch/register the Cockpit. Defines card schema, project resolution, docs layout and the CLI.
 metadata:
-  version: 0.6.0
+  version: 0.6.1
   source: pm-qa-cockpit
 ---
 
@@ -67,7 +67,8 @@ validated: false
 ## Artifacts and reviews
 - `<docs>/reviews/<PREFIX>-<story>-round-<n>.md` - cold review verdicts (see `pm-review`).
 - `<docs>/artifacts/<PREFIX>-<story>-closeout.html` - interactive close-out page, served at
-  `/artifacts/<name>` (spec in `pm-orchestrate`).
+  `/artifacts/<name>` (spec in `pm-orchestrate`). **One per card that reaches `qa`**: the card's
+  **Story Close-Out** button appears only when this exact file exists.
 
 ## CLI cheat-sheet (`uv run python <cockpit>/cockpit/cli.py [--project slug] ...`)
 | Command | Does |

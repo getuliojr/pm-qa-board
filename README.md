@@ -123,7 +123,8 @@ The legacy money-nest schema (`mn-id`, `sprint`, `sprint-backlog`, `## Sprint`) 
 
 ## Close-out artifacts
 
-Every closed story writes `<docs>/artifacts/<PREFIX>-<story>-closeout.html`: a self-contained interactive
+Every story that reaches `qa` writes `<docs>/artifacts/<PREFIX>-<story>-closeout.html` (the card's
+**Story Close-Out** button appears only when this file exists): a self-contained interactive
 page (goal and scope, a demo of the work, gate and review badges, live Human QA checkboxes and a
 "Validate & Complete Story" button wired to the Cockpit API). Opened outside the Cockpit it degrades to
 read-only. See `skills/pm-orchestrate/SKILL.md` for the spec.
