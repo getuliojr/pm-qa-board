@@ -761,9 +761,12 @@ function renderLoadingSkeletons(force = false) {
       `;
     }
   } else if (activeTab === 'sprint-dod') {
-    const streamsEl = document.getElementById('activeStreamsView');
-    if (streamsEl) {
-      streamsEl.innerHTML = `
+    const emptyState = document.getElementById('activeStreamsEmptyState');
+    if (emptyState) emptyState.classList.add('hidden');
+    const streamsGrid = document.getElementById('activeStreamsGrid');
+    if (streamsGrid) {
+      streamsGrid.classList.remove('hidden');
+      streamsGrid.innerHTML = `
         <div class="stream-card p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] animate-pulse space-y-4 my-2">
           <div class="flex justify-between items-center">
             <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-40"></div>
@@ -3556,6 +3559,13 @@ function renderSprintAuditTable() {
   }
 
   const filterKey = state.sprintAuditFilter || 'needs_attention';
+  document.querySelectorAll('.audit-filter-pill').forEach((btn) => {
+    if (btn.getAttribute('data-filter') === filterKey) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
   const displaySprints = sprints.filter((s) => {
     const isF = s.status === 'Failed';
     const isO = s.status === 'Owed';
@@ -5022,6 +5032,16 @@ function resetProjectScopedState() {
   if (pipelineSearch) pipelineSearch.value = '';
   const roadmapSearch = document.getElementById('roadmapSearchInput');
   if (roadmapSearch) roadmapSearch.value = '';
+  const pipelineSprintFilter = document.getElementById('pipelineSprintFilter');
+  if (pipelineSprintFilter) pipelineSprintFilter.value = 'ALL';
+
+  document.querySelectorAll('.audit-filter-pill').forEach((btn) => {
+    if (btn.getAttribute('data-filter') === 'needs_attention') {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
 
   const qaDetail = document.getElementById('qaDetailContainer');
   if (qaDetail) {

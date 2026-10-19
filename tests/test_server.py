@@ -1031,7 +1031,8 @@ def test_story19_secondary_tab_refresh_skeletons_and_state_hygiene(server):
     assert "activeTab === 'activity'" in app_js
     assert "qaListContainer" in app_js
     assert "sprintAuditTableBody" in app_js
-    assert "activeStreamsView" in app_js
+    assert "activeStreamsGrid" in app_js
+    assert "activeStreamsEmptyState" in app_js
     assert "sprintRoadmapTable" in app_js
     assert "activityCommitList" in app_js
 
@@ -1045,6 +1046,8 @@ def test_story19_secondary_tab_refresh_skeletons_and_state_hygiene(server):
     assert "state.sprintAuditFilter = 'needs_attention'" in app_js
     assert "pipelineSearch" in app_js
     assert "roadmapSearchInput" in app_js
+    assert "pipelineSprintFilter" in app_js
+    assert "audit-filter-pill" in app_js
     assert "qaDetailContainer" in app_js
 
     # 3. Safe sprint token parsing (no trim() TypeError on integer stories)
