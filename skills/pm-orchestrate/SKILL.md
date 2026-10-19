@@ -2,7 +2,7 @@
 name: pm-orchestrate
 description: Use at the start of any new feature, story or nontrivial change in a project tracked by the PM & QA Cockpit, before writing code or spawning agents; also when onboarding a project (cli.py init), choosing gate mode (profile-gates), or closing a story (close-out artifact).
 metadata:
-  version: 0.5.0
+  version: 0.6.0
   source: pm-qa-cockpit
 ---
 
@@ -87,12 +87,13 @@ light + dark via `prefers-color-scheme`, usable at phone width. Sections:
    slider, before/after, sample data). This is the part that proves it, so make it real, not decorative.
 3. **Badges** - gate results and cold-review verdict/rounds with the real numbers (start/head SHA, test counts).
 4. **Live Human QA** - the card's Verification Check items as checkboxes plus a **Validate & Complete Story**
-   button, wired to the Cockpit API:
-   - `POST /api/cards/<ID>/qa-item` body `{index, checked}`
-   - `POST /api/cards/<ID>/validate` body `{notes}`
-   - after each success: `window.parent.postMessage({type:'pmqa:refresh'}, location.origin)`.
-   - Degrade gracefully: if `fetch` fails (opened as a plain file, or Cockpit not running), show a
-     read-only notice and disable the controls. Never throw.
+    button, wired to the Cockpit API:
+    - `POST /api/cards/<ID>/qa-item` body `{index, checked}`
+    - `POST /api/cards/<ID>/validate` body `{notes}`
+    - after each success: `window.parent.postMessage({type:'pmqa:refresh'}, location.origin)` and `window.parent.postMessage({type:'pmqa:toast', message: 'Story validated successfully!', level: 'success'}, location.origin)`.
+    - Non-blocking feedback: never use `alert()`, `confirm()`, or `prompt()`. Show an inline animated glass toast banner and bridge notifications to the host window via `parent.postMessage({type: 'pmqa:toast', message, level})`.
+    - Degrade gracefully: if `fetch` fails (opened as a plain file, or Cockpit not running), show a
+      read-only notice and disable the controls. Never throw.
 Validate is only for the user's click; an agent never presses it. Link the artifact in the card Changelog.
 
 Related: `pm-qa-cockpit` (schema, CLI), `pm-sync`, `pm-review`.

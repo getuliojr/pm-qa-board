@@ -222,6 +222,13 @@ function showToast(message, type = 'info', duration = 3500) {
   toast.addEventListener('click', dismiss);
 }
 
+// Cross-window PostMessage Toast Bridge (from embedded close-out artifacts)
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'pmqa:toast' && e.data.message) {
+    showToast(e.data.message, e.data.level || 'info');
+  }
+});
+
 // =============================================================================
 // Web Audio Synth Engine & Sound Controls (Story 8)
 // =============================================================================
@@ -1497,10 +1504,6 @@ async function validateCard(mn_id) {
   const notesInput = document.getElementById('qaValidateNotes');
   const notes = notesInput ? notesInput.value : '';
 
-  if (!confirm(`Mark ${mn_id} as verified and completed? This will stamp frontmatter and create a local git commit.`)) {
-    return;
-  }
-
   try {
     const res = await fetch(`/api/cards/${mn_id}/validate`, {
       method: 'POST',
@@ -2583,11 +2586,9 @@ async function fetchHeavyGateLog() {
 }
 
 async function startHeavyGate() {
-  if (!confirm('Start full Heavy Gate 5 (powershell scripts/finalgates.ps1) in background? This runs full test suites and coverage.')) {
-    return;
-  }
   const runBtn = document.getElementById('runHeavyGateBtn');
   const terminal = document.getElementById('heavyGateTerminal');
+  showToast('Heavy Gate 5 started in background', 'info');
   try {
     if (runBtn) {
       runBtn.disabled = true;
@@ -2627,9 +2628,7 @@ async function startHeavyGate() {
 }
 
 async function stopHeavyGate() {
-  if (!confirm('Are you sure you want to terminate the running heavy gate process?')) {
-    return;
-  }
+  showToast('Heavy gate process termination requested', 'info');
   try {
     const res = await fetch('/api/heavy-gate/stop', {
       method: 'POST',
@@ -3049,9 +3048,7 @@ function fallbackCopy(text, btn) {
 
 
 async function startRunSprintGate(sprintId, commitSha) {
-  if (!confirm(`Run Heavy Gate 5 for Story ${sprintId} in isolated worktree? This runs full pytest & coverage against commit ${commitSha || 'resolved SHA'}.`)) {
-    return;
-  }
+  showToast(`Starting Gate 5 run for Story ${sprintId} in background...`, 'info');
   try {
     const terminal = document.getElementById('heavyGateTerminal');
     if (terminal) {
@@ -3083,9 +3080,7 @@ async function startRunAllPendingSprints() {
     return;
   }
   const count = unverified.length;
-  if (!confirm(`Run full Gate 5 sequentially for ALL ${count} pending stor(ies) in isolated worktrees? This will run each story from oldest to newest.`)) {
-    return;
-  }
+  showToast(`Queued ${count} pending stor(ies) for sequential Gate 5 runs`, 'info');
 
   try {
     const terminal = document.getElementById('heavyGateTerminal');

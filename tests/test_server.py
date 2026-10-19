@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -676,6 +677,26 @@ def test_dashboard_ps1_story9_tunnel_default():
     content = dashboard.read_text(encoding="utf-8")
     assert "[1] Public Tunnel" in content
     assert 'PM_QA_COCKPIT_TUNNEL_URL = ""' in content
+
+
+def test_no_browser_native_dialogs_in_frontend():
+    """Story 11: Assert zero occurrences of alert(), confirm(), prompt() across frontend assets."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+    dialog_pattern = re.compile(r"\b(alert|confirm|prompt)\s*\(")
+
+    matches_js = dialog_pattern.findall(app_js)
+    assert matches_js == [], f"Found forbidden browser-native dialogs in app.js: {matches_js}"
+
+    matches_html = dialog_pattern.findall(index_html)
+    assert matches_html == [], f"Found forbidden browser-native dialogs in index.html: {matches_html}"
+
+    # Verify postMessage toast bridge exists
+    assert "window.addEventListener('message'" in app_js
+    assert "pmqa:toast" in app_js
+
 
 
 
