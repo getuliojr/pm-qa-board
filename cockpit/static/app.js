@@ -1220,7 +1220,16 @@ function formatSmartTimestamp(dateStr, timeStr) {
     const now = new Date();
     const diffMs = now.getTime() - cardDate.getTime();
 
-    if (diffMs < 0 && diffMs > -60000) {
+    if (diffMs < -60000) {
+      const futureMin = Math.round(Math.abs(diffMs) / 60000);
+      if (futureMin < 60) {
+        return { relative: `In ${futureMin}m`, full, icon: 'ph-clock-countdown', isFuture: true };
+      }
+      const futureH = Math.round(futureMin / 60);
+      return { relative: `In ${futureH}h`, full, icon: 'ph-clock-countdown', isFuture: true };
+    }
+
+    if (diffMs < 0 && diffMs >= -60000) {
       return { relative: 'Just now', full };
     }
 
@@ -1313,7 +1322,7 @@ function createCardElement(card) {
   const escSprint = escapeHtml(card.sprint);
   const escType = isGrill ? 'grill' : escapeHtml(card.type);
   const smartTime = formatSmartTimestamp(card.created_date, card.created_time || (card.created_at ? card.created_at.slice(11, 16) : ''));
-  const timeIcon = (card.created_time || (card.created_at && card.created_at.includes(':'))) ? 'ph-clock' : 'ph-calendar-blank';
+  const timeIcon = smartTime.icon || ((card.created_time || (card.created_at && card.created_at.includes(':'))) ? 'ph-clock' : 'ph-calendar-blank');
 
   const typePillHtml = isGrill
     ? `<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded pill-grill flex items-center gap-1"><i class="ph ph-flame text-xs"></i>Grill</span>`
@@ -3816,15 +3825,33 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   const typeFilters = document.getElementById('pipelineTypeFilters');
+  const typeSelect = document.getElementById('pipelineTypeSelect');
+
+  function syncTypeFilter(typeVal) {
+    state.filters.type = typeVal;
+    if (typeSelect && typeSelect.value !== typeVal) {
+      typeSelect.value = typeVal;
+    }
+    if (typeFilters) {
+      typeFilters.querySelectorAll('.type-filter-pill, .segmented-control-btn').forEach((p) => {
+        p.classList.toggle('active', p.getAttribute('data-type') === typeVal);
+      });
+    }
+    renderPipeline();
+  }
+
   if (typeFilters) {
     typeFilters.addEventListener('click', (e) => {
       const btn = e.target.closest('.type-filter-pill, .segmented-control-btn');
       if (btn) {
-        typeFilters.querySelectorAll('.type-filter-pill, .segmented-control-btn').forEach((p) => p.classList.remove('active'));
-        btn.classList.add('active');
-        state.filters.type = btn.getAttribute('data-type');
-        renderPipeline();
+        syncTypeFilter(btn.getAttribute('data-type'));
       }
+    });
+  }
+
+  if (typeSelect) {
+    typeSelect.addEventListener('change', (e) => {
+      syncTypeFilter(e.target.value);
     });
   }
 
@@ -5041,7 +5068,7 @@ function scrollToColumn(colId) {
   const container = document.getElementById('kanbanColumnsContainer');
   const col = document.querySelector(`.board-column[data-col="${colId}"]`);
   if (col && container) {
-    col.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    col.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
   }
   document.querySelectorAll('.mobile-col-pill').forEach((btn) => {
     btn.classList.toggle('active', btn.getAttribute('data-col') === colId);
@@ -5058,12 +5085,11 @@ function initMobileKanbanSwipe() {
       clearTimeout(timeout);
       timeout = setTimeout(() => {
         const cols = Array.from(container.querySelectorAll('.board-column'));
-        const containerCenter = container.scrollLeft + container.clientWidth / 2;
+        const containerLeft = container.scrollLeft;
         let closestCol = null;
         let closestDist = Infinity;
         cols.forEach((col) => {
-          const colCenter = col.offsetLeft + col.offsetWidth / 2;
-          const dist = Math.abs(colCenter - containerCenter);
+          const dist = Math.abs(col.offsetLeft - containerLeft);
           if (dist < closestDist) {
             closestDist = dist;
             closestCol = col;

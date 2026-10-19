@@ -1024,12 +1024,63 @@ html.dark .audit-filter-pill .pill-count {
     min-width: 7rem !important;
   }
 
-  /* Adaptive board columns: fill landscape viewport cleanly without double-scroll */
+  /* Streamlined Mobile Landscape Sidebar */
+  #sidebarTelemetryWidget {
+    display: none !important;
+  }
+
+  #appSidebar .p-4 {
+    padding: 0.625rem !important;
+    gap: 0.5rem !important;
+  }
+
+  #appSidebar nav {
+    padding: 0.375rem 0.625rem !important;
+    gap: 0.125rem !important;
+  }
+
+  #appSidebar .nav-tab {
+    padding-top: 0.375rem !important;
+    padding-bottom: 0.375rem !important;
+    min-height: 2rem !important;
+  }
+
+  #appSidebar .p-3 {
+    padding: 0.5rem !important;
+    gap: 0.375rem !important;
+  }
+
+  /* Compact type filter switch: hide wide segmented control, show compact select */
+  #pipelineTypeFilters {
+    display: none !important;
+  }
+
+  #pipelineTypeSelect {
+    display: block !important;
+  }
+
+  /* Ensure mobile column pills remain visible in landscape */
+  #mobileColumnPills {
+    display: flex !important;
+  }
+
+  /* Override container grid to 2-column horizontal snap-scroll flex */
+  #kanbanColumnsContainer {
+    display: flex !important;
+    overflow-x: auto !important;
+    scroll-snap-type: x mandatory !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: 0.5rem !important;
+  }
+
+  /* 2-column responsive Kanban: ~45vw per column side-by-side with snap align */
   .board-column {
-    height: calc(100dvh - 4.25rem) !important;
-    min-height: 230px !important;
-    min-width: 260px !important;
-    max-width: 320px !important;
+    height: calc(100dvh - 6.5rem) !important;
+    min-height: 220px !important;
+    min-width: calc(50vw - 1.5rem) !important;
+    max-width: calc(50vw - 1.5rem) !important;
+    flex: 0 0 calc(50vw - 1.5rem) !important;
+    scroll-snap-align: start !important;
   }
 
   .board-column-header {

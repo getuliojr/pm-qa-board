@@ -331,3 +331,54 @@ def test_pqc_17_non_legacy_project_never_grandfathered(tmp_path):
     assert s2["status"] == "Owed"
 
 
+def test_story18_git_creation_timestamp_priority_over_changelog(monkeypatch, tmp_path):
+    """Story 18: Git creation commit timestamp takes precedence over skewed/hallucinated changelog timestamps."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    cards_dir = docs_dir / "cards"
+    cards_dir.mkdir()
+
+    card_file = cards_dir / "MN-18.6.1 - First Story.md"
+    card_file.write_text(
+        "---\n"
+        "id: MN-18.6.1\n"
+        "sprint: '18.6.1'\n"
+        "type: feature\n"
+        "status: sprint-backlog\n"
+        "created: 2026-10-19\n"
+        "---\n\n"
+        "## Changelog\n\n"
+        "| Date & Time | Agent | What |\n"
+        "|---|---|---|\n"
+        "| 2026-10-19 14:40 | Agent | Seeded card at future time |\n",
+        encoding="utf-8",
+    )
+
+    proj = {
+        "slug": "test-skew",
+        "prefix": "MN",
+        "code_path": str(tmp_path),
+        "docs_path": str(docs_dir),
+        "gates": {"mode": "fast"},
+    }
+
+    p = PMParser(project=proj)
+    # Mock get_card_git_commit_map to return an authoritative git commit with time 14:24
+    monkeypatch.setattr(
+        p,
+        "get_card_git_commit_map",
+        lambda: {
+            card_file.name: [
+                {"date": "2026-10-19", "time": "14:24", "datetime": "2026-10-19 14:24", "subject": "Initial commit"}
+            ]
+        },
+    )
+
+    cards = p.get_all_cards()
+    c = next(card for card in cards if card["mn_id"] == "MN-18.6.1")
+    # Must use git commit 14:24, NOT changelog 14:40
+    assert c["created_time"] == "14:24"
+    assert c["created_at"] == "2026-10-19 14:24"
+
+
+

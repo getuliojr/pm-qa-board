@@ -992,6 +992,33 @@ def test_pqc_17_fast_mode_adaptive_qa_and_high_contrast_badges(server):
     assert "success" in res
 
 
+def test_story18_mobile_landscape_and_future_timestamp_resilience(server):
+    """PQC-18: Mobile landscape Kanban flex layout, compact select, streamlined sidebar, and future countdown."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    style_css = (static_dir / "style.css").read_text(encoding="utf-8")
+
+    # 1. Compact type filter select in HTML and two-way sync in app.js
+    assert 'id="pipelineTypeSelect"' in index_html
+    assert 'pipelineTypeSelect' in app_js
+    assert 'syncTypeFilter' in app_js
+
+    # 2. Future timestamp formatting with countdown icon in app.js
+    assert 'ph-clock-countdown' in app_js
+    assert 'diffMs < -60000' in app_js
+
+    # 3. Mobile landscape CSS rules in style.css
+    assert 'calc(50vw - 1.5rem)' in style_css
+    assert '#mobileColumnPills' in style_css
+    assert '#kanbanColumnsContainer' in style_css
+    assert 'scroll-snap-type: x mandatory' in style_css
+
+    # 4. Streamlined sidebar hiding telemetry widget in landscape
+    assert '#sidebarTelemetryWidget' in style_css
+
+
+
 
 
 

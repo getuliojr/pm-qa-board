@@ -222,13 +222,21 @@
             </select>
           </div>
 
-          <!-- Apple Segmented Type Control -->
-          <div class="hidden sm:flex segmented-control" id="pipelineTypeFilters">
+          <!-- Apple Segmented Type Control (Desktop >= 1024px) -->
+          <div class="hidden lg:flex segmented-control" id="pipelineTypeFilters">
             <button type="button" class="type-filter-pill segmented-control-btn active" data-type="ALL">All</button>
             <button type="button" class="type-filter-pill segmented-control-btn" data-type="feature">Features</button>
             <button type="button" class="type-filter-pill segmented-control-btn" data-type="bug">Bugs</button>
             <button type="button" class="type-filter-pill segmented-control-btn" data-type="improvement">Improvements</button>
           </div>
+
+          <!-- Compact Type Filter Dropdown for Compact / Landscape Viewports (< 1024px) -->
+          <select id="pipelineTypeSelect" class="block lg:hidden bg-[var(--bg-surface)] text-[var(--text-primary)] text-xs rounded-lg px-2.5 py-1 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500 transition shadow-sm cursor-pointer" aria-label="Filter tasks by type">
+            <option value="ALL">All Types</option>
+            <option value="feature">Features</option>
+            <option value="bug">Bugs</option>
+            <option value="improvement">Improvements</option>
+          </select>
 
           <!-- Spotlight Search with Shortcut Badge -->
           <div class="relative w-36 sm:w-48 md:w-56">

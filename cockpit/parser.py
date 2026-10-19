@@ -605,17 +605,18 @@ class PMParser:
                 created_date = str(val)[:10]
                 break
 
+        card_map = self.get_card_git_commit_map()
+        commits = card_map.get(file_path.name)
+        git_creation_commit = commits[-1] if commits else None
+
+        if not created_date and git_creation_commit:
+            # Oldest commit in reverse-chronological log is creation commit
+            created_date = git_creation_commit.get("date")
+
         if not created_date and changelog:
             valid_dates = [c["date"] for c in changelog if re.match(r"^\d{4}-\d{2}-\d{2}", c["date"])]
             if valid_dates:
                 created_date = sorted(valid_dates)[0]
-
-        if not created_date:
-            card_map = self.get_card_git_commit_map()
-            commits = card_map.get(file_path.name)
-            if commits:
-                # Oldest commit in reverse-chronological log is creation commit
-                created_date = commits[-1]["date"]
 
         if not created_date:
             des_match = re.search(r"designed\s+(\d{4}-\d{2}-\d{2})", body, re.IGNORECASE)
@@ -649,17 +650,15 @@ class PMParser:
                     created_time = m_time.group(1)
                     break
 
+        # Prioritize Git creation commit timestamp over changelog text (R2-Q1)
+        if not created_time and git_creation_commit:
+            created_time = git_creation_commit.get("time")
+
         if not created_time and changelog:
             for c in changelog:
                 if c.get("time") and re.match(r"^\d{1,2}:\d{2}", str(c.get("time"))):
                     created_time = str(c.get("time"))[:5]
                     break
-
-        if not created_time:
-            card_map = self.get_card_git_commit_map()
-            commits = card_map.get(file_path.name)
-            if commits:
-                created_time = commits[-1].get("time")
 
         if not created_time:
             try:
