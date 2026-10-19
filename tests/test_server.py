@@ -582,5 +582,101 @@ def test_static_assets_contain_story8_sound_and_notifications():
     assert "navigator.vibrate" in app_js
 
 
+def test_system_update_status_endpoint(server):
+    base, srv = server
+    status, body = get(f"{base}/api/system/update-status")
+    assert status == 200
+    res = json.loads(body)
+    assert res["success"] is True
+    assert "current_version" in res
+    assert "current_commit" in res
+    assert "behind_count" in res
+    assert "is_dirty" in res
+    assert "incoming_commits" in res
+
+
+def test_system_update_apply_endpoint_dirty_check(server, monkeypatch):
+    base, srv = server
+    import server as srv_mod
+
+    monkeypatch.setattr(
+        srv_mod,
+        "apply_system_update",
+        lambda target=None: (
+            False,
+            {
+                "success": False,
+                "error": "Working tree has uncommitted changes.",
+                "dirty_files": ["foo.txt"],
+            },
+        ),
+    )
+    status, res = post(f"{base}/api/system/update-apply", {})
+    assert status == 400
+    assert res["success"] is False
+    assert "Working tree" in res["error"]
+
+
+def test_system_update_apply_endpoint_success(server, monkeypatch):
+    base, srv = server
+    import server as srv_mod
+
+    monkeypatch.setattr(
+        srv_mod,
+        "apply_system_update",
+        lambda target=None: (
+            True,
+            {
+                "success": True,
+                "old_commit": "aaa1111",
+                "new_commit": "bbb2222",
+                "changed_files": ["cockpit/static/app.js"],
+                "skills_outdated": True,
+            },
+        ),
+    )
+    status, res = post(f"{base}/api/system/update-apply", {})
+    assert status == 200
+    assert res["success"] is True
+    assert res["new_commit"] == "bbb2222"
+    assert res["skills_outdated"] is True
+
+
+def test_static_assets_contain_story9_switcher_and_updates():
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+    # Connection path switcher
+    assert 'id="connectionPathSwitcher"' in index_html
+    assert 'id="pathTunnelBtn"' in index_html
+    assert 'id="pathLanBtn"' in index_html
+    assert "switchConnectionPath('tunnel')" in index_html
+    assert "switchConnectionPath('lan')" in index_html
+
+    # Sidebar version badge & Software update modal
+    assert 'id="boardVersionBadge"' in index_html
+    assert 'id="softwareUpdateModal"' in index_html
+    assert 'id="checkForUpdatesBtn"' in index_html
+    assert 'id="installUpdateBtn"' in index_html
+    assert 'id="updateDirtyWarning"' in index_html
+    assert 'id="skillsAdvisoryCard"' in index_html
+
+    # app.js functions
+    assert "function switchConnectionPath(" in app_js
+    assert "function checkSystemUpdates(" in app_js
+    assert "function applySystemUpdate(" in app_js
+    assert "function openSoftwareUpdateModal(" in app_js
+    assert "function closeSoftwareUpdateModal(" in app_js
+    assert "function copySkillUpgradePrompt(" in app_js
+
+
+def test_dashboard_ps1_story9_tunnel_default():
+    dashboard = Path(__file__).resolve().parent.parent / "dashboard.ps1"
+    content = dashboard.read_text(encoding="utf-8")
+    assert "[1] Public Tunnel" in content
+    assert 'PM_QA_COCKPIT_TUNNEL_URL = ""' in content
+
+
 
 

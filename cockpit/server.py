@@ -658,6 +658,257 @@ class NotificationWatcher(threading.Thread):
 
 NOTIFICATION_WATCHER = NotificationWatcher()
 
+TOOL_ROOT = Path(__file__).resolve().parent.parent
+
+
+def get_system_update_status() -> dict[str, Any]:
+    """Inspect local git repository status vs remote origin/main."""
+    tool_root = TOOL_ROOT
+    curr_ver = "0.0.0"
+    ver_file = tool_root / "VERSION"
+    if ver_file.exists():
+        try:
+            curr_ver = ver_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+
+    git_cmd = "git"
+    fetch_err = None
+    try:
+        f_res = subprocess.run(
+            [git_cmd, "fetch", "origin", "main"],
+            cwd=str(tool_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if f_res.returncode != 0 and f_res.stderr:
+            fetch_err = f_res.stderr.strip()
+    except Exception as e:
+        fetch_err = str(e)
+
+    curr_sha = ""
+    try:
+        res = subprocess.run(
+            [git_cmd, "rev-parse", "HEAD"],
+            cwd=str(tool_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        curr_sha = res.stdout.strip()
+    except Exception:
+        pass
+
+    remote_sha = ""
+    try:
+        res = subprocess.run(
+            [git_cmd, "rev-parse", "origin/main"],
+            cwd=str(tool_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        remote_sha = res.stdout.strip()
+    except Exception:
+        pass
+
+    behind_count = 0
+    ahead_count = 0
+    if curr_sha and remote_sha:
+        try:
+            res = subprocess.run(
+                [git_cmd, "rev-list", "--count", "HEAD..origin/main"],
+                cwd=str(tool_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            behind_count = int(res.stdout.strip() or "0")
+        except Exception:
+            pass
+
+        try:
+            res = subprocess.run(
+                [git_cmd, "rev-list", "--count", "origin/main..HEAD"],
+                cwd=str(tool_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            ahead_count = int(res.stdout.strip() or "0")
+        except Exception:
+            pass
+
+    is_dirty = False
+    dirty_files: list[str] = []
+    try:
+        res = subprocess.run(
+            [git_cmd, "status", "--porcelain"],
+            cwd=str(tool_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+        if lines:
+            is_dirty = True
+            dirty_files = lines
+    except Exception:
+        pass
+
+    incoming_commits: list[dict[str, str]] = []
+    if behind_count > 0:
+        try:
+            res = subprocess.run(
+                [git_cmd, "log", "-n", "5", "--oneline", "HEAD..origin/main"],
+                cwd=str(tool_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            for line in res.stdout.splitlines():
+                parts = line.strip().split(" ", 1)
+                if len(parts) == 2:
+                    incoming_commits.append({"sha": parts[0], "message": parts[1]})
+                elif line.strip():
+                    incoming_commits.append({"sha": parts[0], "message": ""})
+        except Exception:
+            pass
+
+    return {
+        "success": True,
+        "current_version": curr_ver,
+        "current_commit": curr_sha,
+        "remote_commit": remote_sha,
+        "behind_count": behind_count,
+        "ahead_count": ahead_count,
+        "is_dirty": is_dirty,
+        "dirty_files": dirty_files,
+        "incoming_commits": incoming_commits,
+        "fetch_error": fetch_err,
+    }
+
+
+def apply_system_update(target_code_path: str | None = None) -> tuple[bool, dict[str, Any]]:
+    """Pull origin/main fast-forward if worktree is clean, and check project skill status."""
+    tool_root = TOOL_ROOT
+    git_cmd = "git"
+
+    # 1. Verify clean worktree
+    try:
+        res = subprocess.run(
+            [git_cmd, "status", "--porcelain"],
+            cwd=str(tool_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if res.stdout.strip():
+            return False, {
+                "success": False,
+                "error": "Working tree has uncommitted changes. Please stash or commit before updating.",
+                "dirty_files": [ln.strip() for ln in res.stdout.splitlines() if ln.strip()],
+            }
+    except Exception as e:
+        return False, {"success": False, "error": f"Failed to check git status: {e}"}
+
+    # 2. Record old SHA
+    old_sha = ""
+    try:
+        res = subprocess.run(
+            [git_cmd, "rev-parse", "HEAD"],
+            cwd=str(tool_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        old_sha = res.stdout.strip()
+    except Exception:
+        pass
+
+    # 3. Pull fast-forward
+    try:
+        pull_res = subprocess.run(
+            [git_cmd, "pull", "--ff-only", "origin", "main"],
+            cwd=str(tool_root),
+            capture_output=True,
+            text=True,
+            timeout=25,
+            check=False,
+        )
+        if pull_res.returncode != 0:
+            err_msg = pull_res.stderr.strip() or pull_res.stdout.strip() or "git pull failed"
+            return False, {"success": False, "error": f"Update failed: {err_msg}"}
+    except Exception as e:
+        return False, {"success": False, "error": f"Update execution failed: {e}"}
+
+    # 4. New SHA
+    new_sha = ""
+    try:
+        res = subprocess.run(
+            [git_cmd, "rev-parse", "HEAD"],
+            cwd=str(tool_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        new_sha = res.stdout.strip()
+    except Exception:
+        pass
+
+    # 5. List changed files
+    changed_files: list[str] = []
+    if old_sha and new_sha and old_sha != new_sha:
+        try:
+            res = subprocess.run(
+                [git_cmd, "diff", "--name-only", f"{old_sha}..{new_sha}"],
+                cwd=str(tool_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            changed_files = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
+        except Exception:
+            pass
+
+    # 6. Check skills state
+    skills_outdated = False
+    skills_status_data = None
+    try:
+        if str(TOOL_ROOT / "cockpit") not in sys.path:
+            sys.path.insert(0, str(TOOL_ROOT / "cockpit"))
+        import setup_flow
+
+        target = target_code_path or (STATE.project.get("code_path") if STATE.project else None)
+        skills_status_data = setup_flow.skills_status(target)
+        for p_skill in skills_status_data.get("project", []):
+            if p_skill.get("state") in ("outdated", "missing"):
+                skills_outdated = True
+                break
+    except Exception:
+        pass
+
+    return True, {
+        "success": True,
+        "old_commit": old_sha,
+        "new_commit": new_sha,
+        "changed_files": changed_files,
+        "skills_outdated": skills_outdated,
+        "skills_status": skills_status_data,
+    }
+
 
 
 class PMRequestHandler(BaseHTTPRequestHandler):
@@ -938,6 +1189,11 @@ class PMRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if path == "/api/system/update-status":
+            info = get_system_update_status()
+            self.send_json(info)
+            return
+
         if path == "/api/heavy-gate/status":
             gate_info = STATE.parser.get_heavy_gate_info()
             worker_status = STATE.worker.get_status()
@@ -1149,6 +1405,15 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"success": True, "message": msg, "topic": topic})
             else:
                 self.send_json({"success": False, "error": msg, "topic": topic}, status=502)
+            return
+
+        if path == "/api/system/update-apply":
+            target_code = body.get("code_path") if isinstance(body, dict) else None
+            ok, result = apply_system_update(target_code)
+            if ok:
+                self.send_json(result)
+            else:
+                self.send_json(result, status=400)
             return
 
 

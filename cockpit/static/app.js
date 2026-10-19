@@ -2989,6 +2989,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initSidebarState();
   applyActiveStreamsCols();
+  checkSystemUpdates(false);
 
   document.querySelectorAll('.nav-tab').forEach((tab) => {
     tab.addEventListener('click', () => {
@@ -4495,8 +4496,85 @@ function generateQrSvg(text) {
 }
 
 // -----------------------------------------------------------------------------
-// Mobile Connect Modal Controller
+// Mobile Connect Modal & Connection Path Switcher Controller
 // -----------------------------------------------------------------------------
+let currentServerInfo = null;
+
+function switchConnectionPath(mode) {
+  const tunnelBtn = document.getElementById('pathTunnelBtn');
+  const lanBtn = document.getElementById('pathLanBtn');
+  const info = currentServerInfo || {};
+  const hasTunnel = Boolean(info.tunnel_url);
+
+  if (mode === 'tunnel' && !hasTunnel) {
+    if (typeof showToast === 'function') {
+      showToast('Public Tunnel is not active on host. Start dashboard with -Tunnel.', 'warning');
+    }
+    return;
+  }
+
+  const activeMode = (mode === 'tunnel' && hasTunnel) ? 'tunnel' : 'lan';
+  try {
+    localStorage.setItem('pmqa_connection_path', activeMode);
+  } catch (_) {}
+
+  // Update button active styling
+  if (tunnelBtn && lanBtn) {
+    if (activeMode === 'tunnel') {
+      tunnelBtn.className = 'flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer active bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30';
+      lanBtn.className = 'flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-transparent';
+    } else {
+      lanBtn.className = 'flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer active bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30';
+      tunnelBtn.className = 'flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-transparent';
+    }
+    if (!hasTunnel) {
+      tunnelBtn.classList.add('opacity-40', 'cursor-not-allowed');
+      tunnelBtn.title = 'Public Tunnel is not active. Launch dashboard with -Tunnel.';
+    } else {
+      tunnelBtn.classList.remove('opacity-40', 'cursor-not-allowed');
+      tunnelBtn.title = 'Public Tunnel (Cloudflare)';
+    }
+  }
+
+  // Derive target URL
+  const storedToken = sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
+  const token = info.token || storedToken || '';
+  let mobileUrl = '';
+  if (activeMode === 'tunnel') {
+    mobileUrl = info.tunnel_url + (token ? `?token=${encodeURIComponent(token)}` : '');
+  } else {
+    const port = info.port || 3333;
+    const host = info.lan_ip || window.location.hostname;
+    mobileUrl = `http://${host}:${port}` + (token ? `?token=${encodeURIComponent(token)}` : '');
+  }
+
+  const input = document.getElementById('mobileConnectUrlInput');
+  if (input) input.value = mobileUrl;
+
+  const qrContainer = document.getElementById('mobileQrGraphic');
+  if (qrContainer) {
+    qrContainer.innerHTML = '';
+    if (typeof QRCode !== 'undefined') {
+      new QRCode(qrContainer, {
+        text: mobileUrl,
+        width: 200,
+        height: 200,
+        colorDark: '#0f172a',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+    } else {
+      qrContainer.innerHTML = generateQrSvg(mobileUrl);
+    }
+  }
+
+  const netBadge = document.getElementById('mobileNetworkModeBadge');
+  if (netBadge) {
+    netBadge.textContent = activeMode === 'tunnel' ? 'Cloudflare Tunnel (Public)' : 'Local Wi-Fi (LAN)';
+    netBadge.className = `font-semibold ${activeMode === 'tunnel' ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`;
+  }
+}
+
 async function openMobileConnectModal() {
   const modal = document.getElementById('mobileConnectModal');
   if (!modal) return;
@@ -4507,6 +4585,7 @@ async function openMobileConnectModal() {
     const res = await fetch('/api/server-info');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const info = await res.json();
+    currentServerInfo = info;
 
     const storedToken = sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
     const token = info.token || storedToken || '';
@@ -4514,51 +4593,21 @@ async function openMobileConnectModal() {
       try { sessionStorage.setItem('cockpit_token', token); } catch (_) {}
       try { localStorage.setItem('cockpit_token', token); } catch (_) {}
     }
-    let mobileUrl = '';
-    if (info.tunnel_url) {
-      mobileUrl = info.tunnel_url + (token ? `?token=${encodeURIComponent(token)}` : '');
-    } else {
-      const port = info.port || 3333;
-      const host = info.lan_ip || window.location.hostname;
-      mobileUrl = `http://${host}:${port}` + (token ? `?token=${encodeURIComponent(token)}` : '');
-    }
 
-    const input = document.getElementById('mobileConnectUrlInput');
-    if (input) input.value = mobileUrl;
-
-    const qrContainer = document.getElementById('mobileQrGraphic');
-    if (qrContainer) {
-      qrContainer.innerHTML = '';
-      if (typeof QRCode !== 'undefined') {
-        new QRCode(qrContainer, {
-          text: mobileUrl,
-          width: 200,
-          height: 200,
-          colorDark: '#0f172a',
-          colorLight: '#ffffff',
-          correctLevel: QRCode.CorrectLevel.M,
-        });
-      } else {
-        qrContainer.innerHTML = generateQrSvg(mobileUrl);
-      }
-    }
-
-    const netBadge = document.getElementById('mobileNetworkModeBadge');
-    if (netBadge) {
-      netBadge.textContent = info.tunnel_url ? 'Cloudflare Tunnel (Public)' : 'Local Wi-Fi (LAN)';
-      netBadge.className = `font-semibold ${info.tunnel_url ? 'text-amber-400' : 'text-emerald-400'}`;
-    }
+    const savedPath = localStorage.getItem('pmqa_connection_path');
+    const defaultMode = (info.tunnel_url && savedPath !== 'lan') ? 'tunnel' : (info.tunnel_url ? savedPath : 'lan');
+    switchConnectionPath(defaultMode);
 
     const kaBadge = document.getElementById('mobileKeepAliveBadge');
     if (kaBadge) {
       kaBadge.textContent = info.keep_alive ? 'Active (Sleep Prevented)' : 'Standard';
-      kaBadge.className = `font-semibold ${info.keep_alive ? 'text-cyan-400' : 'text-slate-400'}`;
+      kaBadge.className = `font-semibold ${info.keep_alive ? 'text-cyan-500 dark:text-cyan-400' : 'text-slate-400'}`;
     }
 
     const tokBadge = document.getElementById('mobileTokenBadge');
     if (tokBadge) {
       tokBadge.textContent = info.token_required ? 'Session Token Active' : 'Unauthenticated (Local)';
-      tokBadge.className = `font-semibold ${info.token_required ? 'text-emerald-400' : 'text-slate-400'}`;
+      tokBadge.className = `font-semibold ${info.token_required ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400'}`;
     }
   } catch (err) {
     console.error('Failed to load server info for mobile connect:', err);
@@ -4580,5 +4629,186 @@ function copyMobileUrl() {
   const input = document.getElementById('mobileConnectUrlInput');
   if (!input || !input.value) return;
   copyToClipboard(input.value, document.getElementById('copyMobileUrlBtn'));
+}
+
+// -----------------------------------------------------------------------------
+// Software Updates & Git Manager Controller
+// -----------------------------------------------------------------------------
+let cachedUpdateStatus = null;
+
+async function checkSystemUpdates(interactive = true) {
+  const icon = document.getElementById('checkUpdatesIcon');
+  const text = document.getElementById('checkUpdatesText');
+  const installBtn = document.getElementById('installUpdateBtn');
+  const statusEl = document.getElementById('updateModalSyncStatus');
+  const dirtyWarn = document.getElementById('updateDirtyWarning');
+  const commitsPanel = document.getElementById('incomingCommitsPanel');
+  const commitsList = document.getElementById('incomingCommitsList');
+  const commitsCount = document.getElementById('incomingCommitsCount');
+  const dirtyFilesList = document.getElementById('dirtyFilesList');
+
+  if (icon) icon.className = 'ph ph-spinner ph-spin text-sm';
+  if (text) text.textContent = 'Checking...';
+
+  try {
+    const res = await fetch('/api/system/update-status');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    cachedUpdateStatus = data;
+
+    // Update version displays
+    const verEl = document.getElementById('updateModalVersion');
+    const commitEl = document.getElementById('updateModalCommit');
+    const boardVer = document.getElementById('boardVersionText');
+    const boardInd = document.getElementById('boardUpdateIndicatorText');
+
+    if (verEl && data.current_version) verEl.textContent = `v${data.current_version}`;
+    if (boardVer && data.current_version) boardVer.textContent = `v${data.current_version}`;
+    if (commitEl && data.current_commit) commitEl.textContent = data.current_commit.substring(0, 7);
+
+    // Dirty worktree check
+    if (data.is_dirty) {
+      if (dirtyWarn) dirtyWarn.classList.remove('hidden');
+      if (dirtyFilesList) dirtyFilesList.textContent = (data.dirty_files || []).join('\n');
+      if (statusEl) {
+        statusEl.textContent = 'Uncommitted local changes';
+        statusEl.className = 'font-semibold text-amber-600 dark:text-amber-400';
+      }
+      if (installBtn) installBtn.disabled = true;
+    } else {
+      if (dirtyWarn) dirtyWarn.classList.add('hidden');
+    }
+
+    // Behind count / incoming commits
+    if (data.behind_count > 0) {
+      if (statusEl && !data.is_dirty) {
+        statusEl.textContent = `${data.behind_count} update${data.behind_count > 1 ? 's' : ''} available`;
+        statusEl.className = 'font-semibold text-emerald-600 dark:text-emerald-400';
+      }
+      if (boardInd) {
+        boardInd.textContent = `${data.behind_count} new`;
+        boardInd.className = 'text-emerald-500 font-semibold';
+      }
+      if (commitsPanel) commitsPanel.classList.remove('hidden');
+      if (commitsCount) commitsCount.textContent = `${data.behind_count} behind`;
+      if (commitsList) {
+        commitsList.innerHTML = (data.incoming_commits || []).map(c => `
+          <div class="p-2 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-start gap-2">
+            <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-black/10 text-emerald-600 dark:text-emerald-400 font-semibold shrink-0">${c.sha ? c.sha.substring(0, 7) : ''}</span>
+            <span class="text-[11px] text-[var(--text-primary)] leading-tight truncate">${escapeHtml(c.message || '')}</span>
+          </div>
+        `).join('');
+      }
+      if (installBtn && !data.is_dirty) {
+        installBtn.disabled = false;
+      }
+      if (interactive && typeof showToast === 'function') {
+        showToast(`${data.behind_count} updates available from origin/main!`, 'info');
+      }
+    } else {
+      if (statusEl && !data.is_dirty) {
+        statusEl.textContent = 'Up to date with origin/main';
+        statusEl.className = 'font-semibold text-emerald-600 dark:text-emerald-400';
+      }
+      if (boardInd) {
+        boardInd.textContent = 'Up to date';
+        boardInd.className = 'text-[var(--text-tertiary)]';
+      }
+      if (commitsPanel) commitsPanel.classList.add('hidden');
+      if (installBtn) installBtn.disabled = true;
+      if (interactive && typeof showToast === 'function') {
+        showToast('PM & QA Board is up to date!', 'success');
+      }
+    }
+  } catch (err) {
+    console.error('Update check failed:', err);
+    if (statusEl) {
+      statusEl.textContent = 'Check failed (offline or no remote)';
+      statusEl.className = 'font-semibold text-rose-500';
+    }
+    if (interactive && typeof showToast === 'function') {
+      showToast(`Update check failed: ${err.message}`, 'error');
+    }
+  } finally {
+    if (icon) icon.className = 'ph ph-arrows-clockwise text-sm';
+    if (text) text.textContent = 'Check for Updates';
+  }
+}
+
+async function applySystemUpdate() {
+  const installBtn = document.getElementById('installUpdateBtn');
+  const installIcon = document.getElementById('installUpdateIcon');
+  const installText = document.getElementById('installUpdateText');
+  const checkBtn = document.getElementById('checkForUpdatesBtn');
+  const successCard = document.getElementById('updateSuccessCard');
+  const summaryEl = document.getElementById('updateSuccessSummary');
+  const advisoryCard = document.getElementById('skillsAdvisoryCard');
+  const logPanel = document.getElementById('updateLogPanel');
+
+  if (installBtn) installBtn.disabled = true;
+  if (checkBtn) checkBtn.disabled = true;
+  if (installIcon) installIcon.className = 'ph ph-spinner ph-spin text-sm';
+  if (installText) installText.textContent = 'Updating...';
+
+  try {
+    const res = await fetch('/api/system/update-apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    // Success state
+    if (successCard) successCard.classList.remove('hidden');
+    if (summaryEl) {
+      const filesCount = (data.changed_files || []).length;
+      summaryEl.textContent = `Applied fast-forward update to ${data.new_commit ? data.new_commit.substring(0, 7) : 'HEAD'} (${filesCount} file${filesCount === 1 ? '' : 's'} updated).`;
+    }
+    if (data.skills_outdated && advisoryCard) {
+      advisoryCard.classList.remove('hidden');
+    }
+
+    const commitEl = document.getElementById('updateModalCommit');
+    if (commitEl && data.new_commit) commitEl.textContent = data.new_commit.substring(0, 7);
+
+    if (typeof showToast === 'function') {
+      showToast('PM & QA Board updated successfully!', 'success');
+    }
+    if (typeof playChime === 'function') {
+      playChime('completed');
+    }
+  } catch (err) {
+    console.error('Apply update failed:', err);
+    if (logPanel) {
+      logPanel.classList.remove('hidden');
+      logPanel.textContent = `Update Error: ${err.message}`;
+    }
+    if (typeof showToast === 'function') {
+      showToast(`Update failed: ${err.message}`, 'error');
+    }
+  } finally {
+    if (installIcon) installIcon.className = 'ph ph-download-simple text-sm';
+    if (installText) installText.textContent = 'Install & Update';
+    if (checkBtn) checkBtn.disabled = false;
+  }
+}
+
+function openSoftwareUpdateModal() {
+  const modal = document.getElementById('softwareUpdateModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  checkSystemUpdates(false);
+}
+
+function closeSoftwareUpdateModal() {
+  const modal = document.getElementById('softwareUpdateModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function copySkillUpgradePrompt() {
+  copyToClipboard('check for PM & QA Board upgrades', document.getElementById('copySkillPromptBtn'));
 }
 

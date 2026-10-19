@@ -190,6 +190,17 @@
             <i class="ph ph-sidebar-simple text-sm"></i>
           </button>
         </div>
+
+        <!-- Board Version & Git Update Status Badge -->
+        <button id="boardVersionBadge" type="button" onclick="openSoftwareUpdateModal()" class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] text-[11px] font-mono transition cursor-pointer shadow-sm sidebar-widget-content" title="Software Updates &amp; Git Status">
+          <div class="flex items-center gap-1.5 truncate">
+            <i class="ph ph-git-branch text-emerald-600 dark:text-emerald-400 text-xs"></i>
+            <span id="boardVersionText" class="truncate font-semibold">v0.5.0</span>
+          </div>
+          <span id="boardUpdateIndicator" class="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1">
+            <span id="boardUpdateIndicatorText">Up to date</span>
+          </span>
+        </button>
       </div>
     </aside>
 
@@ -1103,6 +1114,20 @@
       </div>
 
       <div class="p-6 overflow-y-auto space-y-4 text-xs text-[var(--text-primary)]">
+        <!-- Segmented Connection Path Switcher -->
+        <div class="flex items-center justify-center">
+          <div class="segmented-control p-1 bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] rounded-xl flex gap-1 w-full" id="connectionPathSwitcher">
+            <button type="button" id="pathTunnelBtn" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer active" onclick="switchConnectionPath('tunnel')">
+              <i class="ph ph-globe text-xs"></i>
+              <span>Public Tunnel</span>
+            </button>
+            <button type="button" id="pathLanBtn" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer text-[var(--text-secondary)]" onclick="switchConnectionPath('lan')">
+              <i class="ph ph-wifi-high text-xs"></i>
+              <span>Local Wi-Fi (LAN)</span>
+            </button>
+          </div>
+        </div>
+
         <div class="flex flex-col items-center justify-center p-4 bg-white rounded-xl shadow-inner mx-auto w-64 h-64 border border-[var(--border-medium)]" id="mobileQrContainer">
           <div id="mobileQrGraphic" class="w-56 h-56 flex items-center justify-center text-slate-400 font-mono text-xs">
             Generating QR code...
@@ -1188,6 +1213,127 @@
       <div class="px-6 py-3 border-t border-[var(--border-glass)] bg-[var(--bg-surface-secondary)] flex justify-end">
         <button onclick="closeMobileConnectModal()" class="px-4 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium transition text-xs cursor-pointer">
           Done
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- SOFTWARE UPDATES & GIT MANAGER MODAL                                      -->
+  <!-- ========================================================================= -->
+  <div id="softwareUpdateModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity">
+    <div class="apple-glass-modal rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-[var(--border-glass)] flex items-center justify-between sticky top-0 z-10">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+            <i class="ph ph-git-branch text-base"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-[var(--text-primary)]">Software Updates</h3>
+            <p class="text-xs text-[var(--text-tertiary)]">PM &amp; QA Board Git Sync &amp; Versioning</p>
+          </div>
+        </div>
+        <button onclick="closeSoftwareUpdateModal()" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1.5 rounded-lg hover:bg-[var(--bg-glass-hover)] transition cursor-pointer">
+          <i class="ph ph-x text-lg"></i>
+        </button>
+      </div>
+
+      <div class="p-6 overflow-y-auto space-y-4 text-xs text-[var(--text-primary)]">
+        <!-- Version & Commit Status Card -->
+        <div class="p-4 bg-[var(--bg-surface-secondary)] rounded-xl border border-[var(--border-subtle)] space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-[var(--text-secondary)] font-medium">Installed Version:</span>
+            <span id="updateModalVersion" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">v0.5.0</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-[var(--text-secondary)] font-medium">Git Commit:</span>
+            <span id="updateModalCommit" class="font-mono text-[11px] text-[var(--text-primary)] truncate max-w-[12rem]">...</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-[var(--text-secondary)] font-medium">Branch / Remote:</span>
+            <span class="font-mono text-[11px] text-[var(--text-tertiary)]">main &rarr; origin/main</span>
+          </div>
+          <div class="flex items-center justify-between pt-1 border-t border-[var(--border-subtle)]">
+            <span class="text-[var(--text-secondary)] font-medium">Sync Status:</span>
+            <span id="updateModalSyncStatus" class="font-semibold text-emerald-600 dark:text-emerald-400">Ready to check</span>
+          </div>
+        </div>
+
+        <!-- Action Buttons: Check for Updates & Install -->
+        <div class="flex items-center gap-2.5">
+          <button id="checkForUpdatesBtn" onclick="checkSystemUpdates()" type="button" class="flex-1 px-4 py-2 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-sm">
+            <i class="ph ph-arrows-clockwise text-sm" id="checkUpdatesIcon"></i>
+            <span id="checkUpdatesText">Check for Updates</span>
+          </button>
+          <button id="installUpdateBtn" onclick="applySystemUpdate()" type="button" disabled class="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-sm">
+            <i class="ph ph-download-simple text-sm" id="installUpdateIcon"></i>
+            <span id="installUpdateText">Install &amp; Update</span>
+          </button>
+        </div>
+
+        <!-- Dirty Worktree Warning -->
+        <div id="updateDirtyWarning" class="hidden p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-700 dark:text-amber-400 space-y-1">
+          <div class="flex items-center gap-1.5 font-bold">
+            <i class="ph ph-warning text-base"></i>
+            <span>Uncommitted Changes Detected</span>
+          </div>
+          <p class="text-[11px] opacity-90">Your repository working tree has uncommitted local changes. Updates cannot be applied via fast-forward pull until working changes are committed or stashed.</p>
+          <div id="dirtyFilesList" class="font-mono text-[10px] mt-1 p-1.5 bg-black/10 rounded overflow-x-auto max-h-24"></div>
+        </div>
+
+        <!-- Incoming Commits Panel -->
+        <div id="incomingCommitsPanel" class="hidden space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Incoming Commits</span>
+            <span id="incomingCommitsCount" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">0 behind</span>
+          </div>
+          <div id="incomingCommitsList" class="space-y-1.5 max-h-40 overflow-y-auto"></div>
+        </div>
+
+        <!-- Post-Update Success & Guidance Card -->
+        <div id="updateSuccessCard" class="hidden p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-3">
+          <div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold">
+            <i class="ph ph-check-circle text-lg"></i>
+            <span>Successfully Updated to Latest Version!</span>
+          </div>
+          <p id="updateSuccessSummary" class="text-[11px] text-[var(--text-primary)]">Fast-forward pull applied cleanly.</p>
+          <div class="flex items-center gap-2 pt-1">
+            <button onclick="window.location.reload()" type="button" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm">
+              <i class="ph ph-arrows-clockwise text-xs"></i>
+              <span>Reload Page</span>
+            </button>
+            <span class="text-[10px] text-[var(--text-tertiary)]">Refresh browser to load updated frontend assets.</span>
+          </div>
+          <div class="text-[11px] text-[var(--text-tertiary)] border-t border-emerald-500/20 pt-2">
+            <span class="font-semibold text-[var(--text-primary)]">Note:</span> If backend Python files were updated, restart <code class="font-mono text-[10px] bg-black/10 px-1 py-0.5 rounded">dashboard.ps1</code> to run the latest server code.
+          </div>
+        </div>
+
+        <!-- Outdated Skills Advisory Badge & Prompt Copy -->
+        <div id="skillsAdvisoryCard" class="hidden p-3.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+              <i class="ph ph-sparkle text-sm"></i>
+              <span>Project Skills Update Available</span>
+            </span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-600 dark:text-indigo-400">Advisory</span>
+          </div>
+          <p class="text-[11px] text-[var(--text-primary)]">New agent skills have shipped with this release. To upgrade your project's skills safely via your AI assistant:</p>
+          <div class="flex items-center gap-2 pt-1">
+            <input type="text" readonly value="check for PM &amp; QA Board upgrades" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] font-mono text-[11px] px-2.5 py-1.5 rounded-lg border border-[var(--border-medium)] select-all">
+            <button onclick="copySkillUpgradePrompt()" id="copySkillPromptBtn" type="button" class="px-3 py-1.5 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5">
+              <i class="ph ph-copy text-xs" id="copySkillPromptIcon"></i>
+              <span id="copySkillPromptText">Copy Prompt</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="updateLogPanel" class="hidden p-2.5 bg-black/20 rounded-lg font-mono text-[10px] text-[var(--text-tertiary)] max-h-24 overflow-y-auto whitespace-pre-wrap"></div>
+      </div>
+
+      <div class="px-6 py-3 border-t border-[var(--border-glass)] bg-[var(--bg-surface-secondary)] flex justify-end">
+        <button onclick="closeSoftwareUpdateModal()" class="px-4 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium transition text-xs cursor-pointer">
+          Close
         </button>
       </div>
     </div>

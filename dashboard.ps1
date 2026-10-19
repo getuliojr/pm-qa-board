@@ -142,38 +142,47 @@ if (-not $PSBoundParameters.ContainsKey('Mobile') -and
         Write-Host "    PM & QA Board Launcher" -ForegroundColor Cyan
         Write-Host "  ================================================" -ForegroundColor Cyan
         Write-Host "  Select dashboard access mode:" -ForegroundColor Cyan
-        Write-Host "    [1] Mobile Wi-Fi (LAN access for phone on same Wi-Fi, keep-awake) [default]" -ForegroundColor Green
-        Write-Host "    [2] Local only   (127.0.0.1 loopback, PC only)" -ForegroundColor DarkGray
-        Write-Host "    [3] Public Tunnel (Cloudflare Quick Tunnel with secure session token)" -ForegroundColor Yellow
+        Write-Host "    [1] Public Tunnel (Cloudflare Quick Tunnel with secure session token) [default]" -ForegroundColor Green
+        Write-Host "    [2] Mobile Wi-Fi (LAN access for phone on same Wi-Fi, keep-awake)" -ForegroundColor Yellow
+        Write-Host "    [3] Local only   (127.0.0.1 loopback, PC only)" -ForegroundColor DarkGray
         Write-Host ""
         $choice = Read-Host "  Choose mode [1]"
         $choice = if ($choice) { $choice.Trim() } else { "" }
-        if ($choice -eq "" -or $choice -eq "1" -or $choice.ToLower() -eq "mobile" -or $choice.ToLower() -eq "m") {
-            $Mobile = $true
-        } elseif ($choice -eq "2" -or $choice.ToLower() -eq "local" -or $choice.ToLower() -eq "l") {
-            $Local = $true
-        } elseif ($choice -eq "3" -or $choice.ToLower() -eq "tunnel" -or $choice.ToLower() -eq "t" -or $choice.ToLower() -eq "public") {
+        if ($choice -eq "" -or $choice -eq "1" -or $choice.ToLower() -eq "tunnel" -or $choice.ToLower() -eq "t" -or $choice.ToLower() -eq "public") {
             $Tunnel = $true
-        } else {
-            Write-Host "  Unknown choice '$choice', defaulting to Mobile." -ForegroundColor DarkYellow
+        } elseif ($choice -eq "2" -or $choice.ToLower() -eq "mobile" -or $choice.ToLower() -eq "m") {
             $Mobile = $true
+        } elseif ($choice -eq "3" -or $choice.ToLower() -eq "local" -or $choice.ToLower() -eq "l") {
+            $Local = $true
+        } else {
+            Write-Host "  Unknown choice '$choice', defaulting to Public Tunnel." -ForegroundColor DarkYellow
+            $Tunnel = $true
         }
     } else {
-        # Default to Mobile mode when started without arguments
-        $Mobile = $true
+        # Default to Public Tunnel mode when started without arguments
+        $Tunnel = $true
     }
 }
 
-if ($Mobile) {
+if ($Tunnel) {
     if (-not $HostName) {
         $HostName = "0.0.0.0"
     }
     $env:PM_QA_COCKPIT_KEEP_ALIVE = "1"
+} elseif ($Mobile) {
+    if (-not $HostName) {
+        $HostName = "0.0.0.0"
+    }
+    $env:PM_QA_COCKPIT_KEEP_ALIVE = "1"
+    $env:PM_QA_COCKPIT_TUNNEL_URL = ""
 } elseif ($Local) {
     if (-not $HostName) {
         $HostName = "127.0.0.1"
     }
     $env:PM_QA_COCKPIT_KEEP_ALIVE = "0"
+    $env:PM_QA_COCKPIT_TUNNEL_URL = ""
+} else {
+    $env:PM_QA_COCKPIT_TUNNEL_URL = ""
 }
 if ($HostName) {
     $env:PM_QA_COCKPIT_HOST = $HostName
