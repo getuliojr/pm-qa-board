@@ -39,8 +39,8 @@ wheels = [
 ]
 
 [[package]]
-name = "pm-qa-cockpit"
-version = "0.7.0"
+name = "pm-qa-board"
+version = "0.8.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]

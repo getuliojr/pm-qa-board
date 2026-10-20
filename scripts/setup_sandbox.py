@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     paths = sandbox_fixture.build(root, dev_first=args.dev_first, running_copy=ROOT)
     home, project = paths["home"], paths["project"]
     skill = home / ".pm-qa-cockpit" / "app" / "skills" / "pm-qa-setup" / "SKILL.md"
-    cli = home / ".pm-qa-cockpit" / "app" / "cockpit" / "cli.py"
+    cli = home / ".pm-qa-cockpit" / "app" / "board" / "cli.py"
     print(f"""Sandbox ready.
   fake HOME: {home}
   project:   {project}

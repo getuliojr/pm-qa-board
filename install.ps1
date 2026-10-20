@@ -1,13 +1,15 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Bootstrap for PM & QA Cockpit: installs ONLY the `pm-qa-setup` skill. Never overwrites anything.
+    Bootstrap for PM & QA Board: installs ONLY the `pm-qa-setup` skill and creates a desktop shortcut to start the board. Never overwrites anything.
 
 .DESCRIPTION
     Copies skills\pm-qa-setup into ~\.claude\skills, ~\.agents\skills and ~\.cursor\skills-cursor
     where it is missing. Where a pm-qa-setup already exists it is compared with line endings ignored:
     identical -> left alone; different -> reported and left alone (your agent upgrades it, with your
     approval, through the skill itself). Nothing else is installed and nothing is downloaded.
+
+    Also creates a desktop shortcut "PM & QA Board" to launch dashboard.ps1.
 
     Everything else - prerequisites, grill-me, the project's skills, pointers in CLAUDE.md/AGENTS.md,
     registration and gate profiling - is done by an agent running the pm-qa-setup skill, which
@@ -16,6 +18,12 @@
 .PARAMETER DryRun
     Print what would happen; write nothing. Alias: -Check.
 
+.PARAMETER TargetHome
+    Install under another home folder (used by the test suite); defaults to your user profile.
+
+.PARAMETER NoShortcut
+    Skip creating the desktop shortcut.
+
 .EXAMPLE
     powershell -NoProfile -File install.ps1 -DryRun
 #>
@@ -23,7 +31,8 @@ param(
     [Alias("Check")]
     [switch]$DryRun,
     # Install under another home folder (used by the test suite); defaults to your user profile.
-    [string]$TargetHome = ""
+    [string]$TargetHome = "",
+    [switch]$NoShortcut
 )
 
 $ErrorActionPreference = "Stop"
@@ -107,8 +116,49 @@ function Get-SkillHash([string]$Dir) {
     return (($hash | ForEach-Object { $_.ToString("x2") }) -join "")
 }
 
+function New-BoardDesktopShortcut {
+    param(
+        [string]$TargetHomeDir,
+        [string]$RepoDirectory,
+        [switch]$IsDryRun
+    )
+    $desktopDir = if ($TargetHomeDir) {
+        Join-Path $TargetHomeDir "Desktop"
+    } else {
+        [Environment]::GetFolderPath("Desktop")
+    }
+
+    $dashboardPath = Join-Path $RepoDirectory "dashboard.ps1"
+    $shortcutName = "PM & QA Board"
+    $shortcutFile = Join-Path $desktopDir "$shortcutName.lnk"
+
+    if ($IsDryRun) {
+        Write-Host "  [would create ] desktop shortcut $shortcutFile" -ForegroundColor Cyan
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $desktopDir)) {
+        try {
+            New-Item -ItemType Directory -Force -Path $desktopDir | Out-Null
+        } catch {}
+    }
+
+    try {
+        $wsh = New-Object -ComObject WScript.Shell
+        $sc = $wsh.CreateShortcut($shortcutFile)
+        $sc.TargetPath = "powershell.exe"
+        $sc.Arguments = "-ExecutionPolicy Bypass -NoProfile -File `"$dashboardPath`""
+        $sc.WorkingDirectory = $RepoDirectory
+        $sc.Description = "Launch PM & QA Board"
+        $sc.Save()
+        Write-Host "  [created      ] desktop shortcut $shortcutFile" -ForegroundColor Green
+    } catch {
+        Write-Host "  [warning      ] could not create desktop shortcut: $_" -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
-Write-Host "  PM & QA Cockpit - bootstrap ($Skill $Version)" -ForegroundColor Green
+Write-Host "  PM & QA Board - bootstrap ($Skill $Version)" -ForegroundColor Green
 if ($DryRun) { Write-Host "  DRY RUN: nothing will be written." -ForegroundColor Cyan }
 Write-Host ""
 
@@ -144,15 +194,19 @@ foreach ($root in $Roots) {
     }
 }
 
+if (-not $NoShortcut) {
+    New-BoardDesktopShortcut -TargetHomeDir $TargetHome -RepoDirectory $RepoRoot -IsDryRun:$DryRun
+}
+
 Write-Host ""
 Write-Host ("Summary: {0} {1}, {2} current, {3} left untouched" -f $installed, $(if ($DryRun) { "to install" } else { "installed" }), $current, $differs)
 if ($differs -gt 0) {
     Write-Host "A different $Skill is already installed. Nothing was overwritten. To upgrade it, ask your agent:" -ForegroundColor Yellow
-    Write-Host '  "check for PM & QA Cockpit upgrades"' -ForegroundColor Yellow
+    Write-Host '  "check for PM & QA Board upgrades"' -ForegroundColor Yellow
 }
 Write-Host ""
 Write-Host "Next: open a project with your agent (Claude Code, Cursor, Antigravity) and ask:" -ForegroundColor White
-Write-Host '  "set up PM & QA Cockpit in this project"' -ForegroundColor White
+Write-Host '  "set up PM & QA Board in this project"' -ForegroundColor White
 Write-Host "It inspects the project's own rules and hooks first and changes only what you approve."
 Write-Host ""
 exit 0

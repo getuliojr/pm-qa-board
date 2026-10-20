@@ -2,11 +2,11 @@
 name: pm-qa-cockpit
 description: Use when creating, reading or updating story cards, PLAN.md, reviews or close-out artifacts for a project tracked by the PM & QA Cockpit (local dashboard on :3333), or when asked to launch/register the Cockpit. Defines card schema, project resolution, docs layout and the CLI.
 metadata:
-  version: 0.7.0
+  version: 0.8.0
   source: pm-qa-cockpit
 ---
 
-# PM & QA Cockpit
+# PM & QA Board
 
 A local, zero-dependency dashboard + CLI that reads a project's markdown cards (stories) and shows
 status, Definition of Done (DoD), Human QA checks, cold reviews, heavy gates and close-out artifacts.
@@ -83,7 +83,8 @@ validated: false
 | `profile-gates [--measure] [--apply] [--threshold-seconds 360]` | pick fast/heavy gate mode |
 
 ## Launching
-`powershell -File <cockpit>\dashboard.ps1 [-Project slug] [-Port 3333]` opens http://localhost:3333.
+- Double-click the **PM & QA Board** shortcut on your Desktop (created during `install.ps1`).
+- Or from PowerShell: `powershell -File <running-copy>\dashboard.ps1 [-Project slug] [-Port 3333]` opens http://localhost:3333.
 Agents do not launch it unattended (long-running server) unless asked.
 
 ## Related skills
