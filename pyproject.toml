@@ -1,6 +1,6 @@
 [project]
 name = "pm-qa-cockpit"
-version = "0.1.0"
+version = "0.7.0"
 description = "PM & QA Cockpit — multi-project story cards, QA and heavy-gate dashboard plus agent skills"
 requires-python = ">=3.12"
 dependencies = []

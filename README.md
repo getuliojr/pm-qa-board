@@ -1,139 +1,275 @@
 # PM & QA Board
 
-A local, zero-dependency dashboard and CLI for running agent-built work as **stories**: markdown cards,
-Definition of Done, cold-review verdicts, Human QA checks, heavy gates and interactive close-out
-artifacts, across any number of projects. It reads markdown on disk; there is no database and no board
-to keep in sync. It plus a small skill suite (`pm-qa-setup`, `pm-qa-cockpit`, `pm-orchestrate`, `pm-sync`, `pm-review`)
-gives Claude Code, Cursor and similar agents one shared working loop.
+<p align="center">
+  <strong>A local-first, zero-dependency dashboard and agent orchestration framework for high-velocity software engineering.</strong><br>
+  Built for <strong>Claude Code</strong>, <strong>Cursor</strong>, <strong>Google Antigravity</strong>, and autonomous AI coding agents.
+</p>
 
-**It never pushes, and it never overwrites your rules.** Agents commit locally; `git push` is always the
-user's call. Setup is done by an agent that inspects your project and changes only what you approve.
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.7.0-emerald.svg" alt="Version 0.7.0" />
+  <img src="https://img.shields.io/badge/runtime-Python%20std%20lib-blue.svg" alt="Zero Dependencies" />
+  <img src="https://img.shields.io/badge/python-%3E%3D3.12-blue.svg" alt="Python 3.12+" />
+  <img src="https://img.shields.io/badge/storage-pure%20markdown-orange.svg" alt="Pure Markdown Storage" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg" alt="Platform Support" />
+  <img src="https://img.shields.io/badge/mobile-instant%20QR%20pairing-success.svg" alt="Mobile Integration" />
+</p>
 
-## Quick start
+---
+
+## Overview
+
+**PM & QA Board** transforms agent-driven development into a structured, verifiable, and audit-proof workflow. Instead of losing context in long chat sessions, all engineering work is tracked on disk as **stories**: structured Markdown cards with unambiguous Definitions of Done (DoD), cold-review verdicts, automated test gates, and interactive Human QA sign-off artifacts.
+
+There is **no database**, **no external cloud service**, and **no sync drift**. The dashboard reads and writes Markdown files directly on your local filesystem. Combined with an agent skill suite (`pm-orchestrate`, `pm-qa-setup`, `pm-review`, `pm-sync`, `pm-qa-cockpit`), it gives you and your AI coding partners a shared, repeatable loop from design interview through final QA sign-off.
+
+> **Zero-surprises guarantee:** The tool never pushes to Git without your explicit confirmation, never overwrites your project's custom rules or instructions without approval, and keeps your private project data completely decoupled from public code repositories.
+
+---
+
+## Visual Showcase
+
+### Desktop Pipeline Board & Dual-Theme UI
+Experience a desktop interface designed around Apple Daylight and Carbon Zinc aesthetics. View stories across the complete development lifecycle: **Backlog**, **Ready to Build**, **In Progress**, **QA Test**, and **Completed**.
+
+<p align="center">
+  <img src="assets/pipeline-board.png" alt="PM & QA Board - Desktop Pipeline Board" width="95%" />
+</p>
+
+<details>
+  <summary>🌙 <strong>View Carbon Zinc Dark Theme</strong></summary>
+  <br>
+  <p align="center">
+    <img src="assets/pipeline-board-dark.png" alt="PM & QA Board - Carbon Zinc Dark Theme" width="95%" />
+  </p>
+</details>
+
+---
+
+### Dedicated QA Station & Slide-Over Inspection Drawer
+Every card moving to QA provides live acceptance checklists, automated gate status badges, implementation changelogs, and direct links to interactive Close-Out deliverables. Inspect cards with full context in a slide-over drawer without losing board state.
+
+<p align="center">
+  <img src="assets/qa-card-drawer.png" alt="Slide-Over Inspection Drawer & DoD Checklists" width="95%" />
+</p>
+
+---
+
+### Instant Mobile Integration & QR Remote Access
+Take your QA testing anywhere on your local Wi-Fi or on the go via secure Cloudflare Quick Tunnels with one-click QR code pairing.
+
+<p align="center">
+  <img src="assets/mobile-connect-modal.png" alt="Mobile Connect & Instant QR Code Modal" width="48%" />
+  &nbsp;
+  <img src="assets/mobile-pipeline.png" alt="Responsive Mobile Kanban Board" width="23%" />
+  &nbsp;
+  <img src="assets/mobile-qa.png" alt="Mobile QA Verification Station" width="23%" />
+</p>
+
+---
+
+## Key Features
+
+### 1. 📱 Mobile Integration & Remote Access
+- **Instant Camera QR Pairing:** Launch with `powershell -File dashboard.ps1 -Mobile` or `-Public` to print a terminal QR code, or click the **Connect** button in the header toolbar to display a high-resolution QR modal. Point your smartphone camera at the screen to immediately open the dashboard on your phone.
+- **Dual Connection Paths:**
+  - **Local Wi-Fi (LAN):** Automatically resolves your machine's local IPv4 network address for ultra-fast, zero-cloud access within your home or office Wi-Fi.
+  - **Public Cloudflare Quick Tunnel:** Spin up an ephemeral, encrypted Cloudflare Tunnel on demand (`trycloudflare.com`) with automated session tokens (`?token=...`) to test from anywhere over cellular without opening router ports.
+- **Windows Host Keep-Alive:** Uses native Windows power management APIs (`SetThreadExecutionState`) to prevent host sleep or sleep transitions while a mobile testing session is active.
+- **Mobile-First Ergonomics:** Full responsive support with horizontal column scroll snapping (`scrollToColumn`), touch-friendly slide-over inspection drawers, compact type pills, and sticky QA validation footers.
+- **Web Audio Chimes & Push Notifications:** Built-in Web Audio synth engine announces QA transitions with pleasant audio cues. Includes optional cellular push notifications via [ntfy.sh](https://ntfy.sh).
+
+### 2. ⚡ Live Data & Real-Time Agent Reactivity
+- **Zero Polling Lag / File Watcher:** The cockpit monitors your project's story files on disk in real time. When an agent updates a DoD criterion or creates a card, the UI updates reactively.
+- **Active Work Streams & Live DoD:** The **Active Work & DoD** view shows real-time concurrent development lanes, active builder agents, and granular completion percentages for work in progress.
+- **Active Grill Lane:** Automatically detects active design interviews or RFC discussions (`grill-me` skill), giving you early visibility into requirements refinement before any code is committed.
+- **Real-Time Telemetry:** Instant counters for cards awaiting QA, total cards, test execution durations, and gate health.
+- **In-App Git Sync & Update Manager:** Inspect current branch name, commit SHA, and upstream sync status directly from the header toolbar.
+
+### 3. 🛡️ Human-in-the-Loop QA & Close-Out Artifacts
+- **Interactive Story Close-Out (`.html`):** When a story reaches `qa`, the agent generates a standalone, interactive delivery page (`<docs>/artifacts/<PREFIX>-<story>-closeout.html`). It encapsulates the story scope, visual before/after evidence, test metrics, and live Human QA verification checkboxes.
+- **One-Click Sign-Off:** Reviewers can click **Validate & Complete Story** directly inside the Close-Out artifact or from the QA Station to transition the story to `completed`, stamp the completion timestamp, and commit changes.
+- **Cold Review Gate:** Enforces an independent, diff-only code review (`pm-review`) by a designated stronger model before any story reaches the QA column.
+
+### 4. 🪶 Zero Runtime Dependencies & Local-First Architecture
+- **Standard Library Only:** The core HTTP server (`cockpit/server.py`) uses Python 3.12+ standard library modules (`http.server`, `threading`, `subprocess`, `urllib`, `json`). No heavy runtime web frameworks (no Flask, FastAPI, Node, or Django required to run).
+- **Disk is the Source of Truth:** All project status is stored in clean, human-readable Markdown files. You can edit cards in VS Code, Obsidian, Neovim, or Notepad; the board reflects edits instantly.
+- **In-Repo vs. External Private Docs:**
+  - **In-repo mode:** PM files live under `<project_root>/docs/`.
+  - **External docs mode (`--docs-path`):** PM files live in a separate, private repository (e.g., `../pm-qa-docs/<slug>/`). Keeps sensitive roadmap data, internal reviews, and business context out of public open-source repos. Optional `--stealth` flag automatically keeps local cockpit helper files excluded via `.git/info/exclude`.
+
+---
+
+## Quick Start
+
+### 1. Installation (Once per Machine)
+
+Clone the repository into your user directory and run the non-destructive bootstrap installer:
 
 ```powershell
-# 1. Get the running copy (once per machine)
+# 1. Clone the running copy to your user profile
 git clone https://github.com/getuliojr/pm-qa-cockpit $HOME\.pm-qa-cockpit\app
 
-# 2. Install the bootstrap skill (only pm-qa-setup; never overwrites anything)
+# 2. Preview what the installer will do (Dry Run)
 powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1 -DryRun
+
+# 3. Install the bootstrap skill (installs only pm-qa-setup; never overwrites existing skills)
 powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1
-
-# 3. In each project, ask your agent (Claude Code, Cursor, Antigravity):
-#      "set up PM & QA Board in this project"
-
-# 4. Launch the dashboard (http://localhost:3333)
-powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 [-Project my-app] [-Port 3333]
 ```
 
-**How setup works** (`skills/pm-qa-setup`): the agent runs `cli.py setup-plan <project>`, which is
-read-only. Its first reply is in plain words: **what you have** (this project, each used tool's global
-folder, launchers, PM data, hooks; each item with where it is now, where it belongs and why), the
-**recommended target**, and **at most 4 questions** in fixed themes (PM data, where skills live,
-launcher wiring, gates), plus one per skill you edited. Behind them the plan holds the exact changes:
+---
 
-- the cockpit skills, copied into the project's own agent folders (`.claude/skills`, `.agents/skills`)
-  only for agents detected there — Cursor is pointed at them through `AGENTS.md` instead of a copy;
-- a short "PM & QA Board" section appended (between markers) to `CLAUDE.md` / `AGENTS.md` /
-  `GEMINI.md`, saying **the project's own rules win** on conflict;
-- `.git/info/exclude` entries (exact paths) when the project keeps its PM docs outside the repo;
-- grill-me copied (never moved) to the global folder of each tool the project uses, old global
-  cockpit copies removed (only exact, unedited past releases), `pm-qa-setup` upgraded;
-- a launcher that prefers the dev clone pointed at the running copy (one exact line, shown first);
-- registration (`cli.py init`) and gate profiling (`profile-gates`).
+### 2. Set Up a Project (Agent-Guided)
 
-A project that already runs its **own loop** (e.g. its own `*-orchestrate` skill) is **register-only**:
-no cockpit skills, one informational note. The agent maps your answers to `cli.py setup-apply`, which
-refuses if the plan changed since you saw it, and ends with **`cli.py doctor <project>`**: a read-only
-pass / warn / fail checklist (registration, the dashboard can load the cards, running copy, launchers,
-skills, grill-me and `pm-qa-setup` per tool, gate mode, hooks) you can re-run anytime; exit 1 on a fail.
+Open your target project in your preferred agent tool (**Claude Code**, **Cursor**, **Google Antigravity**, etc.) and prompt:
 
-**Upgrades:** every skill carries `metadata.version` (from `VERSION`) and an installed copy keeps a
-`.pm-qa-cockpit.json` manifest, so `cli.py skills-status` / `setup-plan` can tell *outdated* (safe to
-upgrade on approval) from *edited by you* (keep / replace / save `*.new` beside it) and from a
-same-named skill that isn't ours (never touched). Line endings are ignored in every comparison.
-`skills/RELEASES.json` lists every hash each skill shipped with, so a copy from any past release (even
-one with no manifest) is recognised as ours and unedited. Releasing a skill change: bump `VERSION` and
-every skill's `metadata.version`, then `uv run python scripts/skill_ledger.py record` (a test fails
-otherwise). `scripts/setup_sandbox.py` rebuilds a fake HOME + project to try setup without touching yours.
+> **"Set up PM & QA Board in this project"**
 
-## Registry
+The agent runs `cli.py setup-plan <project>`, inspects your environment, and presents a clear summary:
+1. **Current setup:** Existing agent configurations, PM data location, hooks, and gates.
+2. **Recommended plan:** Target skill locations, docs location, and gate profiles.
+3. **Up to 4 clarifying questions:** You approve where PM docs live, where skills are installed, and your preferred gate mode.
 
-`~/.pm-qa-cockpit/projects.json` (override the folder with `PM_QA_COCKPIT_HOME`) lists projects with
-`slug`, `name`, `prefix`, `code_path`, `docs_path` and a gate profile, plus the active project.
-Resolution order: `--project`, then the project containing the current directory, then the active one.
+Once approved, the agent executes `cli.py setup-apply` and validates the installation with `cli.py doctor <project>` to ensure everything is operating cleanly.
 
-## In-repo vs external docs
+---
 
-- **In-repo** (default): PM files live in `<code_path>/docs`.
-- **External** (`--docs-path`): PM files live in a separate git repo: `PLAN.md`, `cards/`, `reviews/`,
-  `artifacts/`, `WORKLOG.md`, `QUALITY.md`, `E2E_CANDIDATES.md`, `gate-heavy-results/`. Code git
-  operations stay in the code repo and PM files never enter it. `--stealth` also hides local cockpit files
-  through `.git/info/exclude`.
-- **Shared private docs repo**: an external `docs_path` may be a folder inside one private repo that holds
-  many projects (`pm-qa-docs/<slug>/`). The cockpit commits into that enclosing repo and never creates a
-  nested one.
+### 3. Launching the Dashboard
 
-## Code, running copy and data — keep them apart
+Launch the web dashboard from PowerShell:
 
-| Layer | Where | Syncs via |
+```powershell
+# Standard local desktop launch (http://localhost:3333)
+powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1
+
+# Launch with mobile LAN Wi-Fi pairing enabled
+powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 -Mobile
+
+# Launch with public Cloudflare Quick Tunnel (with secure session token)
+powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 -Public
+
+# Launch and select a specific registered project
+powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 -Project my-app -Port 3333
+```
+
+---
+
+## Project Structure & Isolation
+
+To ensure that in-development changes never destabilize active client projects, PM & QA Board enforces a clean three-layer separation:
+
+| Layer | Location | Purpose & Sync |
 |---|---|---|
-| Tool code (you develop it) | your dev clone of this repo, on branches | this public repo |
-| Running copy (projects use it) | `~/.pm-qa-cockpit/app`, a clone of this repo on `main` | `git -C ~/.pm-qa-cockpit/app pull` |
-| PM data (cards, PLAN, reviews, close-outs) | each project's own repo, or a private docs repo such as `pm-qa-docs/<slug>/` | that repo |
-| Registry | `~/.pm-qa-cockpit/projects.json` (absolute paths, per machine) | not synced: re-run `cli.py init` |
-| Bootstrap skill `pm-qa-setup` | `~/.claude/skills`, `~/.agents/skills`, `~/.cursor/skills-cursor` | `install.ps1` once per machine; upgraded by the skill |
-| Project skills | each project's `.claude/skills` / `.agents/skills` | committed with the project (in-repo docs) or git-excluded (external/stealth) |
+| **Dev Clone** | Your local git clone of this repository | Where you develop and test new cockpit features on local branches. |
+| **Running Copy** | `~/.pm-qa-cockpit/app` | Stable copy cloned from `main` that projects use to serve the dashboard. Updated via `git pull`. |
+| **PM Data** | `<project>/docs` or `pm-qa-docs/<slug>/` | Project story cards, acceptance criteria, reviews, and close-out artifacts. |
+| **Registry** | `~/.pm-qa-cockpit/projects.json` | Local per-machine configuration linking project slugs, paths, gate profiles, and notification preferences. |
+| **Agent Skills** | `.claude/skills`, `.agents/skills`, `~/.cursor/skills-cursor` | Modular prompt skills providing the 7-step story workflow to AI agents. |
 
-**This repo never holds PM data.** Its own cards live in the private docs repo (`.gitignore` blocks
-`docs/`, `PLAN.md` and friends here as a safety net).
+---
 
-**Release flow:** develop and test in the dev clone → bump `VERSION` (and every skill's
-`metadata.version`) when skills change → merge to `main` and push → update the running copy, then let
-each project's agent upgrade its skills with your approval:
+## The 7-Step Story Working Loop
 
-```powershell
-git -C $HOME\.pm-qa-cockpit\app pull
-# then, in a project: "check for PM & QA Board upgrades"
+Every feature or bugfix built under the PM & QA Cockpit framework follows the standard story loop (`skills/pm-orchestrate/SKILL.md`):
+
+```
+       [ 1. Grill-Me ]           --> Clarify requirements, edge cases & scope
+              │
+       [ 2. Card In-Progress ]   --> Create/update markdown card with DoD
+              │
+       [ 3. Local Commits ]      --> Build iteratively with incremental DoD sync
+              │
+       [ 4. Automated Gates ]    --> Run inline fast static + unit test suite
+              │
+       [ 5. Cold Review ]        --> Diff-only independent reviewer approval
+              │
+       [ 6. Story Close-Out ]    --> Generate interactive HTML deliverable
+              │
+       [ 7. Human QA Sign-Off ]  --> Live verification checks & completion
 ```
 
-Projects find the cockpit through `$env:PM_QA_COCKPIT_REPO`, else `~/.pm-qa-cockpit/app`, else a sibling
-`pm-qa-cockpit` folder — so a half-finished edit in the dev clone never breaks a project's dashboard.
+### Gate Modes: Fast vs. Heavy
+The built-in gate profiler (`cli.py profile-gates --measure --apply`) benchmarks your test and lint suite against a 360-second threshold:
+- **Fast Mode (<= 360 s):** The agent runs the full test suite inline before requesting review.
+- **Heavy Mode (> 360 s):** The agent runs fast unit checks inline; full regression suites are decoupled into a dedicated `finalgates.ps1` script triggered from the QA Station or by the user.
 
-**New machine:** clone this repo (dev), clone it again into `~/.pm-qa-cockpit/app` (running copy), clone
-your projects and the private docs repo, run `install.ps1`, then ask your agent to "set up PM & QA
-Board" in each project (on a new machine that mostly means re-registering it).
+---
 
-## Story schema
+## Story Card Schema
 
-Cards are `<docs>/cards/<PREFIX>-<story> - <Title>.md` with frontmatter `id`, `story`, `type`, `status`
-(`backlog | story-backlog | in-progress | qa | completed`), `created`, `validated`; sections
-`## Description`, `## Definition of Done / Acceptance Criteria`, `## Human QA Test`
-(`### Verification Check` checkboxes) and `## Changelog` (`| YYYY-MM-DD HH:MM | Role (Model) | What |`).
-The legacy money-nest schema (`mn-id`, `sprint`, `sprint-backlog`, `## Sprint`) is still accepted.
+Story cards live in `<docs>/cards/<PREFIX>-<story> - <Title>.md` with clean YAML frontmatter:
 
-## Gate modes
+```markdown
+---
+id: PQC-24
+story: 24
+type: improvement
+status: in-progress      # backlog | story-backlog | in-progress | qa | completed
+created: 2026-10-20 09:00
+validated: null
+---
 
-`cli.py profile-gates --measure --apply` times the full static + test suite against a 360 s threshold:
+## Description
+Clear user intent and functional scope.
 
-- `fast` (<= 360 s): the agent runs the full suite inline before closing a story.
-- `heavy` (> 360 s): the agent runs only fast gates; the full suite is a generated `finalgates.ps1`
-  (`scripts/` in-repo, `<docs_path>/gates/` for external docs) run by the user or the QA & Heavy Gates tab.
-- `unprofiled`: profile first.
+## Definition of Done / Acceptance Criteria
+- [x] Responsive layout adapted for mobile viewports
+- [x] Dedicated slide-over drawer for card inspection
+- [ ] Automated regression tests passing
 
-## Close-out artifacts
+## Human QA Test
+### Verification Check
+- [ ] Open card on mobile browser and verify sticky validation bar
+- [ ] Tap 'Validate & Complete' and verify instant card transition
 
-Every story that reaches `qa` writes `<docs>/artifacts/<PREFIX>-<story>-closeout.html` (the card's
-**Story Close-Out** button appears only when this file exists): a self-contained interactive
-page (goal and scope, a demo of the work, gate and review badges, live Human QA checkboxes and a
-"Validate & Complete Story" button wired to the Cockpit API). Opened outside the Cockpit it degrades to
-read-only. See `skills/pm-orchestrate/SKILL.md` for the spec.
-
-## Tests
-
-```powershell
-uv run --system-certs --group dev pytest
+## Changelog
+| 2026-10-20 09:55 | Builder (Claude 3.5 Sonnet) | Responsive drawer implementation |
 ```
 
-**Setup also reviews the team and QA (0.5.0).** Besides filling gaps, `pm-qa-setup` step 2b asks, role by role, which model and thinking level each agent should use (existing agent files included, on approval) and reviews the project's gates, coverage floors, heavy-gate staleness and per-sprint metrics.
+---
 
+## CLI Reference
+
+The zero-dependency CLI (`cockpit/cli.py`) handles all automation and management tasks:
+
+```powershell
+# List registered projects and active selection
+uv run python cockpit/cli.py projects [--select <slug>]
+
+# Register a new project
+uv run python cockpit/cli.py init <slug> --code-path <path> [--docs-path <path>] [--prefix <PRFX>]
+
+# Run environment health check
+uv run python cockpit/cli.py doctor [<slug>]
+
+# Profile test suite and set fast/heavy gate mode
+uv run python cockpit/cli.py profile-gates <slug> --measure --apply
+
+# Inspect installed skill status and check for updates
+uv run python cockpit/cli.py skills-status <slug>
+
+# Generate or apply agent-guided setup plans
+uv run python cockpit/cli.py setup-plan <slug>
+uv run python cockpit/cli.py setup-apply <slug> --answers-json <path>
+```
+
+---
+
+## Development & Testing
+
+Run the comprehensive test suite locally using `uv`:
+
+```powershell
+uv run --system-certs --group dev pytest -q
+```
+
+To capture fresh high-resolution screenshots for this documentation:
+
+```powershell
+node scripts/capture_screenshots.js
+```
+
+---
+
+## License
+
+MIT License. Designed with care for high-autonomy pair-programming workflows.
