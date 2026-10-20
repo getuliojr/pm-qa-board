@@ -1076,7 +1076,7 @@ def test_story19_secondary_tab_refresh_skeletons_and_state_hygiene(server):
     assert "${inProgCards.length} active" in app_js
 
     # 6. Cachebuster bumped
-    assert re.search(r"app\.js\?v=20261019-pqc\d+", index_html)
+    assert re.search(r"app\.js\?v=202610\d{2}-pqc\d+", index_html)
 
     # 7. Server endpoints for secondary tabs respond validly
     base, srv = server
@@ -1100,7 +1100,7 @@ def test_story20_collapsed_sidebar_navigation_and_brand_logo_toggle(server):
     assert 'onclick="toggleSidebarCollapse()"' in index_html
     assert 'id="sidebarActionBar"' in index_html
     assert 'theme-label' in index_html
-    assert 'app.js?v=20261019-pqc' in index_html
+    assert re.search(r'app\.js\?v=202610\d{2}-pqc', index_html)
 
     # 2. Desktop-scoped collapse in style.css
     assert '@media (min-width: 768px)' in style_css
@@ -1125,7 +1125,7 @@ def test_story22_mobile_swipe_qa_autoscroll_and_sticky_validation(server):
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
     # 1. Cachebuster bumped
-    assert 'app.js?v=20261019-pqc' in index_html
+    assert re.search(r'app\.js\?v=202610\d{2}-pqc', index_html)
 
     # 2. Mobile swipe-to-open gesture support
     assert 'function initMobileMenuSwipe(' in app_js
@@ -1171,7 +1171,7 @@ def test_story23_qa_grid_and_dedicated_drawer(server):
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
     # 1. Cachebuster bumped
-    assert 'app.js?v=20261019-pqc23' in index_html
+    assert re.search(r'app\.js\?v=2026\d+-(?:pqc23|pqc24)', index_html)
 
     # 2. Responsive QA Card Grid in index.html and app.js
     assert 'id="qaCardsGrid"' in index_html
@@ -1221,6 +1221,54 @@ def test_story23_qa_grid_and_dedicated_drawer(server):
     assert 'closeQaDrawer();' in app_js
     assert "playChime('completed');" in app_js
     assert 'navigator.vibrate' in app_js
+
+
+def test_story24_mobile_ergonomics_live_console_roadmap_filter(server):
+    """PQC-24: Mobile Ergonomics Polish, Live Console Responsive Toolbar, Roadmap Card List Adaptation & Filter State Transparency."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+    # 1. Cachebuster bumped
+    assert 'app.js?v=20261020-pqc24' in index_html
+
+    # 2. QA Drawer Sticky Footer Polish: No Close button in sticky footer
+    assert 'id="qaCardDrawer"' in index_html
+    assert 'id="qaDrawerValidateNotes"' in index_html
+    assert 'id="qaDrawerValidateBtn"' in index_html
+    assert '<!-- Sticky Drawer Footer: Notes, Validate & Complete (Story 24 Polish) -->' in index_html
+    assert 'onclick="closeQaDrawer()"' in index_html
+
+    # 3. Live Console Drawer Responsive Two-Line Toolbar
+    assert 'id="fastGateDrawer"' in index_html
+    assert 'id="fastTerminalIndicator"' in index_html
+    assert 'id="fastGateTimer"' in index_html
+    assert 'id="fastAutoScrollTerminal"' in index_html
+    assert 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5' in index_html
+    assert 'id="terminalIndicator"' in index_html
+    assert 'id="autoScrollTerminal"' in index_html
+
+    # 4. Roadmap & Specs Responsive Mobile Adaptation & Cards Column Elimination
+    assert 'id="sprintRoadmapTable"' in index_html
+    assert 'id="sprintRoadmapMobileList"' in index_html
+    # Roadmap table header has no Cards column
+    assert '<th class="py-3 px-4">Cards</th>' not in index_html
+    assert 'hidden md:block' in index_html
+    assert 'md:hidden space-y-3' in index_html
+    assert 'sprintRoadmapMobileList' in app_js
+    assert 'colspan="4"' in app_js
+
+    # 5. Pipeline Board Filter State Transparency & Real-Time Validation Re-render
+    assert 'id="pipelineActiveFilterPill"' in index_html
+    assert 'pipelineActiveFilterPill' in app_js
+    assert 'clearPipelineSprintFilter' in app_js
+    assert 'Filtered by:' in app_js
+    assert 'function clearPipelineSprintFilter(' in app_js
+    # validateCard calls renderPipeline after fetchAll()
+    assert 'await fetchAll();' in app_js
+    assert 'renderQaStation();' in app_js
+    assert 'renderPipeline();' in app_js
+
 
 
 

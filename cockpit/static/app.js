@@ -818,17 +818,42 @@ function renderLoadingSkeletons(force = false) {
         <tr class="animate-pulse">
           <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-14"></div></td>
           <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-64"></div></td>
-          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-12"></div></td>
           <td class="py-3 px-4"><div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-20"></div></td>
           <td class="py-3 px-4 text-right"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16 ml-auto"></div></td>
         </tr>
         <tr class="animate-pulse opacity-50">
           <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-14"></div></td>
           <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-48"></div></td>
-          <td class="py-3 px-4"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-12"></div></td>
           <td class="py-3 px-4"><div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-20"></div></td>
           <td class="py-3 px-4 text-right"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16 ml-auto"></div></td>
         </tr>
+      `;
+    }
+    const roadmapMobileList = document.getElementById('sprintRoadmapMobileList');
+    if (roadmapMobileList) {
+      roadmapMobileList.innerHTML = `
+        <div class="p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-2.5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-16"></div>
+              <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-14"></div>
+            </div>
+            <div class="h-6 bg-[var(--bg-surface-tertiary)] rounded w-20"></div>
+          </div>
+          <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-full"></div>
+          <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-2/3"></div>
+        </div>
+        <div class="p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse opacity-50 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-16"></div>
+              <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-14"></div>
+            </div>
+            <div class="h-6 bg-[var(--bg-surface-tertiary)] rounded w-20"></div>
+          </div>
+          <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-full"></div>
+          <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-1/2"></div>
+        </div>
       `;
     }
   } else if (activeTab === 'activity') {
@@ -1347,6 +1372,27 @@ function renderPipeline() {
     const mEl = document.getElementById(`mcount-${k}`);
     if (mEl) mEl.textContent = colCounts[k] || 0;
   });
+
+  // Update active sprint filter pill banner
+  const activeFilterPill = document.getElementById('pipelineActiveFilterPill');
+  if (activeFilterPill) {
+    if (state.filters.sprint && state.filters.sprint !== 'ALL') {
+      activeFilterPill.className = 'mb-3 flex items-center justify-between p-2.5 px-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs';
+      activeFilterPill.innerHTML = `
+        <div class="flex items-center gap-2 text-purple-700 dark:text-purple-300 font-medium">
+          <i class="ph ph-funnel text-sm text-purple-500"></i>
+          <span>Filtered by: <strong class="font-bold">Story ${escapeHtml(state.filters.sprint)}</strong></span>
+        </div>
+        <button onclick="clearPipelineSprintFilter()" data-action="clear-sprint-filter" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[var(--text-primary)] border border-[var(--border-medium)] text-xs font-semibold shadow-xs transition cursor-pointer">
+          <i class="ph ph-x text-xs"></i>
+          <span>Clear</span>
+        </button>
+      `;
+    } else {
+      activeFilterPill.className = 'hidden mb-3';
+      activeFilterPill.innerHTML = '';
+    }
+  }
 }
 
 function formatSmartTimestamp(dateStr, timeStr) {
@@ -2268,6 +2314,7 @@ async function validateCard(mn_id) {
       isCardValidationInFlight = false;
       await fetchAll();
       renderQaStation();
+      renderPipeline();
     } else {
       showToast(`Error: ${res.error || 'Failed to validate card'}`, 'error');
       if (btn) {
@@ -2345,6 +2392,14 @@ function onRoadmapSearch(query) {
   state.roadmapSearch = (query || '').trim().toLowerCase();
   renderRoadmap();
 }
+
+function clearPipelineSprintFilter() {
+  state.filters.sprint = 'ALL';
+  const filterSelect = document.getElementById('pipelineSprintFilter') || document.getElementById('filterSprint');
+  if (filterSelect) filterSelect.value = 'ALL';
+  renderPipeline();
+}
+window.clearPipelineSprintFilter = clearPipelineSprintFilter;
 
 function filterBoardBySprint(sprintNum) {
   state.filters.sprint = sprintNum;
@@ -2439,8 +2494,10 @@ function getStoryStatusInfo(sprint, cards) {
 
 function renderRoadmap() {
   const table = document.getElementById('sprintRoadmapTable');
-  if (!table) return;
-  table.innerHTML = '';
+  const mobileList = document.getElementById('sprintRoadmapMobileList');
+  if (!table && !mobileList) return;
+  if (table) table.innerHTML = '';
+  if (mobileList) mobileList.innerHTML = '';
 
   // 1. Calculate filter counts
   let countAll = state.sprints.length;
@@ -2507,60 +2564,74 @@ function renderRoadmap() {
   const sorted = [...filtered].sort(compareSprintsDesc);
 
   if (sorted.length === 0) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td colspan="5" class="py-8 text-center text-[var(--text-tertiary)] text-xs">
-        <i class="ph ph-funnel text-xl mx-auto mb-2 text-[var(--text-quaternary)] block"></i>
-        No stories match the current filter or search criteria.
-      </td>
-    `;
-    table.appendChild(tr);
+    if (table) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td colspan="4" class="py-8 text-center text-[var(--text-tertiary)] text-xs">
+          <i class="ph ph-funnel text-xl mx-auto mb-2 text-[var(--text-quaternary)] block"></i>
+          No stories match the current filter or search criteria.
+        </td>
+      `;
+      table.appendChild(tr);
+    }
+    if (mobileList) {
+      mobileList.innerHTML = `
+        <div class="py-8 text-center text-[var(--text-tertiary)] text-xs">
+          <i class="ph ph-funnel text-xl mx-auto mb-2 text-[var(--text-quaternary)] block"></i>
+          No stories match the current filter or search criteria.
+        </div>
+      `;
+    }
     if (window.lucide) lucide.createIcons();
     return;
   }
 
   // 4. Render sorted rows
   sorted.forEach((sprint) => {
-    const tr = document.createElement('tr');
-    tr.className = 'hover:bg-[var(--bg-surface-secondary)] transition-colors';
-
     const info = getStoryStatusInfo(sprint, state.cards);
-    const sprintIdNum = sprint.sprint.replace(/^(?:Sprint|Story|Phase)\s+/i, '').trim();
-    const assignedCards = info.assignedCards;
     const badge = info.badge;
-
-    // Card column representation
-    let cardsHtml = '';
-    if (assignedCards.length > 0) {
-      cardsHtml = `
-        <button data-action="filter-board-by-sprint" data-sprint="${escapeHtml(sprintIdNum)}" title="Click to view cards in Board" class="inline-flex items-center gap-1 font-mono text-emerald-600 dark:text-emerald-400 hover:underline font-semibold text-xs">
-          <span>${assignedCards.length} cards</span>
-          <i class="ph ph-arrow-square-out text-xs opacity-70"></i>
-        </button>
-      `;
-    } else if (info.status === 'NEXT_TO_DEFINE') {
-      cardsHtml = `<span class="badge-next-to-define"><i class="ph ph-sparkle text-xs mr-1 inline"></i>Next to Define</span>`;
-    } else {
-      cardsHtml = `<span class="text-[var(--text-quaternary)] font-mono text-[11px]">0 cards</span>`;
-    }
-
     const escSprint = escapeHtml(sprint.sprint);
     const escScope = escapeHtml(sprint.scope);
 
-    tr.innerHTML = `
-      <td class="py-3 px-4 font-bold text-[var(--text-primary)] whitespace-nowrap">${escapeHtml(storyLabel(sprint.sprint))}</td>
-      <td class="py-3 px-4 text-[var(--text-secondary)] max-w-md leading-relaxed">${escScope}</td>
-      <td class="py-3 px-4 whitespace-nowrap">${cardsHtml}</td>
-      <td class="py-3 px-4 whitespace-nowrap">${badge}</td>
-      <td class="py-3 px-4 text-right whitespace-nowrap">
-        <button data-action="open-sprint-doc" data-sprint="${escSprint}" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] transition text-xs font-medium shadow-xs group cursor-pointer">
-          <i class="ph ph-book-open text-emerald-500 group-hover:scale-110 transition-transform text-xs"></i>
-          <span>View Spec</span>
-        </button>
-      </td>
-    `;
+    // Desktop table row (clean 4-column layout: Story, Scope & Objectives, Status, Spec / Doc)
+    if (table) {
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-[var(--bg-surface-secondary)] transition-colors';
+      tr.innerHTML = `
+        <td class="py-3 px-4 font-bold text-[var(--text-primary)] whitespace-nowrap">${escapeHtml(storyLabel(sprint.sprint))}</td>
+        <td class="py-3 px-4 text-[var(--text-secondary)] max-w-md leading-relaxed">${escScope}</td>
+        <td class="py-3 px-4 whitespace-nowrap">${badge}</td>
+        <td class="py-3 px-4 text-right whitespace-nowrap">
+          <button data-action="open-sprint-doc" data-sprint="${escSprint}" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] transition text-xs font-medium shadow-xs group cursor-pointer">
+            <i class="ph ph-book-open text-emerald-500 group-hover:scale-110 transition-transform text-xs"></i>
+            <span>View Spec</span>
+          </button>
+        </td>
+      `;
+      table.appendChild(tr);
+    }
 
-    table.appendChild(tr);
+    // Mobile responsive card (< 768px)
+    if (mobileList) {
+      const cardDiv = document.createElement('div');
+      cardDiv.className = 'p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] space-y-2.5';
+      cardDiv.innerHTML = `
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-sm text-[var(--text-primary)]">${escapeHtml(storyLabel(sprint.sprint))}</span>
+            ${badge}
+          </div>
+          <button data-action="open-sprint-doc" data-sprint="${escSprint}" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] transition text-xs font-medium shadow-xs group cursor-pointer">
+            <i class="ph ph-book-open text-emerald-500 group-hover:scale-110 transition-transform text-xs"></i>
+            <span>View Spec</span>
+          </button>
+        </div>
+        <div class="text-[var(--text-secondary)] text-xs leading-relaxed">
+          ${escScope}
+        </div>
+      `;
+      mobileList.appendChild(cardDiv);
+    }
   });
 
   if (window.lucide) lucide.createIcons();
@@ -5239,6 +5310,8 @@ document.addEventListener('click', (e) => {
   if (action === 'open-sprint-doc') {
     const sprint = trigger.getAttribute('data-sprint');
     if (sprint) openSprintDoc(sprint);
+  } else if (action === 'clear-sprint-filter') {
+    clearPipelineSprintFilter();
   } else if (action === 'filter-board-by-sprint') {
     const sprint = trigger.getAttribute('data-sprint');
     if (sprint) filterBoardBySprint(sprint);

@@ -291,6 +291,9 @@
           <!-- Quick-switch project pills (hidden with a single project) -->
           <div id="projectPills" class="hidden flex flex-wrap items-center gap-1.5 mb-3"></div>
 
+          <!-- Active Story/Sprint Filter Pill (Shown when board is filtered) -->
+          <div id="pipelineActiveFilterPill" class="hidden mb-3"></div>
+
           <!-- Mobile Column Switcher Pills -->
           <div id="mobileColumnPills" class="flex md:hidden items-center gap-2 overflow-x-auto pb-2 mb-3 scrollbar-none">
             <button class="mobile-col-pill active" data-col="backlog" onclick="scrollToColumn('backlog')">
@@ -594,19 +597,19 @@
 
             <!-- Fast Mode Live Console Drawer (Collapsible) -->
             <div id="fastGateDrawer" class="hidden mt-4">
-              <div class="flex items-center justify-between bg-[var(--bg-surface-tertiary)] px-3 py-2 rounded-t-lg border border-b-0 border-[var(--border-subtle)] text-xs">
-                <div class="flex items-center space-x-2 text-[var(--text-tertiary)] font-mono text-[11px]">
-                  <span class="w-2.5 h-2.5 rounded-full bg-[var(--text-quaternary)] inline-block" id="fastTerminalIndicator"></span>
-                  <span>Test Suite Live Console (<code class="text-[var(--text-primary)]">gate-heavy-results/current_run.log</code>)</span>
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 bg-[var(--bg-surface-tertiary)] px-3.5 py-2.5 rounded-t-lg border border-b-0 border-[var(--border-subtle)] text-xs">
+                <div class="flex items-center space-x-2 text-[var(--text-tertiary)] font-mono text-[11px] min-w-0">
+                  <span class="w-2.5 h-2.5 rounded-full bg-[var(--text-quaternary)] inline-block shrink-0" id="fastTerminalIndicator"></span>
+                  <span class="truncate">Test Suite Live Console (<code class="text-[var(--text-primary)]">gate-heavy-results/current_run.log</code>)</span>
                 </div>
-                <div class="flex items-center space-x-2">
+                <div class="flex items-center space-x-2.5 shrink-0 justify-end flex-wrap gap-y-1">
                   <span id="fastGateTimer" class="text-[11px] font-mono text-[var(--text-tertiary)] hidden">00:00</span>
-                  <label class="flex items-center space-x-1.5 text-[11px] text-[var(--text-tertiary)] cursor-pointer">
+                  <label class="flex items-center space-x-1.5 text-[11px] text-[var(--text-tertiary)] cursor-pointer select-none">
                     <input type="checkbox" id="fastAutoScrollTerminal" checked class="rounded border-[var(--border-medium)] text-emerald-500 bg-[var(--bg-surface)]">
                     <span>Auto-scroll</span>
                   </label>
-                  <button onclick="clearFastLog()" class="px-2 py-0.5 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[10px] text-[var(--text-secondary)] transition cursor-pointer">Clear</button>
-                  <button onclick="toggleFastDrawer()" class="px-2 py-0.5 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[10px] text-[var(--text-secondary)] transition cursor-pointer">Close</button>
+                  <button onclick="clearFastLog()" class="px-2.5 py-1 sm:py-0.5 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[10px] text-[var(--text-secondary)] border border-[var(--border-medium)] transition cursor-pointer">Clear</button>
+                  <button onclick="toggleFastDrawer()" class="px-2.5 py-1 sm:py-0.5 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[10px] text-[var(--text-secondary)] border border-[var(--border-medium)] transition cursor-pointer">Close</button>
                 </div>
               </div>
               <pre id="fastGateTerminal" class="bg-[var(--bg-surface-secondary)] text-[var(--text-primary)] p-3 rounded-b-lg border border-[var(--border-subtle)] font-mono text-[11px] leading-relaxed max-h-56 min-h-[5rem] overflow-y-auto whitespace-pre-wrap select-text">Ready. Click "Run Test Suite" to execute inline verification.</pre>
@@ -681,17 +684,17 @@
 
             <!-- Terminal Output Drawer -->
             <div class="mt-4">
-              <div class="flex items-center justify-between bg-[var(--bg-surface-tertiary)] px-3 py-2 rounded-t-lg border border-b-0 border-[var(--border-subtle)] text-xs">
-                <div class="flex items-center space-x-2 text-[var(--text-tertiary)] font-mono text-[11px]">
-                  <span class="w-2.5 h-2.5 rounded-full bg-[var(--text-quaternary)] inline-block" id="terminalIndicator"></span>
-                  <span>Live Console (<code class="text-[var(--text-primary)]">gate-heavy-results/current_run.log</code>)</span>
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 bg-[var(--bg-surface-tertiary)] px-3.5 py-2.5 rounded-t-lg border border-b-0 border-[var(--border-subtle)] text-xs">
+                <div class="flex items-center space-x-2 text-[var(--text-tertiary)] font-mono text-[11px] min-w-0">
+                  <span class="w-2.5 h-2.5 rounded-full bg-[var(--text-quaternary)] inline-block shrink-0" id="terminalIndicator"></span>
+                  <span class="truncate">Live Console (<code class="text-[var(--text-primary)]">gate-heavy-results/current_run.log</code>)</span>
                 </div>
-                <div class="flex items-center space-x-2">
-                  <label class="flex items-center space-x-1.5 text-[11px] text-[var(--text-tertiary)] cursor-pointer">
+                <div class="flex items-center space-x-2.5 shrink-0 justify-end flex-wrap gap-y-1">
+                  <label class="flex items-center space-x-1.5 text-[11px] text-[var(--text-tertiary)] cursor-pointer select-none">
                     <input type="checkbox" id="autoScrollTerminal" checked class="rounded border-[var(--border-medium)] text-emerald-500 bg-[var(--bg-surface)]">
                     <span>Auto-scroll</span>
                   </label>
-                  <button onclick="clearHeavyLog()" class="px-2 py-0.5 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[10px] text-[var(--text-secondary)] transition">Clear</button>
+                  <button onclick="clearHeavyLog()" class="px-2.5 py-1 sm:py-0.5 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[10px] text-[var(--text-secondary)] border border-[var(--border-medium)] transition cursor-pointer">Clear</button>
                 </div>
               </div>
               <pre id="heavyGateTerminal" class="bg-[var(--bg-surface-secondary)] text-[var(--text-primary)] p-3 rounded-b-lg border border-[var(--border-subtle)] font-mono text-[11px] leading-relaxed max-h-48 min-h-[5rem] overflow-y-auto whitespace-pre-wrap select-text">Ready. Click "Run Heavy Gate" to initiate out-of-band verification.</pre>
@@ -749,13 +752,13 @@
               </button>
             </div>
 
-            <div class="overflow-x-auto">
+            <!-- Desktop Roadmap Table (>= 768px) -->
+            <div class="overflow-x-auto hidden md:block">
               <table class="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr class="border-b border-[var(--border-subtle)] text-[var(--text-tertiary)] font-semibold uppercase tracking-wider">
                     <th class="py-3 px-4">Story</th>
                     <th class="py-3 px-4">Scope &amp; Objectives</th>
-                    <th class="py-3 px-4">Cards</th>
                     <th class="py-3 px-4">Status</th>
                     <th class="py-3 px-4 text-right">Spec / Doc</th>
                   </tr>
@@ -763,6 +766,9 @@
                 <tbody id="sprintRoadmapTable" class="divide-y divide-[var(--border-subtle)]"></tbody>
               </table>
             </div>
+
+            <!-- Mobile Responsive Story Card List (< 768px) -->
+            <div id="sprintRoadmapMobileList" class="md:hidden space-y-3"></div>
           </div>
         </section>
 
@@ -967,19 +973,13 @@
       </div>
     </div>
 
-    <!-- Sticky Drawer Footer: Close, Notes, Validate & Complete -->
-    <div class="sticky bottom-0 z-10 px-6 py-3 border-t border-[var(--border-glass)] apple-glass-toolbar flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0 shadow-lg">
-      <button type="button" onclick="closeQaDrawer()" class="px-4 py-2 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium transition text-xs cursor-pointer flex items-center justify-center space-x-1.5 shrink-0">
-        <i class="ph ph-x text-sm"></i>
-        <span>Close</span>
+    <!-- Sticky Drawer Footer: Notes, Validate & Complete (Story 24 Polish) -->
+    <div class="sticky bottom-0 z-10 px-6 py-3 border-t border-[var(--border-glass)] apple-glass-toolbar flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0 shadow-lg">
+      <input type="text" id="qaDrawerValidateNotes" placeholder="Optional QA validation note (e.g. 'Verified Wise import flow live')" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] text-xs rounded-lg px-3 py-2 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
+      <button id="qaDrawerValidateBtn" data-action="validate-card" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 transition cursor-pointer shrink-0">
+        <i class="ph ph-checks text-sm"></i>
+        <span>Validate &amp; Complete</span>
       </button>
-      <div class="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-        <input type="text" id="qaDrawerValidateNotes" placeholder="Optional QA validation note (e.g. 'Verified Wise import flow live')" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] text-xs rounded-lg px-3 py-2 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
-        <button id="qaDrawerValidateBtn" data-action="validate-card" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 transition cursor-pointer shrink-0">
-          <i class="ph ph-checks text-sm"></i>
-          <span>Validate &amp; Complete</span>
-        </button>
-      </div>
     </div>
   </div>
 
@@ -1558,7 +1558,7 @@
   </div>
 
   <script src="qrcode.min.js"></script>
-  <script src="app.js?v=20261019-pqc23"></script>
+  <script src="app.js?v=20261020-pqc24"></script>
 </body>
 </html>
 
