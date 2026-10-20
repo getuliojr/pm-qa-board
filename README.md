@@ -244,6 +244,37 @@ Clear user intent and functional scope.
 
 ---
 
+## Extra card tags
+
+A project can show extra values from card frontmatter (for example an external ticket key or an iteration
+number) as pills on the board, optionally as links, and filter the pipeline board by them. Declare them in the
+project's registry entry in `~/.pm-qa-cockpit/projects.json`:
+
+```json
+"extra_tags": [
+  {"key": "ticket", "label": "Ticket", "link": "https://tracker.example.com/browse/{value}", "filter": true},
+  {"key": "iteration", "label": "Iteration", "filter": true}
+]
+```
+
+`key` is the frontmatter key (required); `label` defaults to the key; `link` is an `http(s)` URL template where
+`{value}` is replaced by the URL-quoted value; `filter: true` adds a dropdown above the pipeline board. Then add
+bare lines to a card's frontmatter:
+
+```yaml
+ticket: EXAMPLE-123
+iteration: 7
+```
+
+- Digits-only values show with their label (`Iteration 7`); other values show alone (`EXAMPLE-123`).
+- Frontmatter keys that are not declared are ignored, and nothing changes for projects without `extra_tags`.
+- If a key is declared twice, the first declaration wins.
+- Declarations are read when a project is activated: after editing the registry file, restart the board or
+  select the project again.
+- `uv run python board/cli.py tags` lists the declarations of the resolved project.
+
+---
+
 ## CLI Reference
 
 The zero-dependency CLI (`board/cli.py`) handles all automation and management tasks:
@@ -254,6 +285,9 @@ uv run python board/cli.py projects [--select <slug>]
 
 # Register a new project
 uv run python board/cli.py init <slug> --code-path <path> [--docs-path <path>] [--prefix <PRFX>]
+
+# List the extra card tags declared for a project
+uv run python board/cli.py --project <slug> tags
 
 # Run environment health check
 uv run python board/cli.py doctor [<slug>]
