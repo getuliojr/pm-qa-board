@@ -1270,6 +1270,24 @@ def test_story24_mobile_ergonomics_live_console_roadmap_filter(server):
     assert 'renderPipeline();' in app_js
 
 
+def test_favicon_served_successfully(server):
+    """Verify that /favicon.ico and /favicon.svg are served with HTTP 200 and correct Content-Type."""
+    base_url, _ = server
+    with urllib.request.urlopen(f"{base_url}/favicon.ico") as r:
+        assert r.status == 200
+        assert "image/x-icon" in r.headers.get("Content-Type", "")
+        ico_bytes = r.read()
+        assert len(ico_bytes) > 0
+        assert ico_bytes[:4] == b"\x00\x00\x01\x00"
+
+    with urllib.request.urlopen(f"{base_url}/favicon.svg") as r:
+        assert r.status == 200
+        assert "image/svg+xml" in r.headers.get("Content-Type", "")
+        svg_text = r.read().decode("utf-8")
+        assert "<svg" in svg_text
+
+
+
 
 
 

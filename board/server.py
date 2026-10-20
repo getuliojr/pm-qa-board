@@ -1624,7 +1624,14 @@ class PMRequestHandler(BaseHTTPRequestHandler):
 
             content = target_file.read_bytes()
             self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", f"{mime_type}; charset=utf-8")
+            if mime_type.startswith("text/") or mime_type in (
+                "application/javascript",
+                "application/json",
+                "image/svg+xml",
+            ):
+                self.send_header("Content-Type", f"{mime_type}; charset=utf-8")
+            else:
+                self.send_header("Content-Type", mime_type)
             self.send_header("Content-Length", str(len(content)))
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.send_header("Pragma", "no-cache")
