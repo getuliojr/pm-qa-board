@@ -661,6 +661,7 @@ function handleUrlDeepLink() {
   const cardId = card.mn_id || card.id;
   if (card.status === 'qa') {
     switchTab('qa');
+    openQaDrawerById(cardId);
     selectQaCard(cardId, { forceScrollTop: true });
   } else {
     switchTab('pipeline');
@@ -710,6 +711,35 @@ function renderLoadingSkeletons(force = false) {
       }
     });
   } else if (activeTab === 'qa') {
+    const qaGrid = document.getElementById('qaCardsGrid');
+    if (qaGrid) {
+      qaGrid.innerHTML = `
+        <div class="p-4 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-3 shadow-sm">
+          <div class="flex justify-between items-center">
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16"></div>
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-14"></div>
+          </div>
+          <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-3/4"></div>
+          <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-1/2"></div>
+        </div>
+        <div class="p-4 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-3 shadow-sm">
+          <div class="flex justify-between items-center">
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-14"></div>
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-10"></div>
+          </div>
+          <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-2/3"></div>
+          <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-1/3"></div>
+        </div>
+        <div class="p-4 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] animate-pulse space-y-3 shadow-sm hidden md:block">
+          <div class="flex justify-between items-center">
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-16"></div>
+            <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-12"></div>
+          </div>
+          <div class="h-4 bg-[var(--bg-surface-tertiary)] rounded w-4/5"></div>
+          <div class="h-3 bg-[var(--bg-surface-tertiary)] rounded w-2/5"></div>
+        </div>
+      `;
+    }
     const qaList = document.getElementById('qaListContainer');
     if (qaList) {
       qaList.innerHTML = `
@@ -1414,6 +1444,7 @@ function createCardElement(card) {
     div.onclick = () => {
       if (card.status === 'qa') {
         switchTab('qa');
+        openQaDrawer(card);
         selectQaCard(card.mn_id, { forceScrollTop: true });
       } else {
         openCardModal(card);
@@ -1501,6 +1532,94 @@ function renderQaStation() {
   const countEl = document.getElementById('qaStationCount');
   if (countEl) countEl.textContent = qaCards.length;
 
+  // Responsive QA Card Grid (Story 23)
+  const grid = document.getElementById('qaCardsGrid');
+  if (grid) {
+    if (qaCards.length === 0) {
+      grid.innerHTML = `
+        <div class="col-span-full py-12 text-center text-[var(--text-tertiary)]">
+          <i class="ph ph-sparkle text-3xl mx-auto mb-3 text-emerald-500/70 block"></i>
+          <p class="text-sm font-semibold text-[var(--text-secondary)]">No cards currently awaiting QA!</p>
+          <p class="text-xs text-[var(--text-tertiary)] mt-1">All ready-to-test work has been validated.</p>
+        </div>
+      `;
+    } else {
+      grid.innerHTML = '';
+      qaCards.forEach((card) => {
+        const escId = escapeHtml(card.mn_id);
+        const escSprint = escapeHtml(card.sprint || 'N/A');
+        const escType = escapeHtml(card.type || 'feature');
+        const escTitle = escapeHtml(card.title || 'Untitled');
+        const completedDate = getCardCompletedDate(card);
+        const displayDate = completedDate || card.created_date;
+        const pillTypeClass = card.type === 'bug' ? 'pill-bug' : card.type === 'improvement' ? 'pill-improvement' : 'pill-feature';
+
+        const qaItems = card.qa_items || [];
+        const qaChecked = qaItems.filter((i) => i.checked).length;
+        const qaTotal = qaItems.length;
+
+        const cardEl = document.createElement('div');
+        cardEl.className = 'p-4 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] hover:border-amber-500/60 hover:shadow-[var(--card-hover-shadow)] transition-all cursor-pointer shadow-[var(--card-shadow)] flex flex-col justify-between group';
+        cardEl.setAttribute('data-qa-card-id', card.mn_id);
+        cardEl.onclick = () => openQaDrawer(card);
+
+        cardEl.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <span class="font-mono font-bold text-amber-500 text-xs shrink-0">${escId}</span>
+                <span class="text-xs px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)] shrink-0">Story ${escSprint}</span>
+              </div>
+              <span class="text-xs px-2 py-0.5 rounded font-semibold ${pillTypeClass} shrink-0">${escType}</span>
+            </div>
+            <h3 class="font-semibold text-[var(--text-primary)] text-sm leading-snug line-clamp-2 group-hover:text-amber-500 transition-colors mb-3">${escTitle}</h3>
+          </div>
+          <div class="space-y-2.5 pt-2 border-t border-[var(--border-subtle)]">
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium" title="Definition of Done">
+                DoD: ${card.dod_checked}/${card.dod_total} Complete
+              </span>
+              ${qaTotal > 0 ? `
+                <span class="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-medium" title="Human QA Items">
+                  QA: ${qaChecked}/${qaTotal} done
+                </span>` : ''}
+              ${card.changelog && card.changelog.length > 0 ? `
+                <span class="text-xs font-mono px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)] flex items-center gap-1" title="Changelog Commits">
+                  <i class="ph ph-git-commit text-xs text-emerald-500"></i>
+                  <span>${card.changelog.length}</span>
+                </span>` : ''}
+              ${(card.review_count > 0 || (card.reviews && card.reviews.length > 0)) ? `
+                <span class="text-xs font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 flex items-center gap-1" title="Reviews">
+                  <i class="ph ph-shield-check text-xs"></i>
+                  <span>${card.review_count || card.reviews.length}</span>
+                </span>` : ''}
+            </div>
+            <div class="flex items-center justify-between text-xs text-[var(--text-tertiary)] font-mono">
+              ${displayDate ? `<span class="flex items-center gap-1"><i class="ph ph-calendar-blank text-[var(--text-quaternary)] text-xs"></i>${escapeHtml(displayDate)}</span>` : '<span></span>'}
+              <span class="text-amber-600 dark:text-amber-400 flex items-center gap-1 text-[11px] font-medium"><i class="ph ph-clock text-xs"></i>Ready for QA</span>
+            </div>
+            ${closeoutButtonHtml(card, 'mt-1 w-full justify-center')}
+          </div>
+        `;
+        bindCloseoutButton(cardEl, card);
+        grid.appendChild(cardEl);
+      });
+    }
+  }
+
+  // Update open QA drawer if present
+  const qaDrawer = document.getElementById('qaCardDrawer');
+  if (qaDrawer && !qaDrawer.classList.contains('translate-x-full')) {
+    const currentDrawerId = document.getElementById('qaDrawerId') ? document.getElementById('qaDrawerId').textContent.trim() : null;
+    const stillInQa = currentDrawerId ? qaCards.find((c) => c.mn_id === currentDrawerId) : null;
+    if (stillInQa) {
+      openQaDrawer(stillInQa, { preserveState: true });
+    } else {
+      closeQaDrawer();
+    }
+  }
+
+  // Backwards-compatibility for preserved hidden containers & legacy tests
   const container = document.getElementById('qaListContainer');
   const prevListScroll = container ? container.scrollTop : 0;
   if (container) container.innerHTML = '';
@@ -1528,6 +1647,7 @@ function renderQaStation() {
   }
 
   qaCards.forEach((card) => {
+    if (!container) return;
     const item = document.createElement('div');
     const isSelected = state.selectedQaId === card.mn_id;
     item.dataset.qaCardId = card.mn_id;
@@ -1804,6 +1924,254 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
 
   if (window.lucide) lucide.createIcons();
 }
+// -----------------------------------------------------------------------------
+// Dedicated QA Slide-Over Drawer (Story 23)
+// -----------------------------------------------------------------------------
+function openQaDrawer(card, { preserveState = false } = {}) {
+  const drawer = document.getElementById('qaCardDrawer');
+  const backdrop = document.getElementById('qaDrawerBackdrop');
+  if (!drawer || !card) return;
+
+  state.selectedQaId = card.mn_id;
+
+  const escId = escapeHtml(card.mn_id);
+  const escSprint = escapeHtml(card.sprint || 'N/A');
+  const escType = escapeHtml(card.type || 'feature');
+  const escFileName = escapeHtml(card.file_name || '');
+  const completedDate = getCardCompletedDate(card);
+  const displayDate = completedDate || card.created_date;
+
+  // Header badges
+  const idEl = document.getElementById('qaDrawerId');
+  if (idEl) idEl.textContent = card.mn_id;
+
+  const sprintEl = document.getElementById('qaDrawerSprint');
+  if (sprintEl) sprintEl.textContent = card.sprint ? `Story ${card.sprint}` : 'Unassigned';
+
+  const typeEl = document.getElementById('qaDrawerType');
+  if (typeEl) {
+    typeEl.textContent = card.type || 'feature';
+    typeEl.className = `text-xs px-2.5 py-0.5 rounded font-semibold ${
+      card.type === 'bug' ? 'pill-bug' : card.type === 'improvement' ? 'pill-improvement' : 'pill-feature'
+    }`;
+  }
+
+  const dateEl = document.getElementById('qaDrawerDate');
+  if (dateEl) {
+    dateEl.innerHTML = `<i class="ph ph-calendar-blank text-[var(--text-quaternary)] text-xs"></i><span>${escapeHtml(displayDate || card.created_date || 'N/A')}</span>`;
+  }
+
+  // Header actions: Spec, Close-Out, Reviews
+  const specBtn = document.getElementById('qaDrawerViewSpecBtn');
+  if (specBtn) {
+    specBtn.classList.toggle('hidden', !(card.sprint && card.sprint !== 'Unassigned'));
+  }
+
+  const closeoutBtn = document.getElementById('qaDrawerCloseoutBtn');
+  if (closeoutBtn) {
+    closeoutBtn.classList.toggle('hidden', !(card.closeout && card.closeout.url));
+    closeoutBtn.dataset.cardId = card.mn_id;
+  }
+
+  const reviewsBtn = document.getElementById('qaDrawerReviewsBtn');
+  const reviewsLabel = document.getElementById('qaDrawerReviewsBtnLabel');
+  if (reviewsBtn) {
+    const revCount = card.review_count || (card.reviews ? card.reviews.length : 0);
+    if (revCount > 0) {
+      reviewsBtn.classList.remove('hidden');
+      if (reviewsLabel) reviewsLabel.textContent = `Reviews (${revCount})`;
+    } else {
+      reviewsBtn.classList.add('hidden');
+    }
+  }
+
+  // Preserve state if requested
+  const bodyEl = document.getElementById('qaDrawerBody');
+  const prevScrollTop = (preserveState && bodyEl) ? bodyEl.scrollTop : 0;
+  const notesInput = document.getElementById('qaDrawerValidateNotes');
+  const preservedNote = (preserveState && notesInput) ? notesInput.value : '';
+
+  // Title and file metadata
+  const titleEl = document.getElementById('qaDrawerTitle');
+  if (titleEl) titleEl.textContent = card.title;
+
+  const datesEl = document.getElementById('qaDrawerDates');
+  if (datesEl) {
+    datesEl.innerHTML = `
+      <span class="flex items-center"><i class="ph ph-calendar-blank text-[var(--text-quaternary)] mr-1"></i>Created: ${escapeHtml(card.created_date || 'N/A')}</span>
+      ${displayDate ? `<span class="flex items-center text-amber-500"><i class="ph ph-clock mr-1"></i>Ready for QA: ${escapeHtml(displayDate)}</span>` : ''}
+      <span class="text-[var(--text-tertiary)] truncate max-w-xs">File: ${escFileName}</span>
+    `;
+  }
+
+  // Description / User Intent
+  const descEl = document.getElementById('qaDrawerDesc');
+  if (descEl) {
+    descEl.innerHTML = renderMarkdown(card.description || 'No description provided.');
+  }
+
+  // Definition of Done / Acceptance Criteria (interactive checkboxes)
+  const dodCountEl = document.getElementById('qaDrawerDodCount');
+  const dodListEl = document.getElementById('qaDrawerDodList');
+  if (dodCountEl) dodCountEl.textContent = `${card.dod_checked}/${card.dod_total} Complete`;
+
+  if (dodListEl) {
+    if (card.dod && card.dod.length > 0) {
+      dodListEl.innerHTML = card.dod.map((item, idx) => {
+        const isPending = !item.checked;
+        const itemClass = isPending ? 'qa-pending-item p-2' : 'p-2 hover:bg-[var(--bg-surface-secondary)]';
+        return `
+          <label class="flex items-start justify-between space-x-3 rounded-lg cursor-pointer text-sm transition touch-target-item ${itemClass}">
+            <div class="flex items-start space-x-3 flex-1">
+              <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-dod" data-card-id="${escId}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-[var(--border-medium)] text-emerald-500 focus:ring-emerald-500/20 bg-[var(--bg-surface)] cursor-pointer">
+              <span class="${item.checked ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)] font-medium'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
+            </div>
+            ${isPending ? '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300 ml-2 whitespace-nowrap border border-amber-500/30">Needs Live Validation</span>' : ''}
+          </label>
+        `;
+      }).join('');
+    } else {
+      dodListEl.innerHTML = `<p class="text-sm text-[var(--text-tertiary)] italic p-2">No checklist items defined.</p>`;
+    }
+  }
+
+  // Implementation Changelog & Evidence
+  const clContainer = document.getElementById('qaDrawerChangelogContainer');
+  const clList = document.getElementById('qaDrawerChangelog');
+  const clHeading = document.getElementById('qaDrawerChangelogHeading');
+  if (clContainer && clList) {
+    if (card.changelog && card.changelog.length > 0) {
+      clContainer.classList.remove('hidden');
+      if (clHeading) clHeading.textContent = `Implementation Changelog & Evidence (${card.changelog.length})`;
+      clList.innerHTML = renderChangelogTable(card.changelog, card);
+    } else {
+      clContainer.classList.add('hidden');
+    }
+  }
+
+  // Human QA Test Steps
+  const qaContainer = document.getElementById('qaDrawerQaContainer');
+  const qaItemsCountEl = document.getElementById('qaDrawerQaItemsCount');
+  const qaInstrEl = document.getElementById('qaDrawerQaInstructions');
+  const qaListEl = document.getElementById('qaDrawerQaList');
+  if (qaContainer) {
+    const hasInstr = card.qa_instructions && card.qa_instructions.trim();
+    const hasItems = card.qa_items && card.qa_items.length > 0;
+    if (!hasInstr && !hasItems) {
+      if (qaItemsCountEl) qaItemsCountEl.classList.add('hidden');
+      if (qaInstrEl) {
+        qaInstrEl.classList.remove('hidden');
+        qaInstrEl.innerHTML = `
+          <div class="flex items-start gap-2.5">
+            <i class="ph ph-warning text-amber-500 mt-0.5 shrink-0 text-base"></i>
+            <div class="text-xs text-amber-700 dark:text-amber-200/90 leading-relaxed">
+              <span class="font-semibold">No Human QA Test section found in this card.</span><br>
+              Ask the dev agent to add a <code class="font-mono text-amber-600 dark:text-amber-300 bg-amber-500/10 px-1 rounded text-[11px]">## Human QA Test</code> section with explicit step-by-step instructions.
+            </div>
+          </div>
+        `;
+      }
+      if (qaListEl) qaListEl.innerHTML = '';
+    } else {
+      if (hasItems && qaItemsCountEl) {
+        const doneCount = card.qa_items.filter((i) => i.checked).length;
+        qaItemsCountEl.textContent = `${doneCount}/${card.qa_items.length} done`;
+        qaItemsCountEl.classList.remove('hidden');
+      } else if (qaItemsCountEl) {
+        qaItemsCountEl.classList.add('hidden');
+      }
+      if (qaInstrEl) {
+        if (hasInstr) {
+          qaInstrEl.innerHTML = renderMarkdown(card.qa_instructions);
+          qaInstrEl.classList.remove('hidden');
+        } else {
+          qaInstrEl.classList.add('hidden');
+        }
+      }
+      if (qaListEl) {
+        if (hasItems) {
+          qaListEl.innerHTML = card.qa_items.map((item, idx) => `
+            <label class="flex items-start space-x-3 p-2.5 rounded-lg bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] hover:border-amber-500/40 cursor-pointer text-sm transition touch-target-item">
+              <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle-qa" data-card-id="${escId}" data-idx="${idx}" class="mt-0.5 w-4 h-4 rounded border-amber-600/50 text-amber-500 focus:ring-amber-500/20 bg-[var(--bg-surface)] cursor-pointer">
+              <span class="${item.checked ? 'text-emerald-500 font-medium' : 'text-[var(--text-primary)] font-medium'} text-sm leading-relaxed">${formatRichText(item.text)}</span>
+            </label>
+          `).join('');
+        } else {
+          qaListEl.innerHTML = '';
+        }
+      }
+    }
+  }
+
+  // Footer: Validate button binding
+  const validateBtn = document.getElementById('qaDrawerValidateBtn');
+  if (validateBtn) {
+    validateBtn.setAttribute('data-card-id', card.mn_id);
+    validateBtn.disabled = false;
+    validateBtn.classList.remove('opacity-50', 'pointer-events-none', 'cursor-not-allowed');
+    validateBtn.innerHTML = `<i class="ph ph-checks text-sm"></i><span>Validate &amp; Complete</span>`;
+  }
+
+  // Restore preserved notes and scroll
+  if (notesInput) {
+    notesInput.value = preservedNote;
+  }
+  if (bodyEl) {
+    if (preserveState && prevScrollTop > 0) {
+      bodyEl.scrollTop = prevScrollTop;
+    } else {
+      bodyEl.scrollTop = 0;
+    }
+  }
+
+  // Slide-over drawer animation
+  drawer.classList.remove('translate-x-full', 'pointer-events-none');
+  drawer.classList.add('translate-x-0');
+  if (backdrop) {
+    backdrop.classList.remove('opacity-0', 'pointer-events-none');
+    backdrop.classList.add('opacity-100');
+  }
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function openQaDrawerById(cardId) {
+  const card = (state.cards || []).find((c) => (c.mn_id || c.id) === cardId);
+  if (card) openQaDrawer(card);
+}
+
+function closeQaDrawer() {
+  const drawer = document.getElementById('qaCardDrawer');
+  const backdrop = document.getElementById('qaDrawerBackdrop');
+  if (drawer) {
+    drawer.classList.remove('translate-x-0');
+    drawer.classList.add('translate-x-full', 'pointer-events-none');
+  }
+  if (backdrop) {
+    backdrop.classList.remove('opacity-100');
+    backdrop.classList.add('opacity-0', 'pointer-events-none');
+  }
+}
+
+function onQaDrawerViewSpec() {
+  const sprintEl = document.getElementById('qaDrawerSprint');
+  const sprintText = sprintEl ? sprintEl.textContent.replace(/^(?:Sprint|Story)\s+/i, '').trim() : '';
+  if (sprintText && sprintText !== 'Unassigned') {
+    closeQaDrawer();
+    openSprintDoc(sprintText);
+  }
+}
+
+function onQaDrawerViewReviews() {
+  const cardId = document.getElementById('qaDrawerId') ? document.getElementById('qaDrawerId').textContent.trim() : '';
+  const sprintEl = document.getElementById('qaDrawerSprint');
+  const sprintText = sprintEl ? sprintEl.textContent.replace(/^(?:Sprint|Story)\s+/i, '').trim() : '';
+  const target = cardId || sprintText;
+  if (target) {
+    openReviewModal(target);
+  }
+}
+
 
 async function toggleDod(mn_id, index, checked) {
   try {
@@ -1819,6 +2187,11 @@ async function toggleDod(mn_id, index, checked) {
       if (modal && !modal.classList.contains('hidden')) {
         const updatedCard = state.cards.find((c) => c.mn_id === mn_id);
         if (updatedCard) openCardModal(updatedCard);
+      }
+      const qaDrawer = document.getElementById('qaCardDrawer');
+      if (qaDrawer && !qaDrawer.classList.contains('translate-x-full')) {
+        const updatedCard = state.cards.find((c) => c.mn_id === mn_id);
+        if (updatedCard) openQaDrawer(updatedCard, { preserveState: true });
       }
     } else {
       showToast(`Error updating DoD: ${res.error || 'Server error'}`, 'error');
@@ -1846,6 +2219,11 @@ async function toggleQa(mn_id, index, checked) {
         const updatedCard = state.cards.find((c) => c.mn_id === mn_id);
         if (updatedCard) openCardModal(updatedCard);
       }
+      const qaDrawer = document.getElementById('qaCardDrawer');
+      if (qaDrawer && !qaDrawer.classList.contains('translate-x-full')) {
+        const updatedCard = state.cards.find((c) => c.mn_id === mn_id);
+        if (updatedCard) openQaDrawer(updatedCard, { preserveState: true });
+      }
     } else {
       showToast(`Error updating QA item: ${res.error || 'Server error'}`, 'error');
       await fetchAll();
@@ -1862,7 +2240,7 @@ let isCardValidationInFlight = false;
 async function validateCard(mn_id) {
   if (isCardValidationInFlight) return;
 
-  const btn = document.querySelector(`button[data-action="validate-card"][data-card-id="${mn_id}"]`) || document.getElementById('qaValidateCardBtn');
+  const btn = document.querySelector(`button[data-action="validate-card"][data-card-id="${mn_id}"]`) || document.getElementById('qaDrawerValidateBtn') || document.getElementById('qaValidateCardBtn');
   const originalHtml = btn ? btn.innerHTML : '';
 
   if (btn) {
@@ -1872,7 +2250,7 @@ async function validateCard(mn_id) {
   }
   isCardValidationInFlight = true;
 
-  const notesInput = document.getElementById('qaValidateNotes');
+  const notesInput = document.getElementById('qaDrawerValidateNotes') || document.getElementById('qaValidateNotes');
   const notes = notesInput ? notesInput.value : '';
 
   try {
@@ -1884,6 +2262,9 @@ async function validateCard(mn_id) {
 
     if (res.success) {
       showToast(res.message, 'success');
+      playChime('completed');
+      if (navigator.vibrate) navigator.vibrate([15, 30, 20]);
+      closeQaDrawer();
       isCardValidationInFlight = false;
       await fetchAll();
       renderQaStation();
@@ -4087,6 +4468,7 @@ document.addEventListener('DOMContentLoaded', () => {
       closeMobileConnectModal();
       closeSprintDoc();
       closeCardModal();
+      closeQaDrawer();
       closeFailureModal();
       closeReviewModal();
       closeMobileSidebar();
@@ -4578,6 +4960,10 @@ function toggleChangelogSort(cardId) {
       if (modal && !modal.classList.contains('hidden')) {
         openCardModal(card);
       }
+      const qaDrawer = document.getElementById('qaCardDrawer');
+      if (qaDrawer && !qaDrawer.classList.contains('translate-x-full')) {
+        openQaDrawer(card, { preserveState: true });
+      }
       if (state.activeTab === 'qa' && state.selectedQaId === cardId) {
         selectQaCard(cardId, { preserveScroll: true });
       }
@@ -4865,6 +5251,9 @@ document.addEventListener('click', (e) => {
   } else if (action === 'open-card-modal') {
     const cardId = trigger.getAttribute('data-card-id');
     if (cardId) openCardModalById(cardId);
+  } else if (action === 'open-qa-drawer') {
+    const cardId = trigger.getAttribute('data-card-id');
+    if (cardId) openQaDrawerById(cardId);
   }
 });
 

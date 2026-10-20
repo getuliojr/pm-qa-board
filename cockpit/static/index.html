@@ -494,27 +494,29 @@
         <!-- 3. QA TESTING STATION & HEAVY GATES TAB -->
         <section id="tab-qa" class="tab-content hidden space-y-6">
 
-          <!-- ① HUMAN QA STATION (Split-Pane Layout Preserved) -->
-          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <!-- QA Card List Sidebar -->
-            <div class="lg:col-span-4 bg-[var(--tray-bg)] p-4 rounded-2xl border border-[var(--tray-border)] flex flex-col h-[calc(100vh-14rem)] shadow-sm">
-              <div class="flex items-center justify-between pb-3 border-b border-[var(--tray-header-border)]">
-                <h2 class="font-bold text-sm text-[var(--text-primary)] flex items-center">
-                  <i class="ph ph-check-circle text-amber-500 mr-2 text-base"></i>
-                  Awaiting Verification
-                </h2>
-                <span id="qaStationCount" class="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25 font-bold tabular-nums">0</span>
+          <!-- ① HUMAN QA STATION (Responsive Card Grid & Dedicated Drawer) -->
+          <div class="bg-[var(--tray-bg)] p-5 rounded-2xl border border-[var(--tray-border)] shadow-sm">
+            <div class="flex items-center justify-between pb-4 border-b border-[var(--tray-header-border)] mb-4">
+              <div class="flex items-center space-x-2.5">
+                <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-500 shrink-0">
+                  <i class="ph ph-check-circle text-base"></i>
+                </div>
+                <div>
+                  <h2 class="font-bold text-sm text-[var(--text-primary)] flex items-center gap-2">
+                    <span>Awaiting Verification</span>
+                    <span id="qaStationCount" class="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25 font-bold tabular-nums">0</span>
+                  </h2>
+                  <p class="text-[11px] text-[var(--text-tertiary)] mt-0.5">Click any card to open the inspection drawer, test acceptance criteria, and sign off.</p>
+                </div>
               </div>
-              <div class="overflow-y-auto flex-1 mt-3 space-y-2.5 pr-1" id="qaListContainer"></div>
             </div>
 
-            <!-- Active QA Card Inspection Details -->
-            <div class="lg:col-span-8 bg-[var(--bg-surface)] p-6 rounded-xl border border-[var(--border-subtle)] flex flex-col h-[calc(100vh-14rem)] overflow-y-auto shadow-sm" id="qaDetailContainer">
-              <div class="h-full flex flex-col items-center justify-center text-[var(--text-tertiary)]">
-                <i class="ph ph-stack text-4xl mb-3 text-[var(--text-quaternary)]"></i>
-                <p class="text-sm">Select a card on the left to inspect acceptance criteria and validate work.</p>
-              </div>
-            </div>
+            <!-- Responsive QA Card Grid (Story 23) -->
+            <div id="qaCardsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+
+            <!-- Preserved hidden containers for backwards-compatibility -->
+            <div id="qaListContainer" class="hidden lg:col-span-4 bg-[var(--tray-bg)] p-4 rounded-2xl border border-[var(--tray-border)]"></div>
+            <div id="qaDetailContainer" class="hidden"></div>
           </div>
 
           <!-- ② SPRINT VERIFICATION & QUALITY AUDIT -->
@@ -887,6 +889,97 @@
       <button onclick="closeCardModal()" class="px-4 py-1.5 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium transition text-xs cursor-pointer">
         Done
       </button>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- DEDICATED QA SLIDE-OVER DRAWER (Story 23)                                 -->
+  <!-- ========================================================================= -->
+  <div id="qaDrawerBackdrop" onclick="closeQaDrawer()" class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-300 opacity-0 pointer-events-none"></div>
+
+  <div id="qaCardDrawer" class="fixed inset-y-0 right-0 z-50 w-full sm:max-w-xl md:max-w-2xl h-full transform translate-x-full transition-transform duration-300 ease-out apple-glass-sheet flex flex-col shadow-2xl pointer-events-none" role="dialog" aria-modal="true" aria-labelledby="qaDrawerTitle">
+    <!-- Frosted Glass Drawer Header -->
+    <div class="px-5 py-4 border-b border-[var(--border-glass)] flex items-center justify-between apple-glass-toolbar sticky top-0 z-10 shrink-0">
+      <div class="flex items-center space-x-2 min-w-0 flex-wrap gap-y-1">
+        <span id="qaDrawerId" class="text-sm font-mono font-bold text-amber-500 shrink-0"></span>
+        <span id="qaDrawerSprint" class="text-xs px-2 py-0.5 rounded-md bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)] shrink-0"></span>
+        <span id="qaDrawerType" class="text-xs px-2 py-0.5 rounded-md font-semibold shrink-0"></span>
+        <span id="qaDrawerDate" class="text-xs font-mono px-2 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hidden sm:inline-flex items-center gap-1 shrink-0"></span>
+        <button id="qaDrawerViewSpecBtn" onclick="onQaDrawerViewSpec()" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-subtle)] text-xs font-medium transition shrink-0 group" title="View Story Spec">
+          <i class="ph ph-book-open text-emerald-500"></i>
+          <span class="hidden sm:inline">Spec</span>
+        </button>
+        <button id="qaDrawerCloseoutBtn" type="button" data-action="open-closeout" class="hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 shadow-xs dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-500/30 dark:hover:bg-emerald-900/50 text-xs font-medium transition shrink-0" title="Story Close-Out">
+          <i class="ph ph-file-check text-xs shrink-0"></i>
+          <span class="hidden sm:inline">Close-Out</span>
+        </button>
+        <button id="qaDrawerReviewsBtn" onclick="onQaDrawerViewReviews()" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs font-medium transition shrink-0" title="Reviews">
+          <i class="ph ph-shield-check"></i>
+          <span id="qaDrawerReviewsBtnLabel">Reviews (0)</span>
+        </button>
+      </div>
+      <button onclick="closeQaDrawer()" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1.5 rounded-lg hover:bg-[var(--bg-glass-hover)] transition shrink-0 ml-2 cursor-pointer" aria-label="Close drawer">
+        <i class="ph ph-x text-lg"></i>
+      </button>
+    </div>
+
+    <!-- Scrollable Drawer Body -->
+    <div id="qaDrawerBody" class="p-6 overflow-y-auto flex-1 space-y-6 text-sm">
+      <!-- Title & File info -->
+      <div>
+        <h2 id="qaDrawerTitle" class="text-xl font-bold text-[var(--text-primary)] tracking-tight mb-1.5"></h2>
+        <div id="qaDrawerDates" class="flex flex-wrap items-center gap-3 text-xs text-[var(--text-tertiary)] font-mono"></div>
+      </div>
+
+      <!-- Description / User Intent -->
+      <div>
+        <h4 class="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2">Description / User Intent</h4>
+        <div id="qaDrawerDesc" class="bg-[var(--bg-surface-secondary)] p-4 rounded-xl border border-[var(--border-subtle)] text-[var(--text-primary)] markdown-content break-words"></div>
+      </div>
+
+      <!-- Definition of Done / Acceptance Criteria (interactive checkboxes) -->
+      <div id="qaDrawerDodContainer">
+        <div class="flex items-center justify-between mb-2">
+          <h4 class="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Definition of Done / Acceptance Criteria</h4>
+          <span id="qaDrawerDodCount" class="text-xs font-mono text-emerald-500 font-bold"></span>
+        </div>
+        <div id="qaDrawerDodList" class="bg-[var(--bg-subtle)] p-3.5 rounded-xl border border-[var(--border-subtle)] space-y-1.5"></div>
+      </div>
+
+      <!-- Implementation Changelog & Evidence -->
+      <div id="qaDrawerChangelogContainer" class="hidden">
+        <h4 class="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <i class="ph ph-git-commit text-emerald-500 text-sm"></i>
+          <span id="qaDrawerChangelogHeading">Implementation Changelog &amp; Evidence</span>
+        </h4>
+        <div id="qaDrawerChangelog" class="space-y-1.5"></div>
+      </div>
+
+      <!-- Human QA Test Steps (interactive checkboxes) -->
+      <div id="qaDrawerQaContainer">
+        <h4 class="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <i class="ph ph-clipboard-text"></i>
+          <span>Human QA Test Steps</span>
+          <span id="qaDrawerQaItemsCount" class="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/20 ml-1.5 hidden"></span>
+        </h4>
+        <div id="qaDrawerQaInstructions" class="bg-amber-500/10 p-3.5 rounded-xl border border-amber-500/20 mb-2 text-xs hidden"></div>
+        <div id="qaDrawerQaList" class="space-y-1.5"></div>
+      </div>
+    </div>
+
+    <!-- Sticky Drawer Footer: Close, Notes, Validate & Complete -->
+    <div class="sticky bottom-0 z-10 px-6 py-3 border-t border-[var(--border-glass)] apple-glass-toolbar flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0 shadow-lg">
+      <button type="button" onclick="closeQaDrawer()" class="px-4 py-2 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-medium)] font-medium transition text-xs cursor-pointer flex items-center justify-center space-x-1.5 shrink-0">
+        <i class="ph ph-x text-sm"></i>
+        <span>Close</span>
+      </button>
+      <div class="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <input type="text" id="qaDrawerValidateNotes" placeholder="Optional QA validation note (e.g. 'Verified Wise import flow live')" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] text-xs rounded-lg px-3 py-2 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
+        <button id="qaDrawerValidateBtn" data-action="validate-card" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 transition cursor-pointer shrink-0">
+          <i class="ph ph-checks text-sm"></i>
+          <span>Validate &amp; Complete</span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1465,7 +1558,7 @@
   </div>
 
   <script src="qrcode.min.js"></script>
-  <script src="app.js?v=20261019-pqc22"></script>
+  <script src="app.js?v=20261019-pqc23"></script>
 </body>
 </html>
 

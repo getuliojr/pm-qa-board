@@ -1125,7 +1125,7 @@ def test_story22_mobile_swipe_qa_autoscroll_and_sticky_validation(server):
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
     # 1. Cachebuster bumped
-    assert 'app.js?v=20261019-pqc22' in index_html
+    assert 'app.js?v=20261019-pqc' in index_html
 
     # 2. Mobile swipe-to-open gesture support
     assert 'function initMobileMenuSwipe(' in app_js
@@ -1162,6 +1162,66 @@ def test_story22_mobile_swipe_qa_autoscroll_and_sticky_validation(server):
     assert 'cursor-not-allowed' in app_js
     assert 'Validating...' in app_js
     assert 'btn.disabled = false;' in app_js
+
+
+def test_story23_qa_grid_and_dedicated_drawer(server):
+    """PQC-23: Dedicated QA Drawer, Card Grid & Streamlined Validation Experience."""
+    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+
+    # 1. Cachebuster bumped
+    assert 'app.js?v=20261019-pqc23' in index_html
+
+    # 2. Responsive QA Card Grid in index.html and app.js
+    assert 'id="qaCardsGrid"' in index_html
+    assert 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' in index_html
+    assert 'qaCardsGrid' in app_js
+    assert 'No cards currently awaiting QA!' in app_js
+
+    # 3. Dedicated QA Slide-Over Drawer in index.html
+    assert 'id="qaDrawerBackdrop"' in index_html
+    assert 'id="qaCardDrawer"' in index_html
+    assert 'id="qaDrawerId"' in index_html
+    assert 'id="qaDrawerSprint"' in index_html
+    assert 'id="qaDrawerType"' in index_html
+    assert 'id="qaDrawerViewSpecBtn"' in index_html
+    assert 'id="qaDrawerCloseoutBtn"' in index_html
+    assert 'id="qaDrawerReviewsBtn"' in index_html
+    assert 'id="qaDrawerBody"' in index_html
+    assert 'id="qaDrawerTitle"' in index_html
+    assert 'id="qaDrawerDesc"' in index_html
+    assert 'id="qaDrawerDodContainer"' in index_html
+    assert 'id="qaDrawerDodCount"' in index_html
+    assert 'id="qaDrawerDodList"' in index_html
+    assert 'id="qaDrawerChangelogContainer"' in index_html
+    assert 'id="qaDrawerChangelog"' in index_html
+    assert 'id="qaDrawerQaContainer"' in index_html
+    assert 'id="qaDrawerQaInstructions"' in index_html
+    assert 'id="qaDrawerQaList"' in index_html
+    assert 'id="qaDrawerValidateNotes"' in index_html
+    assert 'id="qaDrawerValidateBtn"' in index_html
+
+    # 4. Board modal (#cardModal) remains untouched & dedicated to board
+    assert 'id="cardModal"' in index_html
+    assert 'id="cardDrawerBackdrop"' in index_html
+
+    # 5. Dedicated drawer JS functions in app.js
+    assert 'function openQaDrawer(' in app_js
+    assert 'function openQaDrawerById(' in app_js
+    assert 'function closeQaDrawer(' in app_js
+    assert 'function onQaDrawerViewSpec(' in app_js
+    assert 'function onQaDrawerViewReviews(' in app_js
+
+    # 6. Keyboard ESC and backdrop dismiss QA drawer
+    assert 'closeQaDrawer();' in app_js
+    assert 'onclick="closeQaDrawer()"' in index_html
+
+    # 7. Validation submission triggers closeQaDrawer, completion chime, and haptics
+    assert 'closeQaDrawer();' in app_js
+    assert "playChime('completed');" in app_js
+    assert 'navigator.vibrate' in app_js
+
 
 
 
