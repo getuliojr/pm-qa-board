@@ -1719,7 +1719,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"success": False, "error": f"code_path missing: {project['code_path']}"}, status=400)
                 return
             STATE.activate(project)
-            self.send_json({"success": True, "project": project, **STATE.project_view()})
+            self.send_json({"success": True, "project": _public_extra_tags(dict(project)), **STATE.project_view()})
             return
 
         if path == "/api/projects/configure":
@@ -1748,7 +1748,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
             projects.upsert_project(project, activate=activate)
             if activate:
                 STATE.activate(project)
-            self.send_json({"success": True, "project": project, "created": created, **STATE.project_view()})
+            self.send_json({"success": True, "project": _public_extra_tags(dict(project)), "created": created, **STATE.project_view()})
             return
 
         # ----------------------------------------------------------------------

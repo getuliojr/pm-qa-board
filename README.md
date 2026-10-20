@@ -268,6 +268,7 @@ iteration: 7
 
 - Digits-only values show with their label (`Iteration 7`); other values show alone (`EXAMPLE-123`).
 - Frontmatter keys that are not declared are ignored, and nothing changes for projects without `extra_tags`.
+- Values are read as the card parser sees them: a digits-only value loses leading zeros (`007` shows as `7`) and `true`/`false` show as `True`/`False`. Use non-numeric values (for example `EXAMPLE-007`) when the exact text matters.
 - If a key is declared twice, the first declaration wins.
 - Declarations are read when a project is activated: after editing the registry file, restart the board or
   select the project again.

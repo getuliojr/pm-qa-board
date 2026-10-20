@@ -102,6 +102,7 @@ def test_server_cards_and_public_projects(server, external_project):  # noqa: F8
     projects.upsert_project(project, activate=False)
     status, res = post(f"{base}/api/projects/select", {"slug": "story-app"})
     assert status == 200
+    assert "tracker.example.com" not in json.dumps(res)
 
     cards = {c["mn_id"]: c for c in json.loads(get(f"{base}/api/cards")[1])["cards"]}
     assert cards["APP-1"]["extra_tags"][0]["link"] == "https://tracker.example.com/browse/EXAMPLE-1"
@@ -127,7 +128,8 @@ def test_configure_preserves_extra_tags(server, external_project):  # noqa: F811
         {"name": "Story App", "code_path": str(code), "docs_path": str(docs), "prefix": "APP"},
     )
     assert status == 200 and res["success"], res
-    assert res["project"]["extra_tags"] == [TICKET]
+    assert res["project"]["extra_tags"] == [{"key": "ticket", "label": "Ticket", "filter": True}]
+    assert "tracker.example.com" not in json.dumps(res)
     assert projects.load_registry()["projects"]["story-app"]["extra_tags"] == [TICKET]
 
 
