@@ -156,6 +156,7 @@ let state = {
     sprint: 'ALL',
     type: 'ALL',
     search: '',
+    tags: Object.create(null),
   },
 };
 
@@ -1216,6 +1217,97 @@ function updateHeader() {
   if (activeSprintEl) activeSprintEl.textContent = storyLabel(activeSprintTitle);
 }
 
+function extraTagText(tag) {
+  const value = String(tag.value);
+  return /^\d+$/.test(value) ? `${tag.label} ${value}` : value;
+}
+
+function extraTagPillsHtml(card, size = 'sm') {
+  const tags = (card && card.extra_tags) || [];
+  if (!tags.length) return '';
+  const sizeClass = size === 'lg' ? 'text-xs font-semibold px-2.5 py-0.5' : 'text-[10px] font-semibold px-1.5 py-0.5';
+  const pillClass = `${sizeClass} rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]`;
+  return tags
+    .map((tag) => {
+      const text = escapeHtml(extraTagText(tag));
+      const title = escapeHtml(tag.label);
+      if (typeof tag.link === 'string' && /^https?:\/\//i.test(tag.link)) {
+        return `<a class="${pillClass} hover:text-emerald-500 transition-colors" href="${escapeHtml(tag.link)}" target="_blank" rel="noopener noreferrer" title="${title}" onclick="event.stopPropagation()">${text}</a>`;
+      }
+      return `<span class="${pillClass}" title="${title}">${text}</span>`;
+    })
+    .join('');
+}
+
+function setExtraTagsHeader(id, card) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const html = extraTagPillsHtml(card, 'lg');
+  el.innerHTML = html;
+  el.classList.toggle('hidden', !html);
+}
+
+function declaredFilterTags() {
+  const tags = (state.currentProject && state.currentProject.extra_tags) || [];
+  const seen = new Set();
+  return tags.filter((t) => t.filter && !seen.has(t.key) && seen.add(t.key));
+}
+
+function cardTagValue(card, key) {
+  const tag = (card.extra_tags || []).find((t) => t.key === key);
+  return tag ? tag.value : null;
+}
+
+function populateExtraTagFilters() {
+  const container = document.getElementById('pipelineExtraTagFilters');
+  if (!container) return;
+  const options = declaredFilterTags().map((tag) => {
+    const values = new Set();
+    state.cards.forEach((c) => {
+      const v = cardTagValue(c, tag.key);
+      if (v !== null) values.add(v);
+    });
+    return { tag, values: Array.from(values).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) };
+  });
+  // A filter must never stay active without a control to clear it.
+  Object.keys(state.filters.tags).forEach((key) => {
+    const opt = options.find((o) => o.tag.key === key);
+    if (!opt || !opt.values.includes(state.filters.tags[key])) delete state.filters.tags[key];
+  });
+  const signature = JSON.stringify(options.map((o) => [o.tag.key, o.tag.label, o.values]));
+  if (container.dataset.signature !== signature) {
+    container.dataset.signature = signature;
+    container.innerHTML = '';
+    options.forEach(({ tag, values }) => {
+      const select = document.createElement('select');
+      select.className = 'text-xs rounded-lg px-2 py-1.5 bg-[var(--bg-surface)] text-[var(--text-primary)] border border-[var(--border-medium)]';
+      select.setAttribute('aria-label', tag.label);
+      select.dataset.tagKey = tag.key;
+      const all = document.createElement('option');
+      all.value = '';
+      all.textContent = `All ${tag.label}`;
+      select.appendChild(all);
+      values.forEach((v) => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = extraTagText({ label: tag.label, value: v });
+        select.appendChild(opt);
+      });
+      select.addEventListener('change', (e) => {
+        if (e.target.value === '') delete state.filters.tags[tag.key];
+        else state.filters.tags[tag.key] = e.target.value;
+        renderPipeline();
+      });
+      container.appendChild(select);
+    });
+  }
+  container.querySelectorAll('select').forEach((select) => {
+    const cur = state.filters.tags[select.dataset.tagKey];
+    select.value = cur === undefined ? '' : cur;
+  });
+  container.classList.toggle('hidden', !options.length);
+}
+
 function populateSprintFilter() {
   const select = document.getElementById('pipelineSprintFilter');
   const currentVal = select.value;
@@ -1241,6 +1333,7 @@ function populateSprintFilter() {
 // Pipeline (Kanban) Board
 // -----------------------------------------------------------------------------
 function renderPipeline() {
+  populateExtraTagFilters();
   const cols = {
     backlog: document.getElementById('cards-backlog'),
     'sprint-backlog': document.getElementById('cards-sprint-backlog'),
@@ -1265,6 +1358,9 @@ function renderPipeline() {
   const filtered = state.cards.filter((card) => {
     if (state.filters.sprint !== 'ALL' && card.sprint !== state.filters.sprint) return false;
     if (state.filters.type !== 'ALL' && card.type !== state.filters.type) return false;
+    for (const [key, val] of Object.entries(state.filters.tags)) {
+      if (cardTagValue(card, key) !== val) return false;
+    }
     if (state.filters.search) {
       const q = state.filters.search.toLowerCase();
       const matchId = card.mn_id.toLowerCase().includes(q);
@@ -1376,12 +1472,19 @@ function renderPipeline() {
   // Update active sprint filter pill banner
   const activeFilterPill = document.getElementById('pipelineActiveFilterPill');
   if (activeFilterPill) {
-    if (state.filters.sprint && state.filters.sprint !== 'ALL') {
+    const tagLabels = Object.entries(state.filters.tags).map(([key, value]) => {
+      const t = declaredFilterTags().find((d) => d.key === key);
+      return extraTagText({ label: t ? t.label : key, value });
+    });
+    const sprintActive = state.filters.sprint && state.filters.sprint !== 'ALL';
+    if (sprintActive || tagLabels.length) {
+      const parts = sprintActive ? [`Story ${state.filters.sprint}`] : [];
+      tagLabels.forEach((l) => parts.push(l));
       activeFilterPill.className = 'mb-3 flex items-center justify-between p-2.5 px-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs';
       activeFilterPill.innerHTML = `
         <div class="flex items-center gap-2 text-purple-700 dark:text-purple-300 font-medium">
           <i class="ph ph-funnel text-sm text-purple-500"></i>
-          <span>Filtered by: <strong class="font-bold">Story ${escapeHtml(state.filters.sprint)}</strong></span>
+          <span>Filtered by: <strong class="font-bold">${parts.map(escapeHtml).join(' · ')}</strong></span>
         </div>
         <button onclick="clearPipelineSprintFilter()" data-action="clear-sprint-filter" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-secondary)] text-[var(--text-primary)] border border-[var(--border-medium)] text-xs font-semibold shadow-xs transition cursor-pointer">
           <i class="ph ph-x text-xs"></i>
@@ -1537,6 +1640,7 @@ function createCardElement(card) {
         ${typePillHtml}
       </div>
     </div>
+    ${(card.extra_tags || []).length ? `<div class="flex flex-wrap items-center gap-1 mb-1.5">${extraTagPillsHtml(card)}</div>` : ''}
     <h3 class="text-sm font-semibold text-[var(--text-primary)] line-clamp-2 group-hover:text-emerald-500 transition-colors">${escTitle}</h3>
     ${dodBar}
     <div class="mt-2 pt-1.5 border-t border-[var(--border-subtle)] flex items-center justify-between text-xs text-[var(--text-tertiary)] font-mono">
@@ -1815,6 +1919,7 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
         <div class="flex items-center space-x-2 mb-2 flex-wrap gap-y-1">
           <span class="text-sm font-mono font-bold px-2.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">${escId}</span>
           <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">Story ${escSprint}</span>
+          ${extraTagPillsHtml(card, 'lg')}
           <span class="text-xs font-semibold px-2.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">${escType}</span>
           <span class="text-xs font-mono px-2.5 py-0.5 rounded bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)] flex items-center gap-1">
             <i class="ph ph-calendar-blank text-[var(--text-quaternary)] text-xs"></i>
@@ -1993,6 +2098,7 @@ function openQaDrawer(card, { preserveState = false } = {}) {
 
   const sprintEl = document.getElementById('qaDrawerSprint');
   if (sprintEl) sprintEl.textContent = card.sprint ? `Story ${card.sprint}` : 'Unassigned';
+  setExtraTagsHeader('qaDrawerExtraTags', card);
 
   const typeEl = document.getElementById('qaDrawerType');
   if (typeEl) {
@@ -2395,6 +2501,16 @@ function onRoadmapSearch(query) {
 
 function clearPipelineSprintFilter() {
   state.filters.sprint = 'ALL';
+  state.filters.type = 'ALL';
+  state.filters.search = '';
+  state.filters.tags = Object.create(null);
+  const searchInput = document.getElementById('pipelineSearch');
+  if (searchInput) searchInput.value = '';
+  const typeSelectEl = document.getElementById('pipelineTypeSelect');
+  if (typeSelectEl) typeSelectEl.value = 'ALL';
+  document.querySelectorAll('#pipelineTypeFilters .type-filter-pill, #pipelineTypeFilters .segmented-control-btn').forEach((p) => {
+    p.classList.toggle('active', p.getAttribute('data-type') === 'ALL');
+  });
   const filterSelect = document.getElementById('pipelineSprintFilter') || document.getElementById('filterSprint');
   if (filterSelect) filterSelect.value = 'ALL';
   renderPipeline();
@@ -4643,6 +4759,7 @@ function openCardModal(card) {
 
   document.getElementById('cardModalId').textContent = card.mn_id;
   document.getElementById('cardModalSprint').textContent = card.sprint ? `Story ${card.sprint}` : 'Unassigned';
+  setExtraTagsHeader('cardModalExtraTags', card);
 
   const typeEl = document.getElementById('cardModalType');
   typeEl.textContent = card.type || 'feature';
@@ -5553,6 +5670,7 @@ function resetProjectScopedState() {
   state.roadmapSearch = '';
   state.filters.sprint = 'ALL';
   state.filters.search = '';
+  state.filters.tags = Object.create(null);
 
   const pipelineSearch = document.getElementById('pipelineSearch');
   if (pipelineSearch) pipelineSearch.value = '';
