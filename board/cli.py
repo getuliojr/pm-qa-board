@@ -15,6 +15,7 @@ Usage:
     uv run python cli.py uncheck <CARD_ID> <INDEX>
     uv run python cli.py check-qa / uncheck-qa <CARD_ID> <INDEX>
     uv run python cli.py validate <CARD_ID> [--notes NOTES]
+    uv run python cli.py tags
     uv run python cli.py projects [--select SLUG]
     uv run python cli.py init <CODE_PATH> --name NAME --prefix PFX [--docs-path DIR] [--stealth] [--apply]
     uv run python cli.py profile-gates [--measure] [--apply] [--threshold-seconds 360]
@@ -34,7 +35,7 @@ from pathlib import Path
 CURRENT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(CURRENT_DIR))
 import projects  # noqa: E402
-from parser import PMParser  # noqa: E402
+from parser import PMParser, declared_extra_tags  # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -221,6 +222,19 @@ def cmd_uncheck_qa(parser: PMParser, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tags(parser: PMParser, args: argparse.Namespace) -> int:
+    tags = declared_extra_tags(parser.project)
+    if not tags:
+        print("No extra tags declared for this project.")
+        return 0
+    rows = [("Key", "Label", "Filter", "Link template")]
+    rows += [(t["key"], t["label"], "yes" if t["filter"] else "no", t["link"] or "-") for t in tags]
+    widths = [max(len(r[i]) for r in rows) for i in range(4)]
+    for r in rows:
+        print("  ".join(c.ljust(widths[i]) for i, c in enumerate(r)).rstrip())
+    return 0
+
+
 def cmd_projects(args: argparse.Namespace) -> int:
     if args.select:
         try:
@@ -388,6 +402,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--story", help="Filter by story id")
     p_list.add_argument("--sprint", help="Legacy alias of --story")
 
+    sub.add_parser("tags", help="List the extra card tags declared for this project")
+
     p_show = sub.add_parser("show", help="Show card details, DoD, and Human QA items")
     p_show.add_argument("card_id", help="Card ID (e.g. MN-15.8.3)")
 
@@ -493,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = {
         "list": cmd_list,
         "show": cmd_show,
+        "tags": cmd_tags,
         "status": cmd_status,
         "check": cmd_check,
         "uncheck": cmd_uncheck,

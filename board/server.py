@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 import projects
-from parser import PMParser
+from parser import PMParser, declared_extra_tags
 
 HOST = os.environ.get("PM_QA_COCKPIT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PM_QA_COCKPIT_PORT", "3333"))
@@ -483,6 +483,16 @@ def count_building_cards(project: dict[str, Any], *, max_age_seconds: float = 30
     return count
 
 
+def _public_extra_tags(project: dict[str, Any]) -> dict[str, Any]:
+    """Replace raw ``extra_tags`` on a project copy with key/label/filter (link templates stay server-side)."""
+    if "extra_tags" in project:
+        project["extra_tags"] = [
+            {"key": t["key"], "label": t["label"], "filter": t["filter"]}
+            for t in declared_extra_tags(project)
+        ]
+    return project
+
+
 class CockpitState:
     """The active project's parser + heavy-gate worker; swapped atomically on project switch."""
 
@@ -526,9 +536,9 @@ class CockpitState:
 
     def project_view(self) -> dict[str, Any]:
         view = projects.public_view()
-        view["current"] = dict(self.project)
+        view["current"] = _public_extra_tags(dict(self.project))
         if self.project.get("slug") and not any(p["slug"] == self.project["slug"] for p in view["projects"]):
-            view["projects"] = [dict(self.project), *view["projects"]]
+            view["projects"] = [_public_extra_tags(dict(self.project)), *view["projects"]]
         cur_slug = self.project.get("slug")
         try:
             cur_active_count = sum(1 for c in self.parser.get_all_cards() if c.get("status") == "in-progress")
@@ -536,7 +546,7 @@ class CockpitState:
             cur_active_count = 0
         enriched_projects = []
         for p in view["projects"]:
-            p_copy = dict(p)
+            p_copy = _public_extra_tags(dict(p))
             if cur_slug and p_copy.get("slug") == cur_slug:
                 p_copy["building_count"] = cur_active_count
             else:
@@ -1728,6 +1738,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                     docs_mode=body.get("docs_mode") or None,
                     gates=existing.get("gates"),
                     notifications=existing.get("notifications"),
+                    extra_tags=existing.get("extra_tags"),
                 )
             except ValueError as err:
                 self.send_json({"success": False, "error": str(err)}, status=400)
