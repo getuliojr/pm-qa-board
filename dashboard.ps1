@@ -51,8 +51,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ServerPath = Join-Path $RootDir "cockpit\server.py"
-$CliPath = Join-Path $RootDir "cockpit\cli.py"
+$ServerPath = if (Test-Path (Join-Path $RootDir "board\server.py")) {
+    Join-Path $RootDir "board\server.py"
+} else {
+    Join-Path $RootDir "cockpit\server.py"
+}
+$CliPath = if (Test-Path (Join-Path $RootDir "board\cli.py")) {
+    Join-Path $RootDir "board\cli.py"
+} else {
+    Join-Path $RootDir "cockpit\cli.py"
+}
 
 function Get-LanIPAddress {
     $ip = $null

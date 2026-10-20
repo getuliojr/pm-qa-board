@@ -564,7 +564,7 @@ def test_notification_watcher_transitions(cockpit_home, external_project, monkey
 
 
 def test_static_assets_contain_story8_sound_and_notifications():
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
@@ -658,7 +658,7 @@ def test_system_update_apply_endpoint_success(server, monkeypatch):
 
 
 def test_static_assets_contain_story9_switcher_and_updates():
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
@@ -695,7 +695,7 @@ def test_dashboard_ps1_story9_tunnel_default():
 
 def test_no_browser_native_dialogs_in_frontend():
     """Story 11: Assert zero occurrences of alert(), confirm(), prompt() across frontend assets."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
@@ -714,7 +714,7 @@ def test_no_browser_native_dialogs_in_frontend():
 
 def test_static_assets_story12_recessed_trays_and_elevated_cards():
     """Story 12: Assert recessed tray styling and elevated cards across secondary views."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
     style_css = (static_dir / "style.css").read_text(encoding="utf-8")
@@ -749,7 +749,7 @@ def test_server_sends_connection_close_header(server):
 
 def test_static_assets_contain_story13_instant_qr_and_connection_hygiene():
     """Story 13: Verify instant QR helper, server-info caching, and Phosphor copy feedback."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
     assert "function renderQrCodeGraphic(" in app_js
@@ -810,7 +810,7 @@ def test_project_select_returns_complete_view(server, legacy_project):
 
 def test_static_assets_contain_story14_lazy_loading_and_abort_hygiene():
     """Story 14: Verify view-scoped data fetchers, non-overlapping polling, and in-flight abort in app.js."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
     # View-scoped fetchers
@@ -894,7 +894,7 @@ def test_git_push_and_pull_endpoints(server, monkeypatch):
 def test_static_assets_contain_story15_features():
     """Story 15: Verify status badge classes, QA station bugfix, card-driven roadmap and git UI."""
     repo_root = Path(__file__).resolve().parent.parent
-    static_dir = repo_root / "cockpit" / "static"
+    static_dir = repo_root / "board" / "static"
     style_css = (static_dir / "style.css").read_text(encoding="utf-8")
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
@@ -942,7 +942,7 @@ def test_static_assets_contain_story15_features():
 def test_pqc_16_qa_station_fix_and_telemetry():
     """PQC-16: QA station fix (updateHeavyGateUi call, no undefined updateHeavyGateControls)
     and 2-metric sidebar telemetry (Awaiting QA + Cards)."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
 
@@ -972,7 +972,7 @@ def test_pqc_17_fast_mode_adaptive_qa_and_high_contrast_badges(server):
     """PQC-17: High-contrast daylight badges, fast-mode adaptive QA station, and suite run API."""
     base, srv = server
 
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
 
@@ -1008,7 +1008,7 @@ def test_pqc_17_fast_mode_adaptive_qa_and_high_contrast_badges(server):
 
 def test_story18_mobile_landscape_and_future_timestamp_resilience(server):
     """PQC-18: Mobile landscape Kanban flex layout, compact select, streamlined sidebar, and future countdown."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     style_css = (static_dir / "style.css").read_text(encoding="utf-8")
@@ -1034,7 +1034,7 @@ def test_story18_mobile_landscape_and_future_timestamp_resilience(server):
 
 def test_story19_secondary_tab_refresh_skeletons_and_state_hygiene(server):
     """PQC-19: Secondary tab reactive refresh, view-specific skeletons, and state hygiene on project switch."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
 
@@ -1090,7 +1090,7 @@ def test_story19_secondary_tab_refresh_skeletons_and_state_hygiene(server):
 
 def test_story20_collapsed_sidebar_navigation_and_brand_logo_toggle(server):
     """PQC-20: Collapsed sidebar navigation ergonomics, icon button symmetry, and brand logo toggle."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     style_css = (static_dir / "style.css").read_text(encoding="utf-8")
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
@@ -1120,7 +1120,7 @@ def test_story20_collapsed_sidebar_navigation_and_brand_logo_toggle(server):
 
 def test_story22_mobile_swipe_qa_autoscroll_and_sticky_validation(server):
     """PQC-22: Mobile swipe navigation, QA story auto-scroll, sticky validation bar, and sequence alignment."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
@@ -1166,7 +1166,7 @@ def test_story22_mobile_swipe_qa_autoscroll_and_sticky_validation(server):
 
 def test_story23_qa_grid_and_dedicated_drawer(server):
     """PQC-23: Dedicated QA Drawer, Card Grid & Streamlined Validation Experience."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
@@ -1225,7 +1225,7 @@ def test_story23_qa_grid_and_dedicated_drawer(server):
 
 def test_story24_mobile_ergonomics_live_console_roadmap_filter(server):
     """PQC-24: Mobile Ergonomics Polish, Live Console Responsive Toolbar, Roadmap Card List Adaptation & Filter State Transparency."""
-    static_dir = Path(__file__).resolve().parent.parent / "cockpit" / "static"
+    static_dir = Path(__file__).resolve().parent.parent / "board" / "static"
     index_html = (static_dir / "index.html").read_text(encoding="utf-8")
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 

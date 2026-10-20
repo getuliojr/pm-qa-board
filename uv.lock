@@ -39,7 +39,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pm-qa-cockpit"
+name = "pm-qa-board"
 version = "0.7.0"
 source = { virtual = "." }
 

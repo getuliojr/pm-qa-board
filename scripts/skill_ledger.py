@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "cockpit"))
+sys.path.insert(0, str(ROOT / "board"))
 import setup_flow  # noqa: E402
 
 PRE_VERSION = "0.1.0"

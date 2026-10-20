@@ -91,7 +91,7 @@ Take your QA testing anywhere on your local Wi-Fi or on the go via secure Cloudf
 - **Cold Review Gate:** Enforces an independent, diff-only code review (`pm-review`) by a designated stronger model before any story reaches the QA column.
 
 ### 4. 🪶 Zero Runtime Dependencies & Local-First Architecture
-- **Standard Library Only:** The core HTTP server (`cockpit/server.py`) uses Python 3.12+ standard library modules (`http.server`, `threading`, `subprocess`, `urllib`, `json`). No heavy runtime web frameworks (no Flask, FastAPI, Node, or Django required to run).
+- **Standard Library Only:** The core HTTP server (`board/server.py`) uses Python 3.12+ standard library modules (`http.server`, `threading`, `subprocess`, `urllib`, `json`). No heavy runtime web frameworks (no Flask, FastAPI, Node, or Django required to run).
 - **Disk is the Source of Truth:** All project status is stored in clean, human-readable Markdown files. You can edit cards in VS Code, Obsidian, Neovim, or Notepad; the board reflects edits instantly.
 - **In-Repo vs. External Private Docs:**
   - **In-repo mode:** PM files live under `<project_root>/docs/`.
@@ -124,7 +124,7 @@ Clone the repository into your user directory and run the non-destructive bootst
 
 ```powershell
 # 1. Clone the running copy to your user profile
-git clone https://github.com/getuliojr/pm-qa-cockpit $HOME\.pm-qa-cockpit\app
+git clone https://github.com/getuliojr/pm-qa-board $HOME\.pm-qa-board\app
 
 # 2. Preview what the installer will do (Dry Run)
 powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1 -DryRun
@@ -246,27 +246,27 @@ Clear user intent and functional scope.
 
 ## CLI Reference
 
-The zero-dependency CLI (`cockpit/cli.py`) handles all automation and management tasks:
+The zero-dependency CLI (`board/cli.py`) handles all automation and management tasks:
 
 ```powershell
 # List registered projects and active selection
-uv run python cockpit/cli.py projects [--select <slug>]
+uv run python board/cli.py projects [--select <slug>]
 
 # Register a new project
-uv run python cockpit/cli.py init <slug> --code-path <path> [--docs-path <path>] [--prefix <PRFX>]
+uv run python board/cli.py init <slug> --code-path <path> [--docs-path <path>] [--prefix <PRFX>]
 
 # Run environment health check
-uv run python cockpit/cli.py doctor [<slug>]
+uv run python board/cli.py doctor [<slug>]
 
 # Profile test suite and set fast/heavy gate mode
-uv run python cockpit/cli.py profile-gates <slug> --measure --apply
+uv run python board/cli.py profile-gates <slug> --measure --apply
 
 # Inspect installed skill status and check for updates
-uv run python cockpit/cli.py skills-status <slug>
+uv run python board/cli.py skills-status <slug>
 
 # Generate or apply agent-guided setup plans
-uv run python cockpit/cli.py setup-plan <slug>
-uv run python cockpit/cli.py setup-apply <slug> --answers-json <path>
+uv run python board/cli.py setup-plan <slug>
+uv run python board/cli.py setup-apply <slug> --answers-json <path>
 ```
 
 ---

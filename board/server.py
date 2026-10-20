@@ -973,8 +973,8 @@ def apply_system_update(target_code_path: str | None = None) -> tuple[bool, dict
     skills_outdated = False
     skills_status_data = None
     try:
-        if str(TOOL_ROOT / "cockpit") not in sys.path:
-            sys.path.insert(0, str(TOOL_ROOT / "cockpit"))
+        if str(TOOL_ROOT / "board") not in sys.path:
+            sys.path.insert(0, str(TOOL_ROOT / "board"))
         import setup_flow
 
         target = target_code_path or (STATE.project.get("code_path") if STATE.project else None)

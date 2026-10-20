@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 
-COCKPIT = Path(__file__).resolve().parent.parent / "cockpit"
-sys.path.insert(0, str(COCKPIT))
+BOARD = Path(__file__).resolve().parent.parent / "board"
+COCKPIT = BOARD
+sys.path.insert(0, str(BOARD))
 
 
 def git(cwd: Path, *args: str) -> str:
