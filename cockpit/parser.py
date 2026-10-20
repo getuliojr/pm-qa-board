@@ -556,7 +556,7 @@ class PMParser:
 
         # Backfill missing times from Git commit logs or file mtime so entry.datetime is always populated
         file_commits = None
-        for entry in changelog:
+        for i, entry in enumerate(changelog):
             if not entry.get("time"):
                 c_date = entry.get("date", "")
                 c_what = entry.get("what", "").lower()
@@ -590,6 +590,11 @@ class PMParser:
                                 backfilled_time = mtime_dt.strftime("%H:%M")
                     except Exception:
                         backfilled_time = "12:00"
+
+                if i > 0 and changelog[i - 1].get("date") == c_date and changelog[i - 1].get("time"):
+                    prev_time = changelog[i - 1]["time"]
+                    if backfilled_time and backfilled_time < prev_time:
+                        backfilled_time = prev_time
 
                 entry["time"] = backfilled_time or "12:00"
                 entry["datetime"] = f"{entry['date']} {entry['time']}".strip()
