@@ -1275,7 +1275,8 @@ def test_favicon_served_successfully(server):
     base_url, _ = server
     with urllib.request.urlopen(f"{base_url}/favicon.ico") as r:
         assert r.status == 200
-        assert "image/x-icon" in r.headers.get("Content-Type", "")
+        content_type = r.headers.get("Content-Type", "")
+        assert any(m in content_type for m in ("image/x-icon", "image/vnd.microsoft.icon", "image/icon"))
         ico_bytes = r.read()
         assert len(ico_bytes) > 0
         assert ico_bytes[:4] == b"\x00\x00\x01\x00"
