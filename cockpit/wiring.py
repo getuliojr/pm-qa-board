@@ -25,7 +25,7 @@ from typing import Any
 import projects
 
 SCRIPT_EXTS = (".ps1", ".sh", ".cmd", ".bat")
-ORCHESTRATION_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
+ORCHESTRATION_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md", "CODEX.md")
 OVERRIDE_VARS = ("PM_QA_COCKPIT_REPO", "PM_QA_COCKPIT_HOME", "PM_QA_USER_HOME")
 _TOKEN = re.compile(r"[^\s\"'`(){}\[\],;=|<>]+")
 _QUOTED_NAME = re.compile(r"([\"'])pm-qa-cockpit\1")

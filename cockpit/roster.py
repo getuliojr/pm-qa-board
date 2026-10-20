@@ -38,8 +38,9 @@ READ_DIRS = {
     "claude": [".claude/agents"],
     "cursor": [".cursor/agents"],
     "antigravity": [".agents/agents", ".agents/subagents"],
+    "codex": [".agents/agents", ".agents/subagents"],
 }
-WRITE_DIR = {"claude": ".claude/agents", "cursor": ".cursor/agents", "antigravity": ".agents/agents"}
+WRITE_DIR = {"claude": ".claude/agents", "cursor": ".cursor/agents", "antigravity": ".agents/agents", "codex": ".agents/agents"}
 
 # (model, effort) per role per tool. Cursor / Antigravity are seeded from money-nest's proven pins.
 # Cursor slugs keep ``[fast=false]``: a plain slug may route to Fast.
@@ -51,14 +52,17 @@ DEFAULT_MODELS = {
     "cursor": {"lead": "composer-2.5[fast=false]", "advisor": "grok-4.6[fast=false]", "reviewer": "grok-4.7[fast=false]",
                "builder": "grok-4.6[fast=false]", "retrieval": "composer-2.5[fast=false]", "pm-sync": "composer-2.5[fast=false]"},
     "antigravity": {"lead": "pro", "advisor": "pro", "reviewer": "pro", "builder": "pro", "retrieval": "flash", "pm-sync": "flash"},
+    "codex": {"lead": "gpt-5.6-terra", "advisor": "gpt-6.1-sol", "reviewer": "gpt-6.1-sol",
+              "builder": "gpt-5.6-terra", "retrieval": "gpt-6-luna", "pm-sync": "gpt-6-luna"},
 }
 # Pins this cockpit version knows. A pin outside the list only warns (lists go stale).
 KNOWN_MODELS = {
     "claude": ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1", "claude-sonnet-5"],
     "cursor": ["composer-2.5", "grok-4.6", "grok-4.7"],
     "antigravity": ["pro", "flash"],
+    "codex": ["gpt-5.6-terra", "gpt-6.1-sol", "gpt-6-luna"],
 }
-ALIASES = {"claude": ["opus", "sonnet", "haiku", "fable"], "cursor": ["auto"], "antigravity": []}
+ALIASES = {"claude": ["opus", "sonnet", "haiku", "fable"], "cursor": ["auto"], "antigravity": [], "codex": []}
 # Claude Code is the only tool whose agent frontmatter is verified to read `effort`.
 EFFORT_IN_FRONTMATTER = {"claude"}
 CLAUDE_TOOLS = {"reviewer": "Read, Grep, Glob, Bash, Write", "retrieval": "Read, Grep, Glob, Bash, WebFetch, WebSearch"}

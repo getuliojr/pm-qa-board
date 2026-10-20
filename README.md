@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>A local-first, zero-dependency dashboard and agent orchestration framework for high-velocity software engineering.</strong><br>
-  Built for <strong>Claude Code</strong>, <strong>Cursor</strong>, <strong>Google Antigravity</strong>, and autonomous AI coding agents.
+  Built for <strong>Claude Code</strong>, <strong>Cursor</strong>, <strong>Google Antigravity</strong>, <strong>OpenAI Codex</strong>, and autonomous AI coding agents.
 </p>
 
 <p align="center">
@@ -120,7 +120,7 @@ powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1
 
 ### 2. Set Up a Project (Agent-Guided)
 
-Open your target project in your preferred agent tool (**Claude Code**, **Cursor**, **Google Antigravity**, etc.) and prompt:
+Open your target project in your preferred agent tool (**Claude Code**, **Cursor**, **Google Antigravity**, **OpenAI Codex**, etc.) and prompt:
 
 > **"Set up PM & QA Board in this project"**
 

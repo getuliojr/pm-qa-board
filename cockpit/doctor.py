@@ -138,7 +138,7 @@ def run(target: str) -> dict[str, Any]:
     loop = setup_flow.own_loop_skills(code)
     rows = []
     for t in tools:
-        for rel in {"claude": [".claude/skills"], "antigravity": [".agents/skills"], "cursor": [".claude/skills"]}[t]:
+        for rel in {"claude": [".claude/skills"], "antigravity": [".agents/skills"], "cursor": [".claude/skills"], "codex": [".agents/skills"]}[t]:
             for s in PROJECT_SKILLS:
                 st = setup_flow.skill_state(code / rel / s, setup_flow.TOOL_ROOT / "skills" / s)
                 rows.append((t, rel, s, st))

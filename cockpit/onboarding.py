@@ -20,7 +20,7 @@ from typing import Any
 
 import projects
 
-ORCHESTRATION_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
+ORCHESTRATION_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md", "CODEX.md")
 HOOK_EVENTS = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
 LOOP_SIGNALS = {
     "design before code (grill-me)": ("grill",),

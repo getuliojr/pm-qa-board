@@ -40,7 +40,7 @@ GRILL_SOURCE = "https://github.com/mattpocock/skills/tree/main/skills/productivi
 
 # Where each agent reads project skills. Cursor reads AGENTS.md (+ .cursor/rules) and is pointed at
 # the Claude skills folder instead of receiving a third copy.
-AGENT_SKILL_DIRS = {"claude": ".claude/skills", "antigravity": ".agents/skills"}
+AGENT_SKILL_DIRS = {"claude": ".claude/skills", "antigravity": ".agents/skills", "codex": ".agents/skills"}
 LEDGER = TOOL_ROOT / "skills" / "RELEASES.json"
 
 
@@ -65,6 +65,7 @@ def global_read_roots(tool: str) -> list[Path]:
         "antigravity": [home / ".agents" / "skills"],
         "cursor": [home / ".cursor" / "skills", home / ".cursor" / "skills-cursor",
                    home / ".agents" / "skills", home / ".claude" / "skills"],
+        "codex": [home / ".agents" / "skills"],
     }[tool]
 
 
@@ -74,6 +75,7 @@ def project_read_dirs(tool: str) -> list[str]:
         "claude": [".claude/skills"],
         "antigravity": [".agents/skills"],
         "cursor": [".cursor/skills", ".agents/skills", ".claude/skills"],
+        "codex": [".agents/skills"],
     }[tool]
 
 
@@ -298,6 +300,8 @@ def detect_agents(code: Path) -> list[str]:
         agents.append("cursor")
     if (code / ".agents").is_dir() or (code / "GEMINI.md").is_file():
         agents.append("antigravity")
+    if (code / ".codex").is_dir() or (code / "CODEX.md").is_file():
+        agents.append("codex")
     return agents
 
 
@@ -317,8 +321,8 @@ def own_loop_skills(code: Path) -> list[str]:
     return sorted(set(found))
 
 
-TOOL_LABELS = {"claude": "Claude Code", "cursor": "Cursor", "antigravity": "Antigravity"}
-TOOL_ORDER = ("claude", "antigravity", "cursor")  # Cursor last: it also reads the other two folders
+TOOL_LABELS = {"claude": "Claude Code", "cursor": "Cursor", "antigravity": "Antigravity", "codex": "Codex"}
+TOOL_ORDER = ("claude", "antigravity", "codex", "cursor")  # Cursor last: it also reads the other two folders
 GENERIC_SKILLS = ("grill-me", "grilling")
 
 
@@ -326,7 +330,7 @@ def generic_global_target(tool: str) -> Path:
     """Where a generic skill is copied for one tool (the tool's own global folder)."""
     home = projects.user_home()
     return {"claude": home / ".claude" / "skills", "antigravity": home / ".agents" / "skills",
-            "cursor": home / ".cursor" / "skills"}[tool]
+            "cursor": home / ".cursor" / "skills", "codex": home / ".agents" / "skills"}[tool]
 
 
 def generic_reach(code: Path, tool: str) -> dict[str, list[str]]:
@@ -591,7 +595,8 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
         # Each detected agent's entry file: Claude Code -> CLAUDE.md, Cursor -> AGENTS.md,
         # Antigravity -> GEMINI.md (if the project has one) else AGENTS.md.
         wanted = {"claude": "CLAUDE.md", "cursor": "AGENTS.md",
-                  "antigravity": "GEMINI.md" if "GEMINI.md" in existing else "AGENTS.md"}
+                  "antigravity": "GEMINI.md" if "GEMINI.md" in existing else "AGENTS.md",
+                  "codex": "CODEX.md"}
         targets = sorted({wanted[a] for a in agents}) or existing[:1] or ["AGENTS.md"]
     for fname in targets:
         text = (code / fname).read_text(encoding="utf-8", errors="replace") if (code / fname).exists() else ""
@@ -660,9 +665,9 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
     # ... and installed for a used tool that can't reach any copy (Cursor also reads ~/.claude/skills)
     for t in tools:
         if not bootstrap_reach(code, t) and not any(
-            a["kind"] == "install-bootstrap" and global_roots()[a["agent"]] in global_read_roots(t) for a in actions
+            a["kind"] == "install-bootstrap" and (global_roots().get(a["agent"]) or generic_global_target(a["agent"])) in global_read_roots(t) for a in actions
         ):
-            dest = global_roots()[t] / BOOTSTRAP_SKILL
+            dest = (global_roots().get(t) or generic_global_target(t)) / BOOTSTRAP_SKILL
             add("install-bootstrap", f"Install {BOOTSTRAP_SKILL} in the {TOOL_LABELS[t]} global folder",
                 agent=t, skill=BOOTSTRAP_SKILL, state="missing", writes=[str(dest)],
                 detail=f"- -> {tool_version()}")
@@ -803,7 +808,7 @@ def build_inventory(plan: dict[str, Any], code: Path, reach: dict[str, dict[str,
                 "a generic skill: global, so every project has it", "change" if ids or covered else "review", ids))
         boot = bootstrap_reach(code, t)
         boot_ids = [a["id"] for a in plan["actions"] if a["kind"] in ("upgrade-bootstrap", "install-bootstrap")
-                    and global_roots()[a["agent"]] in global_read_roots(t)]
+                    and (global_roots().get(a["agent"]) or generic_global_target(a["agent"])) in global_read_roots(t)]
         if boot:
             st = skill_state(boot[0], TOOL_ROOT / "skills" / BOOTSTRAP_SKILL)
             tool_groups[t].append(_item(f"{BOOTSTRAP_SKILL} (this setup)", f"{_home_short(boot[0])} ({st['state']}, {st['installed_version'] or '-'})",
@@ -811,8 +816,9 @@ def build_inventory(plan: dict[str, Any], code: Path, reach: dict[str, dict[str,
                                         "ok" if st["state"] == "current" else ("review" if st["state"] in ("edited", "foreign") else "change"),
                                         boot_ids))
         else:
+            dest = global_roots().get(t) or generic_global_target(t)
             tool_groups[t].append(_item(f"{BOOTSTRAP_SKILL} (this setup)", f"missing for {TOOL_LABELS[t]}",
-                                        _home_short(global_roots()[t]), "the one global cockpit skill; it runs setup and upgrades",
+                                        _home_short(dest), "the one global cockpit skill; it runs setup and upgrades",
                                         "change", boot_ids))
     cleanup = next((a for a in plan["actions"] if a["kind"] == "cleanup-global"), None)
     for t, root in global_roots().items():
@@ -1267,7 +1273,7 @@ def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | 
                 append_bytes(exclude, "# PM & QA Cockpit skills (installed per project)\n" + "\n".join(add) + "\n")
             results.append({"id": aid, "result": f"excluded {len(add)} path(s)"})
         elif kind in ("upgrade-bootstrap", "install-bootstrap"):
-            dest = global_roots()[a["agent"]] / BOOTSTRAP_SKILL
+            dest = (global_roots().get(a["agent"]) or generic_global_target(a["agent"])) / BOOTSTRAP_SKILL
             results.append({"id": aid, "result": install_skill(TOOL_ROOT / "skills" / BOOTSTRAP_SKILL, dest, choice(aid))})
         elif kind == "copy-generic":
             done = []
