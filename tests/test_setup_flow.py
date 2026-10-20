@@ -223,3 +223,22 @@ def test_bootstrap_installs_only_setup_and_never_overwrites(tmp_path):
     out = _run_install(home)
     assert "left untouched" in out
     assert "My note." in md.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(shutil.which("powershell") is None, reason="Windows PowerShell not available")
+def test_bootstrap_creates_desktop_shortcut(tmp_path):
+    home = tmp_path / "home"
+    out_dry = _run_install(home, "-DryRun")
+    assert "would create" in out_dry
+    assert "PM & QA Board.lnk" in out_dry
+    assert not (home / "Desktop").exists()
+
+    out = _run_install(home)
+    assert "created" in out
+    desktop = home / "Desktop" / "PM & QA Board.lnk"
+    assert desktop.is_file()
+
+    # -NoShortcut skips creating the shortcut
+    home2 = tmp_path / "home2"
+    _run_install(home2, "-NoShortcut")
+    assert not (home2 / "Desktop" / "PM & QA Board.lnk").exists()

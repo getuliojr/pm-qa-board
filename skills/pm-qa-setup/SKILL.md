@@ -1,14 +1,14 @@
 ---
 name: pm-qa-setup
-description: Use when the user asks to set up, install, onboard, register, upgrade or check PM & QA Cockpit in a project (or on this machine), or to clean up old cockpit skills. Inspects what the project and this machine already have, says in plain words where each thing belongs, asks a few plain questions, and changes only what the user approves; never overwrites a user's rules or skills. Ends with a read-only doctor check.
+description: Use when the user asks to set up, install, onboard, register, upgrade or check PM & QA Board in a project (or on this machine), or to clean up old skills. Inspects what the project and this machine already have, sets up desktop shortcuts and skills, says in plain words where each thing belongs, asks a few plain questions, and changes only what the user approves; never overwrites a user's rules or skills. Ends with a read-only doctor check.
 metadata:
-  version: 0.7.0
+  version: 0.8.0
   source: pm-qa-cockpit
 ---
 
-# pm-qa-setup: guided install, upgrade and check of PM & QA Cockpit
+# pm-qa-setup: guided install, upgrade and check of PM & QA Board
 
-You are setting up (or upgrading, or checking) the PM & QA Cockpit in **one project**, for a user who
+You are setting up (or upgrading, or checking) the PM & QA Board in **one project**, for a user who
 owns that project's rules. **The user's orchestration is theirs: you inspect, explain, and apply only
 what they approve.** Nothing is ever done silently, and a project's own rules always win.
 
@@ -16,11 +16,11 @@ The CLI does the analysis; you present it in plain words and talk to the user. R
 **running copy**:
 
 ```
-CLI = uv run python ~/.pm-qa-cockpit/app/cockpit/cli.py      (Windows: $HOME\.pm-qa-cockpit\app\cockpit\cli.py)
+CLI = uv run python ~/.pm-qa-board/app/board/cli.py      (Windows: $HOME\.pm-qa-board\app\board\cli.py, with ~/.pm-qa-cockpit fallback)
 ```
 
 If the environment variable `PM_QA_USER_HOME` is set (a QA sandbox), read every `~` below as that
-folder. If `~/.pm-qa-cockpit/app` does not exist, say so and offer to clone it (it appears as a
+folder. If `~/.pm-qa-board/app` (or `~/.pm-qa-cockpit/app`) does not exist, say so and offer to clone it (it appears as a
 decision in the plan); don't run a dev clone instead.
 
 ## 1. Plan (read-only)
@@ -123,12 +123,14 @@ Don't commit or push in the user's project; leave the changes for them (commit l
 Run `CLI doctor <project path or slug>` and show its checklist. Every line should be `pass`, or `warn`
 with its reason and fix. A `fail` (exit 1) means setup isn't done: say what the fix line says. Tell
 the user they can re-run doctor anytime, and how to open the dashboard:
-`powershell -File ~/.pm-qa-cockpit/app/dashboard.ps1 -Project <slug>` → <http://localhost:3333>.
+double-click the **PM & QA Board** shortcut on their Desktop, or run:
+`powershell -File ~/.pm-qa-board/app/dashboard.ps1 -Project <slug>` → <http://localhost:3333>.
 Design work starts with `grill-me`, then the `pm-orchestrate` loop (full mode) or the project's own
 loop (register-only).
 
 ## Where things belong (what the plan recommends)
 
+- **Desktop shortcut**: `install.ps1` sets up the **PM & QA Board** shortcut on Desktop to start the board.
 - **Generic skills** (`grill-me`, `grilling`): in the global folder of every tool the project uses.
   One found only in a project or another tool's folder is **copied**, never moved; the project copy
   stays (it is the project's, and teammates use it).

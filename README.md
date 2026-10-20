@@ -127,10 +127,10 @@ Clone the repository into your user directory and run the non-destructive bootst
 git clone https://github.com/getuliojr/pm-qa-board $HOME\.pm-qa-board\app
 
 # 2. Preview what the installer will do (Dry Run)
-powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1 -DryRun
+powershell -NoProfile -File $HOME\.pm-qa-board\app\install.ps1 -DryRun
 
 # 3. Install the bootstrap skill (installs only pm-qa-setup; never overwrites existing skills)
-powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1
+powershell -NoProfile -File $HOME\.pm-qa-board\app\install.ps1
 ```
 
 ---
@@ -152,20 +152,20 @@ Once approved, the agent executes `cli.py setup-apply` and validates the install
 
 ### 3. Launching the Dashboard
 
-Launch the web dashboard from PowerShell:
+Launch the web dashboard by double-clicking the **PM & QA Board** shortcut on your Desktop, or launch from PowerShell:
 
 ```powershell
 # Standard local desktop launch (http://localhost:3333)
-powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1
+powershell -File $HOME\.pm-qa-board\app\dashboard.ps1
 
 # Launch with mobile LAN Wi-Fi pairing enabled
-powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 -Mobile
+powershell -File $HOME\.pm-qa-board\app\dashboard.ps1 -Mobile
 
 # Launch with public Cloudflare Quick Tunnel (with secure session token)
-powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 -Public
+powershell -File $HOME\.pm-qa-board\app\dashboard.ps1 -Public
 
 # Launch and select a specific registered project
-powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 -Project my-app -Port 3333
+powershell -File $HOME\.pm-qa-board\app\dashboard.ps1 -Project my-app -Port 3333
 ```
 
 ---
