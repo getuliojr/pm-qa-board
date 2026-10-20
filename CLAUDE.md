@@ -17,7 +17,7 @@ This repo is **public** and holds **only the tool**. Keep it short; the details 
   then `uv run python scripts/skill_ledger.py record` as the last step (a test enforces it). Never edit
   the running copy.
 - **Install is agent-guided** (`skills/pm-qa-setup`, engine `cockpit/setup_flow.py`): `install.ps1` only
-  copies that one skill and never overwrites; nothing rewrites a user's CLAUDE.md/AGENTS.md/hooks/skills
+  copies that one skill and never overwrites; nothing rewrites a user's CLAUDE.md/AGENTS.md/CODEX.md/hooks/skills
   without approval.
 - **Compatibility:** money-nest (legacy `mn-id`/`sprint` schema) must keep rendering identically;
   `tests/test_money_nest_legacy_*.py` run against a local money-nest checkout when present.

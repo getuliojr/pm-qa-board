@@ -97,6 +97,23 @@ Take your QA testing anywhere on your local Wi-Fi or on the go via secure Cloudf
   - **In-repo mode:** PM files live under `<project_root>/docs/`.
   - **External docs mode (`--docs-path`):** PM files live in a separate, private repository (e.g., `../pm-qa-docs/<slug>/`). Keeps sensitive roadmap data, internal reviews, and business context out of public open-source repos. Optional `--stealth` flag automatically keeps local cockpit helper files excluded via `.git/info/exclude`.
 
+### 5. 🤖 Multi-Agent Ecosystem Parity (Claude Code, OpenAI Codex, Antigravity, Cursor)
+PM & QA Board provides first-class support for the leading autonomous AI coding agent tools, with automatic detection, non-destructive instruction wiring, and specialized multi-agent model rosters:
+
+| Agent Engine | Project Directives | Skills Directory | Global Discovery | Roster Path | Default Lead Model |
+|---|---|---|---|---|---|
+| **Claude Code** | `CLAUDE.md` | `.claude/skills` | `~/.claude/skills` | `.claude/agents` | `claude-opus-5-5` |
+| **OpenAI Codex** | `CODEX.md` | `.agents/skills` | `~/.agents/skills` | `.agents/agents` | `gpt-5.6-terra` |
+| **Google Antigravity** | `AGENTS.md` / `GEMINI.md` | `.agents/skills` | `~/.agents/skills` | `.agents/agents` | `pro` |
+| **Cursor** | `.cursorrules` / `AGENTS.md` | `.claude/skills` | `~/.cursor/skills-cursor` | `.cursor/agents` | `composer-2.5` |
+
+- **Dedicated Codex Roster:** Tailored frontier model pins optimize each phase of the story loop:
+  - **Lead & Builder** (`gpt-5.6-terra`): Frontier engineering, complex multi-step reasoning, surgical diffs, and tool execution.
+  - **Advisor & Reviewer** (`gpt-6.1-sol`): Cold peer review, edge-case discovery, security auditing, and design interview (`grill-me`).
+  - **Retrieval & PM-Sync** (`gpt-6-luna`): Sub-second codebase indexing, symbol search, card status transitions, and changelog updates.
+- **Shared Skills Architecture:** Codex and Antigravity cleanly share `.agents/skills` without duplicate installations or directory conflicts.
+- **Doctor Health Audits:** `cli.py doctor` inspects project and global skill states across all detected tools, highlighting outdated, edited, or missing skills.
+
 ---
 
 ## Quick Start
@@ -163,7 +180,7 @@ To ensure that in-development changes never destabilize active client projects, 
 | **Running Copy** | `~/.pm-qa-cockpit/app` | Stable copy cloned from `main` that projects use to serve the dashboard. Updated via `git pull`. |
 | **PM Data** | `<project>/docs` or `pm-qa-docs/<slug>/` | Project story cards, acceptance criteria, reviews, and close-out artifacts. |
 | **Registry** | `~/.pm-qa-cockpit/projects.json` | Local per-machine configuration linking project slugs, paths, gate profiles, and notification preferences. |
-| **Agent Skills** | `.claude/skills`, `.agents/skills`, `~/.cursor/skills-cursor` | Modular prompt skills providing the 7-step story workflow to AI agents. |
+| **Agent Skills** | `.claude/skills`, `.agents/skills` (Antigravity & Codex), `~/.cursor/skills-cursor` | Modular prompt skills providing the 7-step story workflow to AI agents. |
 
 ---
 
