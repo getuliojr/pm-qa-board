@@ -304,10 +304,17 @@ def test_doctor_and_wiring_support_board_directory(sandbox):
     plan = setup_flow.build_plan(sb["project"])
     assert not any(a["id"] == "clone-running-copy" for a in plan.get("actions", []))
 
-    # Verify cockpit/ backward-compatibility shims import properly
-    import cockpit.cli as cockpit_cli
-    import cockpit.server as cockpit_server
-    assert hasattr(cockpit_cli, "main")
-    assert hasattr(cockpit_server, "PMRequestHandler")
+    # Verify cockpit/ backward-compatibility shims exist and load
+    repo_root = Path(__file__).resolve().parent.parent
+    cli_shim = repo_root / "cockpit" / "cli.py"
+    server_shim = repo_root / "cockpit" / "server.py"
+    assert cli_shim.is_file()
+    assert server_shim.is_file()
+    import importlib.util
+    for path, symbol in [(cli_shim, "main"), (server_shim, "PMRequestHandler")]:
+        spec = importlib.util.spec_from_file_location(path.stem, str(path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert hasattr(mod, symbol)
 
 
