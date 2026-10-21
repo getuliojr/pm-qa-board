@@ -49,7 +49,7 @@ def run(target: str) -> dict[str, Any]:
     docs = Path(project["docs_path"])
     checks: list[dict[str, Any]] = []
     run_copy = wiring.running_copy()
-    run_ok = (run_copy / "cockpit" / "server.py").is_file()
+    run_ok = (run_copy / "board" / "server.py").is_file() or (run_copy / "cockpit" / "server.py").is_file()
     setup_cmd = "ask your agent to run pm-qa-setup in this project"
 
     # 1. registration + PM data layout

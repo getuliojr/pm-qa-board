@@ -12,6 +12,7 @@ import sandbox_fixture
 
 import cli
 import doctor
+import projects
 import setup_flow
 import wiring
 
@@ -266,3 +267,54 @@ def test_cursor_reads_the_claude_global_folder(tmp_path, monkeypatch):
     assert setup_flow.generic_reach(code, "cursor")["global"] == [str(g)]
     assert setup_flow.generic_reach(code, "claude")["global"] == [str(g)]
     assert setup_flow.generic_reach(code, "antigravity")["global"] == []
+
+
+def test_doctor_and_wiring_support_board_directory(sandbox):
+    sb = sandbox()
+    app = sb["cockpit_home"] / "app"
+    # Migrate stub running copy from cockpit/server.py to board/server.py
+    (app / "cockpit" / "server.py").unlink()
+    board_server = app / "board" / "server.py"
+    board_server.parent.mkdir(parents=True, exist_ok=True)
+    board_server.write_text("# running copy stub in board\n", encoding="utf-8")
+
+    # Doctor checks 3 and 4 should pass with board/server.py
+    report = doctor.run(str(sb["project"]))
+    (c3,) = [c for c in report["checks"] if c["n"] == 3]
+    (c4,) = [c for c in report["checks"] if c["n"] == 4]
+    assert c3["status"] == "pass"
+    assert c4["status"] == "pass"
+
+    # Wiring verdict should be "ok"
+    assert wiring.running_copy().joinpath("board", "server.py").is_file()
+    launchers = wiring.scan_launchers(sb["project"])
+    assert any(lw["verdict"] == "ok" for lw in launchers)
+
+    # dev_clones detects checkouts with board/setup_flow.py
+    clone = sb["home"] / "dev-clone"
+    clone_setup = clone / "board" / "setup_flow.py"
+    clone_setup.parent.mkdir(parents=True, exist_ok=True)
+    clone_setup.write_text("# dev clone setup\n", encoding="utf-8")
+    reg = projects.load_registry()
+    reg["projects"]["dev-clone"] = {"slug": "dev-clone", "name": "Dev Clone", "code_path": str(clone), "docs_path": str(clone)}
+    projects.save_registry(reg)
+    assert clone in wiring.dev_clones()
+
+    # setup_flow recognizes running_copy with board/server.py
+    plan = setup_flow.build_plan(sb["project"])
+    assert not any(a["id"] == "clone-running-copy" for a in plan.get("actions", []))
+
+    # Verify cockpit/ backward-compatibility shims exist and load
+    repo_root = Path(__file__).resolve().parent.parent
+    cli_shim = repo_root / "cockpit" / "cli.py"
+    server_shim = repo_root / "cockpit" / "server.py"
+    assert cli_shim.is_file()
+    assert server_shim.is_file()
+    import importlib.util
+    for path, symbol in [(cli_shim, "main"), (server_shim, "PMRequestHandler")]:
+        spec = importlib.util.spec_from_file_location(path.stem, str(path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert hasattr(mod, symbol)
+
+

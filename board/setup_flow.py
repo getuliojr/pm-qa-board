@@ -516,7 +516,7 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
     prereq = {
         "uv": _which("uv"),
         "git": _which("git"),
-        "running_copy": (projects.cockpit_home() / "app" / "cockpit" / "server.py").is_file(),
+        "running_copy": (projects.cockpit_home() / "app" / "board" / "server.py").is_file() or (projects.cockpit_home() / "app" / "cockpit" / "server.py").is_file(),
         "grill_me": all(reach[t]["global"] or reach[t]["project"] for t in tools),
         "grill_me_global": {t: bool(reach[t]["global"]) for t in tools},
     }
