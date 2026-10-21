@@ -44,7 +44,7 @@ def dev_clones() -> list[Path]:
     out = []
     for proj in projects.load_registry()["projects"].values():
         p = Path(proj.get("code_path") or "")
-        if (p / "cockpit" / "setup_flow.py").is_file() and p.resolve() != run:
+        if ((p / "board" / "setup_flow.py").is_file() or (p / "cockpit" / "setup_flow.py").is_file()) and p.resolve() != run:
             out.append(p)
     return out
 
@@ -86,7 +86,7 @@ def _not_a_checkout(parts: list[str], bases: list[Path]) -> bool:
     else:
         candidates = [b.joinpath(*head) for b in bases]
     found = [c for c in candidates if c.is_dir()]
-    return bool(found) and not any((c / "cockpit" / "server.py").is_file() for c in found)
+    return bool(found) and not any(((c / "board" / "server.py").is_file() or (c / "cockpit" / "server.py").is_file()) for c in found)
 
 
 def classify_line(line: str, bases: list[Path] | None = None) -> list[dict[str, Any]]:
@@ -167,7 +167,8 @@ def _ordered_refs(code_lines: list[tuple[int, str]], ext: str, bases: list[Path]
 def _verdict(refs: list[dict[str, Any]]) -> str:
     first = refs[0]["kind"]
     if first == "running":
-        return "ok" if running_copy().joinpath("cockpit", "server.py").is_file() else "missing"
+        is_installed = (running_copy() / "board" / "server.py").is_file() or (running_copy() / "cockpit" / "server.py").is_file()
+        return "ok" if is_installed else "missing"
     return {"dev": "dev-clone-first", "frozen": "frozen"}[first]
 
 
