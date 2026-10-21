@@ -296,7 +296,18 @@ def test_doctor_and_wiring_support_board_directory(sandbox):
     clone_setup.parent.mkdir(parents=True, exist_ok=True)
     clone_setup.write_text("# dev clone setup\n", encoding="utf-8")
     reg = projects.load_registry()
-    reg["projects"]["dev-clone"] = {"code_path": str(clone), "docs_path": str(clone)}
+    reg["projects"]["dev-clone"] = {"slug": "dev-clone", "name": "Dev Clone", "code_path": str(clone), "docs_path": str(clone)}
     projects.save_registry(reg)
     assert clone in wiring.dev_clones()
+
+    # setup_flow recognizes running_copy with board/server.py
+    plan = setup_flow.build_plan(sb["project"])
+    assert not any(a["id"] == "clone-running-copy" for a in plan.get("actions", []))
+
+    # Verify cockpit/ backward-compatibility shims import properly
+    import cockpit.cli as cockpit_cli
+    import cockpit.server as cockpit_server
+    assert hasattr(cockpit_cli, "main")
+    assert hasattr(cockpit_server, "PMRequestHandler")
+
 
