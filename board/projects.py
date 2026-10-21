@@ -102,6 +102,7 @@ def build_project(
     docs_mode: str | None = None,
     gates: dict[str, Any] | None = None,
     notifications: dict[str, Any] | None = None,
+    extra_tags: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Validate and normalise one project entry. Raises ValueError on bad input."""
     if not name or not str(name).strip():
@@ -124,7 +125,7 @@ def build_project(
     if not re.fullmatch(r"[A-Z][A-Z0-9]{0,7}", pfx):
         raise ValueError("prefix must be 1-8 uppercase letters/digits, starting with a letter")
     resolved_slug = slug or slugify(name)
-    return {
+    project: dict[str, Any] = {
         "name": str(name).strip(),
         "slug": resolved_slug,
         "prefix": pfx,
@@ -140,6 +141,9 @@ def build_project(
             "ntfy_topic": f"pmqa-{resolved_slug}",
         },
     }
+    if extra_tags:
+        project["extra_tags"] = extra_tags
+    return project
 
 
 def ensure_docs_root(project: dict[str, Any]) -> list[str]:

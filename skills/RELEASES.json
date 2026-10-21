@@ -185,5 +185,22 @@
     "pm-sync": [
       "1e6a7f25e9c98989cb96c53d05e29945c83dcef9bbb740f91dac7ae4c4e24b4f"
     ]
+  },
+  "0.9.0": {
+    "pm-orchestrate": [
+      "acfafcfe56d474baf3a6d6269472696454a78ca4d77af28e01df3dbb9612d4e3"
+    ],
+    "pm-qa-cockpit": [
+      "233f545e21308d24647d88878d9d03ae3b1e26e3a140fce9a99b1a0a915653cc"
+    ],
+    "pm-qa-setup": [
+      "49f1f1e6bda8abc9de4a03caae6b0d8d5f0aa0e039a9fc301f3476de701c24fa"
+    ],
+    "pm-review": [
+      "3d379e9f968ba3945b0bcbc77e7fb4102798e4d69814ddfb153d682dec3cebb8"
+    ],
+    "pm-sync": [
+      "eaecc083fbb0211517e9b596ded73d6a3a52451343b82394c2914d908689e865"
+    ]
   }
 }

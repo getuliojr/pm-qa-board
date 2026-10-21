@@ -21,8 +21,42 @@ import re
 import subprocess
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
+
+
+def declared_extra_tags(project: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Normalise a registry entry's ``extra_tags`` into ``[{key, label, link, filter}]``.
+
+    Malformed input is ignored defensively; the first declaration of a key wins.
+    """
+    raw = (project or {}).get("extra_tags")
+    if not isinstance(raw, list):
+        return []
+    tags: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        key = entry.get("key")
+        if not isinstance(key, str) or not key.strip():
+            continue
+        key = key.strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        label = entry.get("label")
+        link = entry.get("link")
+        tags.append(
+            {
+                "key": key,
+                "label": label.strip() if isinstance(label, str) and label.strip() else key,
+                "link": link.strip() if isinstance(link, str) and link.strip() else None,
+                "filter": entry.get("filter") is True,
+            }
+        )
+    return tags
 
 
 class PMParser:
@@ -87,6 +121,23 @@ class PMParser:
         self._card_git_commit_map: dict[str, list[dict[str, str]]] | None = None
         self._cards_cache: list[dict[str, Any]] | None = None
         self._cards_cache_time: float = 0.0
+
+    def _card_extra_tags(self, frontmatter: dict[str, Any]) -> list[dict[str, Any]]:
+        """Declared extra tags present on a card, with per-card resolved (http/https only) links."""
+        result = []
+        for tag in declared_extra_tags(self.project):
+            raw = frontmatter.get(tag["key"])
+            value = "" if raw is None else str(raw).strip()
+            if not value:
+                continue
+            link = None
+            template = tag["link"]
+            if template and template.lower().startswith(("http://", "https://")):
+                link = template.replace("{value}", urllib.parse.quote(value, safe=""))
+            result.append(
+                {"key": tag["key"], "label": tag["label"], "value": value, "link": link, "filter": tag["filter"]}
+            )
+        return result
 
     def rel_path(self, file_path: Path) -> str:
         """Display/storage path for a docs file: relative to the code repo when inside it, else absolute."""
@@ -728,6 +779,7 @@ class PMParser:
             "story": str(frontmatter.get("sprint", "")),
             "schema": frontmatter.get("_schema", "sprint"),
             "type": frontmatter.get("type", "feature"),
+            "extra_tags": self._card_extra_tags(frontmatter),
             "status": status,
             "warnings": warnings_list,
             "missing_plan_dod": missing_plan_dod,

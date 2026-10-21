@@ -2,7 +2,7 @@
 name: pm-orchestrate
 description: Use at the start of any new feature, story or nontrivial change in a project tracked by the PM & QA Cockpit, before writing code or spawning agents; also when onboarding a project (cli.py init), choosing gate mode (profile-gates), or closing a story (close-out artifact).
 metadata:
-  version: 0.8.0
+  version: 0.9.0
   source: pm-qa-cockpit
 ---
 
@@ -25,7 +25,9 @@ file has none). If the project has no Roster or no agent for that role, use the 
    (recommended option first). **Persist after every round**: append settled Qs (id, choice, one-line WHY)
    under `### Grill in progress - Story <id>` in `<docs>/PLAN.md` immediately. Close in five parts:
    (a) write the settled design into PLAN.md (decisions + WHY, rejected alternatives, non-goals, an
-   *unchecked* DoD), promoting the in-progress block; (b) seed the card at `story-backlog` (the Ready to Build lane);
+   *unchecked* DoD), promoting the in-progress block; (b) seed the card at `story-backlog` (the Ready to Build lane); if the project registry entry declares
+   `extra_tags` (`cli.py tags` lists them), first ask the user for each declared tag's value and write it as a
+   bare frontmatter line `<key>: <value>` with no inline comment; omit the key if the user has no value;
    (c) emit a self-contained handoff prompt (decisions + rationale, file:line touchpoints, traps, DoD);
    (d) commit the grill locally, separate from build work; (e) delete any scratch plan file.
    The grilling session designs; a **new** session builds.
@@ -89,7 +91,8 @@ same file. Commit it (`docs(<story>): close-out page`) before the card moves to 
 docs repo, commit there. Agents without any publish tool still write the file.
 
 Write `<docs_path>/artifacts/<PREFIX>-<story>-closeout.html`: **self-contained** (inline CSS/JS, no CDN),
-light + dark via `prefers-color-scheme`, usable at phone width. Sections:
+light + dark via `prefers-color-scheme`, usable at phone width. If the project declares `extra_tags`, show each
+tag present on the card in the page header next to the story/type info. Sections:
 1. **Goal & Scope explorer** - what was asked, what shipped, non-goals; expandable per DoD line.
 2. **Interactive demo** - story-specific controls or a small simulation that shows the work (a toggle,
    slider, before/after, sample data). This is the part that proves it, so make it real, not decorative.

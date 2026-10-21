@@ -2,7 +2,7 @@
 name: pm-qa-cockpit
 description: Use when creating, reading or updating story cards, PLAN.md, reviews or close-out artifacts for a project tracked by the PM & QA Cockpit (local dashboard on :3333), or when asked to launch/register the Cockpit. Defines card schema, project resolution, docs layout and the CLI.
 metadata:
-  version: 0.8.0
+  version: 0.9.0
   source: pm-qa-cockpit
 ---
 
@@ -18,7 +18,7 @@ Markdown on disk is the only source of truth: no board mirroring, no double entr
 3. the active project in `~/.pm-qa-cockpit/projects.json` (`cli.py projects --select <slug>`).
 
 `PM_QA_COCKPIT_HOME` relocates the registry. Each entry holds `slug, name, prefix, code_path, docs_path`
-plus the gate profile.
+plus the gate profile and optional `extra_tags` (see *Extra tags* below).
 
 ## Docs layout
 - **In-repo** (default `docs_path = <code_path>/docs`): `docs/cards/`, `docs/reviews/`, `docs/artifacts/`, ...
@@ -58,6 +58,9 @@ validated: false
 - `status`: `backlog | story-backlog | in-progress | qa | completed`. `story-backlog` = designed, ready to build.
 - Frontmatter values are bare: **no inline `# comment`** (the parser keeps it in the value and the card
   silently lands in Backlog).
+- **Extra tags (optional)**: when the registry entry declares `extra_tags` (`cli.py tags`), ask the user for each
+  declared tag's value when creating a card and write a bare `<key>: <value>` line; omit it when there is none.
+  Undeclared keys are ignored.
 - Changelog rows: exact 24h datetime and `<Role (Model)>`, or `User`. Never bare dates or a bare "Agent".
 - `completed` + `validated: YYYY-MM-DD` only on explicit user confirmation; all-`[x]` DoD means ready for
   QA, not done.
@@ -75,6 +78,7 @@ validated: false
 |---|---|
 | `projects [--select slug]` | list / switch project |
 | `init <code_path> --name N --prefix P [--docs-path D] [--stealth] [--apply]` | onboard (report-only without `--apply`) |
+| `tags` | list the extra card tags declared for the project |
 | `list [--status s] [--story id]` / `show <id>` | inspect cards, DoD, QA items |
 | `status <id> <status> --agent "Lead (Model)"` | transition + changelog row |
 | `check <id> <i>` / `uncheck <id> <i>` | DoD item by 0-based index |
