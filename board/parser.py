@@ -3283,7 +3283,7 @@ class PMParser:
             "log",
             "--numstat",
             "--no-renames",
-            "-n", "250",
+            "-n", "50",
             "--date=format:%Y-%m-%d",
             "--pretty=format:COMMIT%x09%h%x09%ad%x09%s%x09%an",
         ]
@@ -3327,6 +3327,46 @@ class PMParser:
                             current_commit["deleted"] += deleted
         except Exception:
             pass
+
+        # Fast fallback log if numstat timed out or returned empty
+        if not commits:
+            try:
+                fallback_cmd = [
+                    "git",
+                    "--no-pager",
+                    "log",
+                    "-n", "100",
+                    "--date=format:%Y-%m-%d",
+                    "--pretty=format:COMMIT%x09%h%x09%ad%x09%s%x09%an",
+                ]
+                if since_date:
+                    fallback_cmd.append(f"--since={since_date}")
+                res = subprocess.run(
+                    fallback_cmd,
+                    cwd=str(self.root_dir),
+                    capture_output=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                    timeout=2.0,
+                )
+                if res.returncode == 0:
+                    for raw_line in res.stdout.splitlines():
+                        line = raw_line.strip()
+                        if line.startswith("COMMIT\t"):
+                            parts = line.split("\t")
+                            if len(parts) >= 3:
+                                commits.append({
+                                    "sha": parts[1] if len(parts) > 1 else "",
+                                    "date": parts[2] if len(parts) > 2 else "",
+                                    "subject": parts[3] if len(parts) > 3 else "",
+                                    "author": parts[4] if len(parts) > 4 else "",
+                                    "added": 0,
+                                    "deleted": 0,
+                                })
+            except Exception:
+                pass
+
         return commits
 
     def _parse_gate_runs_from_quality(self) -> list[dict[str, Any]]:
@@ -3961,7 +4001,6 @@ class PMParser:
             # "all"
             prior_start = None
             prior_end = None
-            since_date = None
             known_dates = [c["_cr_date"] for c in all_cards if c.get("_cr_date")] + [c["_comp_date"] for c in all_cards if c.get("_comp_date")]
             if known_dates:
                 earliest_d = min(datetime.date.fromisoformat(d[:10]) for d in known_dates)
@@ -3969,6 +4008,7 @@ class PMParser:
                 earliest_d = ref_today - datetime.timedelta(days=42)
             if (ref_today - earliest_d).days > 90:
                 earliest_d = ref_today - datetime.timedelta(days=90)
+            since_date = earliest_d.isoformat()
             span = max(1, (ref_today - earliest_d).days + 1)
             dates = [(earliest_d + datetime.timedelta(days=i)).isoformat() for i in range(span)]
             start_date = dates[0]
