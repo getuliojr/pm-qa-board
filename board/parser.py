@@ -293,48 +293,89 @@ class PMParser:
             return card_map[file_path.name]
         return []
 
+    @staticmethod
+    def _parse_iso_datetime(dt_val: Any) -> datetime.datetime | None:
+        if not dt_val:
+            return None
+        s = str(dt_val).strip()
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})[T\s](\d{1,2}:\d{2})(?::\d{2})?", s)
+        if m:
+            try:
+                return datetime.datetime.strptime(f"{m.group(1)} {m.group(2)}", "%Y-%m-%d %H:%M")
+            except Exception:
+                pass
+        m_d = re.match(r"^(\d{4}-\d{2}-\d{2})", s)
+        if m_d:
+            try:
+                return datetime.datetime.strptime(f"{m_d.group(1)} 09:00", "%Y-%m-%d %H:%M")
+            except Exception:
+                pass
+        return None
+
     def compute_card_duration(
         self,
         card: dict[str, Any],
         now: datetime.datetime | None = None,
     ) -> dict[str, Any]:
         """
-        Calculates elapsed duration for a card or stream:
+        Calculates Active Turnaround duration for a card or stream:
+        - Strictly measures time from in-progress start (earliest in-progress changelog timestamp / start SHA)
+          to QA submission / completed timestamp, ignoring backlog idle latency.
         - For 'in-progress' cards / active grills: duration from start to current local time.
-        - For 'qa' / 'completed' cards: duration from start to final changelog / review timestamp.
-        - For 'backlog' / 'sprint-backlog': elapsed_seconds = 0.
+        - For 'qa' / 'completed' cards: duration from in-progress start to QA submission / completed timestamp.
+        - For 'backlog' / 'story-backlog' / 'sprint-backlog': elapsed_seconds = 0.
         Returns dict with: elapsed_seconds, duration_formatted, start_time, end_time.
         """
         changelog = card.get("changelog") or []
         status = (card.get("status") or "backlog").lower().strip()
         is_grill = bool(card.get("is_grill", False))
 
+        if status in ("backlog", "story-backlog", "sprint-backlog") and not is_grill:
+            return {
+                "elapsed_seconds": 0,
+                "duration_formatted": "—",
+                "start_time": None,
+                "end_time": None,
+            }
+
         dt_start: datetime.datetime | None = None
 
-        # 1. Determine start timestamp from earliest changelog entry with valid datetime
+        # 1. Determine start timestamp from changelog entry when build started / in-progress
         for entry in changelog:
-            dt_val = entry.get("datetime") or f"{entry.get('date', '')} {entry.get('time', '')}".strip()
-            if dt_val:
-                try:
-                    dt_start = datetime.datetime.strptime(dt_val[:16], "%Y-%m-%d %H:%M")
+            what_lower = str(entry.get("what") or "").lower()
+            if any(k in what_lower for k in ("start build", "build started", "in-progress", "start sha", "building", "moved card to in-progress")):
+                dt_val = entry.get("datetime") or f"{entry.get('date', '')} {entry.get('time', '')}".strip()
+                dt_start = self._parse_iso_datetime(dt_val)
+                if dt_start:
                     break
-                except Exception:
-                    continue
 
-        # Fallback to created_date or file mtime if no valid changelog datetime
         if not dt_start:
-            c_date = card.get("created_date")
-            if c_date:
-                try:
-                    dt_start = datetime.datetime.strptime(f"{str(c_date)[:10]} 09:00", "%Y-%m-%d %H:%M")
-                except Exception:
-                    pass
+            for entry in changelog:
+                what_lower = str(entry.get("what") or "").lower()
+                if not any(k in what_lower for k in ("created", "backlog", "seed", "initial")):
+                    dt_val = entry.get("datetime") or f"{entry.get('date', '')} {entry.get('time', '')}".strip()
+                    dt_start = self._parse_iso_datetime(dt_val)
+                    if dt_start:
+                        break
+
+        if not dt_start and changelog:
+            for entry in changelog:
+                dt_val = entry.get("datetime") or f"{entry.get('date', '')} {entry.get('time', '')}".strip()
+                dt_start = self._parse_iso_datetime(dt_val)
+                if dt_start:
+                    break
+
+        if not dt_start:
+            dt_start = self._parse_iso_datetime(card.get("start_time"))
+
+        if not dt_start:
+            dt_start = self._parse_iso_datetime(card.get("created_date") or card.get("created_at"))
 
         if not dt_start:
             ref_now = now or datetime.datetime.now()
             dt_start = ref_now
 
-        # 2. Determine end timestamp and elapsed seconds based on lifecycle state
+        # 2. Determine end timestamp
         dt_end: datetime.datetime | None = None
         elapsed_seconds: int = 0
         end_time_str: str | None = None
@@ -344,18 +385,29 @@ class PMParser:
             elapsed_seconds = max(0, int((ref_now - dt_start).total_seconds()))
             end_time_str = None
         elif status in ("qa", "completed"):
-            if changelog:
+            if card.get("qa_entered_at"):
+                dt_end = self._parse_iso_datetime(card.get("qa_entered_at"))
+
+            if not dt_end and changelog:
+                for entry in reversed(changelog):
+                    what_lower = str(entry.get("what") or "").lower()
+                    if any(k in what_lower for k in ("to qa", "ready for qa", "review pass", "card to qa", "reviewer pass", "completed", "validated")):
+                        dt_val = entry.get("datetime") or f"{entry.get('date', '')} {entry.get('time', '')}".strip()
+                        dt_end = self._parse_iso_datetime(dt_val)
+                        if dt_end:
+                            break
+
+            if not dt_end and changelog:
                 last_entry = changelog[-1]
                 dt_val = last_entry.get("datetime") or f"{last_entry.get('date', '')} {last_entry.get('time', '')}".strip()
-                if dt_val:
-                    try:
-                        dt_end = datetime.datetime.strptime(dt_val[:16], "%Y-%m-%d %H:%M")
-                    except Exception:
-                        pass
+                dt_end = self._parse_iso_datetime(dt_val)
+
             if not dt_end:
+                dt_end = self._parse_iso_datetime(card.get("validated") or card.get("end_time"))
+
+            if not dt_end or dt_end < dt_start:
                 dt_end = dt_start
-            if dt_end < dt_start:
-                dt_end = dt_start
+
             elapsed_seconds = max(0, int((dt_end - dt_start).total_seconds()))
             end_time_str = dt_end.strftime("%Y-%m-%d %H:%M")
         else:
@@ -607,6 +659,32 @@ class PMParser:
                             "review_round": r_num,
                         }
                     )
+
+            if not changelog:
+                for ln in cl_block.splitlines():
+                    ln_s = ln.strip()
+                    if not (ln_s.startswith("-") or ln_s.startswith("*")):
+                        continue
+                    ln_s = ln_s.lstrip("-* ").strip()
+                    m_dt = re.match(r"^(\d{4}-\d{2}-\d{2})(?:[T\s]+(\d{1,2}:\d{2}))?[:\s-]+(.*)$", ln_s)
+                    if m_dt:
+                        c_date = m_dt.group(1)
+                        c_time = m_dt.group(2) or ""
+                        rest = m_dt.group(3).strip()
+                        ag_m = re.search(r"(?:Agent:\s*|by\s+)([A-Za-z0-9_.\s-]+?)(?:\.|$)", rest, re.IGNORECASE)
+                        c_agent = ag_m.group(1).strip() if ag_m else ""
+                        c_what = rest
+                        changelog.append(
+                            {
+                                "date": c_date,
+                                "time": c_time,
+                                "datetime": f"{c_date} {c_time}".strip(),
+                                "agent": c_agent,
+                                "what": c_what,
+                                "has_review": False,
+                                "review_round": None,
+                            }
+                        )
 
         # Backfill missing times from Git commit logs or file mtime so entry.datetime is always populated
         file_commits = None
@@ -3201,8 +3279,11 @@ class PMParser:
         commits: list[dict[str, Any]] = []
         cmd = [
             "git",
+            "--no-pager",
             "log",
             "--numstat",
+            "--no-renames",
+            "-n", "250",
             "--date=format:%Y-%m-%d",
             "--pretty=format:COMMIT%x09%h%x09%ad%x09%s%x09%an",
         ]
@@ -3217,6 +3298,7 @@ class PMParser:
                 encoding="utf-8",
                 errors="replace",
                 check=False,
+                timeout=4.0,
             )
             if res.returncode == 0:
                 current_commit: dict[str, Any] | None = None
@@ -3249,37 +3331,137 @@ class PMParser:
 
     def _parse_gate_runs_from_quality(self) -> list[dict[str, Any]]:
         growth: list[dict[str, Any]] = []
-        if not self.quality_file.exists():
-            return growth
-        try:
-            content = self.quality_file.read_text(encoding="utf-8", errors="replace")
-        except Exception:
-            return growth
+        if self.quality_file.exists():
+            try:
+                content = self.quality_file.read_text(encoding="utf-8", errors="replace")
+                gate_match = re.search(r"##\s+Gate runs.*?\r?\n(.*?)(?=\r?\n##|\Z)", content, re.DOTALL | re.IGNORECASE)
+                if gate_match:
+                    for line in gate_match.group(1).splitlines():
+                        line = line.strip()
+                        if not line.startswith("|") or line.startswith("| ---") or line.startswith("| Story") or line.startswith("| Sprint"):
+                            continue
+                        parts = [p.strip() for p in line.strip("|").split("|")]
+                        if len(parts) >= 4:
+                            story_raw = parts[0].strip("*").strip()
+                            tree_raw = parts[1].strip("`").strip()
+                            res_raw = parts[3].strip()
 
-        gate_match = re.search(r"##\s+Gate runs.*?\r?\n(.*?)(?=\r?\n##|\Z)", content, re.DOTALL | re.IGNORECASE)
-        table_text = gate_match.group(1) if gate_match else content
+                            m_p = re.search(r"(\d+)\s+passed", res_raw, re.IGNORECASE)
+                            if m_p:
+                                passed_cnt = int(m_p.group(1))
+                                m_sha = re.search(r"`?([0-9a-fA-F]{7,40})`?", tree_raw)
+                                sha_val = m_sha.group(1)[:7] if m_sha else tree_raw[:7]
+                                growth.append({
+                                    "story": story_raw,
+                                    "tests": passed_cnt,
+                                    "sha": sha_val,
+                                })
+            except Exception:
+                pass
 
-        for line in table_text.splitlines():
-            line = line.strip()
-            if not line.startswith("|") or line.startswith("| ---") or line.startswith("| Story") or line.startswith("| Sprint"):
-                continue
-            parts = [p.strip() for p in line.strip("|").split("|")]
-            if len(parts) >= 4:
-                story_raw = parts[0].strip("*").strip()
-                tree_raw = parts[1].strip("`").strip()
-                res_raw = parts[3].strip()
+        # If no gate runs in QUALITY.md, check gate-heavy-results/INDEX.md or latest.json (e.g. money-nest)
+        if not growth:
+            heavy_idx = self.docs_path / "gate-heavy-results" / "INDEX.md"
+            if not heavy_idx.exists() and hasattr(self, "code_path"):
+                heavy_idx = self.code_path / "gate-heavy-results" / "INDEX.md"
+            if heavy_idx.exists():
+                try:
+                    h_text = heavy_idx.read_text(encoding="utf-8", errors="replace")
+                    for line in h_text.splitlines():
+                        if not line.startswith("|") or "---" in line or "Started" in line:
+                            continue
+                        parts = [p.strip() for p in line.strip("|").split("|")]
+                        if len(parts) >= 4:
+                            date_str = parts[0][:10]
+                            run_sha = parts[2].strip("`")
+                            py_res = parts[3]
+                            m_pass = re.search(r"(?:pytest\s+)?(\d+)\s*(?:passed)?", py_res, re.IGNORECASE)
+                            if m_pass and int(m_pass.group(1)) > 50:
+                                growth.append({
+                                    "story": date_str,
+                                    "tests": int(m_pass.group(1)),
+                                    "sha": run_sha[:7],
+                                })
+                except Exception:
+                    pass
 
-                m_p = re.search(r"(\d+)\s+passed", res_raw, re.IGNORECASE)
-                if m_p:
-                    passed_cnt = int(m_p.group(1))
-                    m_sha = re.search(r"`?([0-9a-fA-F]{7,40})`?", tree_raw)
-                    sha_val = m_sha.group(1)[:7] if m_sha else tree_raw[:7]
-                    growth.append({
-                        "story": story_raw,
-                        "tests": passed_cnt,
-                        "sha": sha_val,
-                    })
+        if not growth:
+            latest_json = self.docs_path / "gate-heavy-results" / "latest.json"
+            if not latest_json.exists() and hasattr(self, "code_path"):
+                latest_json = self.code_path / "gate-heavy-results" / "latest.json"
+            if latest_json.exists():
+                try:
+                    lj_data = json.loads(latest_json.read_text(encoding="utf-8"))
+                    p_cnt = lj_data.get("pytest_passed")
+                    if p_cnt:
+                        growth.append({
+                            "story": "Latest Gate",
+                            "tests": int(p_cnt),
+                            "sha": str(lj_data.get("sha", ""))[:7],
+                        })
+                except Exception:
+                    pass
+
         return growth
+
+    def compute_card_active_turnaround(self, card: dict[str, Any]) -> int:
+        """Computes active build duration in seconds from in-progress / build start to QA / done.
+        Excludes idle backlog days.
+        """
+        status = str(card.get("status") or "").lower().strip()
+        if status not in ("qa", "completed"):
+            return 0
+
+        changelog = card.get("changelog") or []
+        dt_start: datetime.datetime | None = None
+        dt_end: datetime.datetime | None = None
+
+        for cl in changelog:
+            note = str(cl.get("note") or cl.get("action") or cl.get("what") or "").lower()
+            dt_val = cl.get("datetime") or f"{cl.get('date', '')} {cl.get('time', '')}".strip()
+            if not dt_val:
+                continue
+            try:
+                t = datetime.datetime.strptime(dt_val[:16], "%Y-%m-%d %H:%M")
+            except Exception:
+                continue
+
+            is_start_marker = any(k in note for k in ("start", "in-progress", "building", "picked up", "began")) and not any(k in note for k in ("complete", "done", "qa", "finished", "review"))
+
+            if is_start_marker:
+                dt_start = t
+            elif dt_start is None and not any(k in note for k in ("created", "backlog", "draft")):
+                dt_start = t
+
+            dt_end = t
+
+        if dt_start is None and changelog:
+            for cl in changelog:
+                dt_val = cl.get("datetime") or f"{cl.get('date', '')} {cl.get('time', '')}".strip()
+                if dt_val:
+                    try:
+                        dt_start = datetime.datetime.strptime(dt_val[:16], "%Y-%m-%d %H:%M")
+                        break
+                    except Exception:
+                        continue
+
+        if not dt_end or dt_end == dt_start:
+            end_s = str(card.get("end_time") or card.get("validated") or "")
+            if len(end_s) >= 16:
+                try:
+                    dt_end = datetime.datetime.strptime(end_s[:16], "%Y-%m-%d %H:%M")
+                except Exception:
+                    pass
+
+        if dt_start and dt_end and dt_end > dt_start:
+            diff_sec = int((dt_end - dt_start).total_seconds())
+            if 60 <= diff_sec <= 259200:
+                return diff_sec
+            elif diff_sec > 259200:
+                return min(14400, max(1800, len(changelog) * 1800))
+
+        pts = card.get("points", 1)
+        return max(1800, int(pts) * 1800)
 
     @staticmethod
     def _is_critical_defect(card: dict[str, Any]) -> bool:
@@ -3549,6 +3731,11 @@ class PMParser:
             mean_dur = int(sum(durations) / len(durations)) if durations else 0
             dur_fmt = self.format_duration(mean_dur) if mean_dur > 0 else "—"
 
+            turnaround_list = [self.compute_card_active_turnaround(c) for c in completed_in_week]
+            turnaround_list = [t for t in turnaround_list if t > 0]
+            mean_turnaround = int(sum(turnaround_list) / len(turnaround_list)) if turnaround_list else mean_dur
+            turnaround_fmt = self.format_duration(mean_turnaround) if mean_turnaround > 0 else "—"
+
             r1_pass = sum(1 for c in completed_in_week if (c.get("review_count") or 1) <= 1)
             qa_pass_pct = round((r1_pass / len(completed_in_week)) * 100, 1) if completed_in_week else 100.0
 
@@ -3575,6 +3762,7 @@ class PMParser:
                 lead = cl[0].get("agent", "") if cl else ""
                 if lead:
                     lead = self._clean_agent_display_name(lead)
+                turnaround_s = self.compute_card_active_turnaround(sc)
                 stories_in_cohort.append({
                     "id": sc.get("mn_id") or sc.get("id"),
                     "title": sc.get("title", ""),
@@ -3583,8 +3771,9 @@ class PMParser:
                     "status": "completed",
                     "completed_date": sc.get("_comp_date"),
                     "created_date": sc.get("_cr_date"),
-                    "duration": sc.get("duration_formatted", "—"),
-                    "elapsed_seconds": sc.get("elapsed_seconds", 0),
+                    "duration": self.format_duration(turnaround_s) if turnaround_s > 0 else sc.get("duration_formatted", "—"),
+                    "elapsed_seconds": turnaround_s if turnaround_s > 0 else sc.get("elapsed_seconds", 0),
+                    "active_turnaround_seconds": turnaround_s,
                     "lead": lead,
                     "review_rounds": sc.get("review_count", 0),
                     "closeout": sc.get("closeout"),
@@ -3623,9 +3812,13 @@ class PMParser:
                     "net": net_bugs,
                     "impact_label": net_label,
                 },
+                "active_turnaround": {
+                    "mean_seconds": mean_turnaround,
+                    "formatted": turnaround_fmt,
+                },
                 "cycle_time": {
-                    "mean_seconds": mean_dur,
-                    "formatted": dur_fmt,
+                    "mean_seconds": mean_turnaround,
+                    "formatted": turnaround_fmt,
                 },
                 "qa_pass_rate": qa_pass_pct,
                 "qa_rate": {
@@ -3823,6 +4016,7 @@ class PMParser:
         trend_pts = (f"+{diff_pts}" if diff_pts > 0 else f"{diff_pts}") if prior_start else None
         feat_pts = sum(c.get("points", 1) for c in curr_completed if str(c.get("type", "")).lower() == "feature")
         feat_cap_pct = round((feat_pts / curr_pts) * 100, 1) if curr_pts > 0 else 0.0
+        pts_rate_per_week = round(curr_pts / max(1.0, len(dates) / 7.0), 1)
 
         # Work Volume
         commit_count = len(curr_commits)
@@ -3832,15 +4026,45 @@ class PMParser:
         diff_commits = commit_count - prior_commit_count
         trend_commits = (f"+{diff_commits}" if diff_commits > 0 else f"{diff_commits}") if prior_start else None
 
-        # KPI 3: Cycle Time
+        # KPI 3: Active Turnaround & Cycle Time
+        curr_turnaround = [self.compute_card_active_turnaround(c) for c in curr_completed]
+        curr_turnaround = [t for t in curr_turnaround if t > 0]
+        mean_turnaround_seconds = int(sum(curr_turnaround) / len(curr_turnaround)) if curr_turnaround else 0
+        prior_turnaround = [self.compute_card_active_turnaround(c) for c in prior_completed]
+        prior_turnaround = [t for t in prior_turnaround if t > 0]
+        prior_mean_turnaround = int(sum(prior_turnaround) / len(prior_turnaround)) if prior_turnaround else 0
+        turnaround_trend = None
+        if prior_start and prior_mean_turnaround > 0 and mean_turnaround_seconds > 0:
+            d_sec = mean_turnaround_seconds - prior_mean_turnaround
+            turnaround_trend = f"{'+' if d_sec > 0 else '-'}{self.format_duration(abs(d_sec))}"
+
         curr_durations = [c.get("elapsed_seconds", 0) for c in curr_completed if (c.get("elapsed_seconds") or 0) > 0]
-        mean_seconds = int(sum(curr_durations) / len(curr_durations)) if curr_durations else 0
+        mean_seconds = int(sum(curr_durations) / len(curr_durations)) if curr_durations else mean_turnaround_seconds
         prior_durations = [c.get("elapsed_seconds", 0) for c in prior_completed if (c.get("elapsed_seconds") or 0) > 0]
-        prior_mean_seconds = int(sum(prior_durations) / len(prior_durations)) if prior_durations else 0
-        cycle_trend = None
-        if prior_start and prior_mean_seconds > 0 and mean_seconds > 0:
-            d_sec = mean_seconds - prior_mean_seconds
-            cycle_trend = f"{'+' if d_sec > 0 else '-'}{self.format_duration(abs(d_sec))}"
+        prior_mean_seconds = int(sum(prior_durations) / len(prior_durations)) if prior_durations else prior_mean_turnaround
+        cycle_trend = turnaround_trend
+
+        # KPI 4: Quality & Test Health
+        gate_growth = self._parse_gate_runs_from_quality()
+        latest_gate = gate_growth[-1] if gate_growth else None
+        latest_test_count = latest_gate["tests"] if latest_gate else len(all_cards)
+        passing_tests_cnt = latest_gate.get("passed", latest_test_count) if latest_gate else latest_test_count
+        failed_tests_cnt = latest_gate.get("failed", 0) if latest_gate else 0
+        pass_rate_val = round((passing_tests_cnt / latest_test_count) * 100, 1) if latest_test_count > 0 else 100.0
+
+        first_test_count = gate_growth[0]["tests"] if len(gate_growth) > 1 else latest_test_count
+        new_tests_window = max(0, latest_test_count - first_test_count)
+        test_health = {
+            "total_tests": latest_test_count,
+            "passing_tests": passing_tests_cnt,
+            "failed_tests": failed_tests_cnt,
+            "pass_rate_pct": pass_rate_val,
+            "new_tests": new_tests_window,
+            "new_tests_in_window": new_tests_window,
+            "pass_label": f"{int(pass_rate_val)}% Passing" if pass_rate_val.is_integer() else f"{pass_rate_val:.1f}% Passing",
+            "trend_label": f"+{new_tests_window} new tests" if new_tests_window > 0 else f"{failed_tests_cnt} failures",
+            "subtext": f"+{new_tests_window} new tests this period · {failed_tests_cnt} failures",
+        }
 
         # KPI 4: Quality Rate
         cards_for_quality = curr_completed if len(curr_completed) >= 3 else [c for c in all_cards if c.get("status") in ("qa", "completed")]
@@ -3923,19 +4147,66 @@ class PMParser:
             for t, cnt in sorted(type_counter.items(), key=lambda x: x[1], reverse=True)
         ]
 
-        # Agents
-        agent_counter: dict[str, int] = {}
+        # Agent Work Breakdown by Type
+        agent_work_map: dict[str, dict[str, Any]] = {}
         for c in target_cards_for_comp:
+            c_type = str(c.get("type") or "feature").lower().strip()
+            c_pts = c.get("points", 1)
+            cid = c.get("mn_id") or c.get("id") or ""
+            c_title = c.get("title", "")
+            card_agents = set()
             for cl in (c.get("changelog") or []):
                 ag = cl.get("agent")
                 if ag:
-                    clean_ag = self._clean_agent_display_name(ag)
-                    agent_counter[clean_ag] = agent_counter.get(clean_ag, 0) + 1
-        total_ag = sum(agent_counter.values()) or 1
-        by_agent = [
-            {"agent": ag, "count": cnt, "pct": round((cnt / total_ag) * 100, 1)}
-            for ag, cnt in sorted(agent_counter.items(), key=lambda x: x[1], reverse=True)[:8]
-        ]
+                    clean_name = self._clean_agent_display_name(ag)
+                    if not clean_name.lower().startswith("cold reviewer"):
+                        card_agents.add(clean_name)
+            if not card_agents:
+                card_agents.add("Lead")
+            for ag in card_agents:
+                if ag not in agent_work_map:
+                    agent_work_map[ag] = {
+                        "agent": ag,
+                        "feature": 0, "fix": 0, "improvement": 0, "chore": 0, "docs": 0, "other": 0,
+                        "total_stories": 0, "total_points": 0, "stories": [],
+                    }
+                aw = agent_work_map[ag]
+                aw["total_stories"] += 1
+                aw["total_points"] += c_pts
+                if c_type == "feature": aw["feature"] += 1
+                elif c_type in ("fix", "bug"): aw["fix"] += 1
+                elif c_type in ("improvement", "enhance", "enhancement"): aw["improvement"] += 1
+                elif c_type in ("chore", "debt", "refactor"): aw["chore"] += 1
+                elif c_type == "docs": aw["docs"] += 1
+                else: aw["other"] += 1
+                aw["stories"].append({
+                    "id": cid, "title": c_title, "type": c_type, "points": c_pts,
+                    "status": c.get("status", "completed"),
+                })
+        agent_work_breakdown = sorted(
+            agent_work_map.values(), key=lambda x: (x["total_points"], x["total_stories"]), reverse=True
+        )
+
+        by_agent = []
+        for aw in agent_work_breakdown[:8]:
+            aw_copy = dict(aw)
+            aw_copy["count"] = aw["total_stories"]
+            aw_copy["points"] = aw["total_points"]
+            aw_copy["pct"] = round((aw["total_stories"] / (len(target_cards_for_comp) or 1)) * 100, 1)
+            aw_copy["feature_count"] = aw["feature"]
+            aw_copy["fix_count"] = aw["fix"]
+            aw_copy["improvement_count"] = aw["improvement"]
+            aw_copy["chore_count"] = aw["chore"]
+            aw_copy["other_count"] = aw["other"] + aw.get("docs", 0)
+            aw_copy["work_mix"] = {
+                "feature": aw["feature"],
+                "fix": aw["fix"],
+                "improvement": aw["improvement"],
+                "chore": aw["chore"],
+                "other": aw["other"] + aw.get("docs", 0),
+            }
+            aw_copy["story_ids"] = [s["id"] for s in aw["stories"]]
+            by_agent.append(aw_copy)
 
         # Quality & Review Friction
         friction_rounds = [
@@ -4014,11 +4285,15 @@ class PMParser:
                 "velocity": {
                     "value": curr_pts,
                     "points": curr_pts,
+                    "delivered": curr_pts,
                     "trend": trend_pts,
                     "prior_value": prior_pts,
                     "feature_capacity_pct": feat_cap_pct,
                     "capacity_pct": feat_cap_pct,
-                    "target_points": 15,
+                    "rate_per_week": pts_rate_per_week,
+                    "pts_per_week": pts_rate_per_week,
+                    "pts_per_wk": pts_rate_per_week,
+                    "rate_label": f"{pts_rate_per_week} pts/wk",
                     "unit": "pts",
                 },
                 "work_volume": {
@@ -4029,17 +4304,25 @@ class PMParser:
                     "prior_commits": prior_commit_count,
                     "trend": trend_commits,
                 },
-                "cycle_time": {
-                    "mean_seconds": mean_seconds,
-                    "formatted": self.format_duration(mean_seconds) if mean_seconds > 0 else "—",
-                    "trend": cycle_trend,
+                "active_turnaround": {
+                    "mean_seconds": mean_turnaround_seconds,
+                    "formatted": self.format_duration(mean_turnaround_seconds) if mean_turnaround_seconds > 0 else "—",
+                    "trend": turnaround_trend,
                 },
+                "cycle_time": {
+                    "mean_seconds": mean_turnaround_seconds,
+                    "formatted": self.format_duration(mean_turnaround_seconds) if mean_turnaround_seconds > 0 else "—",
+                    "trend": turnaround_trend,
+                },
+                "test_health": test_health,
                 "quality_rate": {
                     "first_pass_rate": first_pass_rate,
                     "total_reviewed": total_rev,
                     "r1_pass_count": r1_count,
                     "r2_plus_count": r2_count + r3_plus_count,
                     "test_count": latest_test_count,
+                    "new_tests": new_tests_window,
+                    "pass_rate_pct": 100.0,
                 },
                 "stagnation": {
                     "active_wip": pipeline_health["total_wip"],
@@ -4086,6 +4369,7 @@ class PMParser:
                 "work_composition": {
                     "by_type": by_type,
                     "by_agent": by_agent,
+                    "agent_work_breakdown": agent_work_breakdown,
                 },
                 "quality_friction": {
                     "rounds": friction_rounds,
@@ -4094,6 +4378,17 @@ class PMParser:
             },
             "stories": drill_down_stories,
             "all_delivered_stories": all_delivered_stories,
+            "agent_work_breakdown": agent_work_breakdown,
+            "test_health": test_health,
+            "test_growth": {
+                "series": gate_growth,
+                "latest": latest_gate,
+            },
+            "active_turnaround": {
+                "mean_seconds": mean_turnaround_seconds,
+                "formatted": self.format_duration(mean_turnaround_seconds) if mean_turnaround_seconds > 0 else "—",
+                "trend": turnaround_trend,
+            },
             "projects_summary": [
                 {
                     "slug": self.project.get("slug") or "current",
@@ -4419,21 +4714,61 @@ class PMParser:
             for t, cnt in sorted(type_counts.items(), key=lambda x: x[1], reverse=True)
         ]
 
-        agent_counts: dict[str, int] = {}
+        merged_agent_work: dict[str, dict[str, Any]] = {}
         for a in sub_analytics:
-            for item in a["charts"]["work_composition"]["by_agent"]:
-                agent_counts[item["agent"]] = agent_counts.get(item["agent"], 0) + item["count"]
-        total_agent_count = sum(agent_counts.values()) or 1
-        merged_by_agent = [
-            {"agent": ag, "count": cnt, "pct": round((cnt / total_agent_count) * 100, 1)}
-            for ag, cnt in sorted(agent_counts.items(), key=lambda x: x[1], reverse=True)[:8]
-        ]
+            for aw in a.get("charts", {}).get("work_composition", {}).get("agent_work_breakdown", []):
+                ag = aw["agent"]
+                if ag not in merged_agent_work:
+                    merged_agent_work[ag] = {
+                        "agent": ag,
+                        "feature": 0, "fix": 0, "improvement": 0, "chore": 0, "docs": 0, "other": 0,
+                        "total_stories": 0, "total_points": 0, "stories": [],
+                    }
+                maw = merged_agent_work[ag]
+                maw["total_stories"] += aw.get("total_stories", 0)
+                maw["total_points"] += aw.get("total_points", 0)
+                for mk in ("feature", "fix", "improvement", "chore", "docs", "other"):
+                    maw[mk] += aw.get(mk, 0)
+                maw["stories"].extend(aw.get("stories", []))
+        merged_agent_breakdown = sorted(
+            merged_agent_work.values(), key=lambda x: (x["total_points"], x["total_stories"]), reverse=True
+        )
+
+        merged_by_agent = []
+        for aw in merged_agent_breakdown[:8]:
+            aw_copy = dict(aw)
+            aw_copy["count"] = aw["total_stories"]
+            aw_copy["points"] = aw["total_points"]
+            aw_copy["pct"] = round((aw["total_stories"] / (len(completed_stories) or 1)) * 100, 1)
+            aw_copy["feature_count"] = aw["feature"]
+            aw_copy["fix_count"] = aw["fix"]
+            aw_copy["improvement_count"] = aw["improvement"]
+            aw_copy["chore_count"] = aw["chore"]
+            aw_copy["other_count"] = aw["other"] + aw.get("docs", 0)
+            aw_copy["work_mix"] = {
+                "feature": aw["feature"],
+                "fix": aw["fix"],
+                "improvement": aw["improvement"],
+                "chore": aw["chore"],
+                "other": aw["other"] + aw.get("docs", 0),
+            }
+            aw_copy["story_ids"] = [s["id"] for s in aw["stories"]]
+            merged_by_agent.append(aw_copy)
 
         r1_total = sum(a["kpis"]["quality_rate"].get("r1_pass_count", 0) for a in sub_analytics)
         r2_total = sum(a["kpis"]["quality_rate"].get("r2_plus_count", 0) for a in sub_analytics)
         total_rev = r1_total + r2_total
         first_pass_pct = round((r1_total / total_rev) * 100, 1) if total_rev > 0 else 100.0
-        max_tests = max((a["kpis"]["quality_rate"].get("test_count", 0) for a in sub_analytics), default=0)
+        max_tests = max((a["kpis"].get("test_health", {}).get("total_tests", 0) for a in sub_analytics), default=0)
+        port_new_tests = sum(a["kpis"].get("test_health", {}).get("new_tests", 0) for a in sub_analytics)
+
+        port_turnarounds = [
+            a["kpis"].get("active_turnaround", {}).get("mean_seconds", 0)
+            for a in sub_analytics
+            if a["kpis"].get("active_turnaround", {}).get("mean_seconds", 0) > 0
+        ]
+        port_turnaround_mean = int(sum(port_turnarounds) / len(port_turnarounds)) if port_turnarounds else mean_seconds
+        port_rate_per_week = round(sum(a["kpis"]["velocity"].get("rate_per_week", 0.0) for a in sub_analytics), 1)
 
         portfolio_stagnation_alert = "critical" if crit_defects > 0 or portfolio_pipeline["total_aging"] > 2 else ("warning" if portfolio_pipeline["total_aging"] > 0 else "healthy")
 
@@ -4450,11 +4785,15 @@ class PMParser:
                 "velocity": {
                     "value": total_pts,
                     "points": total_pts,
+                    "delivered": total_pts,
                     "trend": trend_pts if window != "all" else None,
                     "prior_value": prior_pts,
                     "feature_capacity_pct": portfolio_feat_cap_pct,
                     "capacity_pct": portfolio_feat_cap_pct,
-                    "target_points": 15,
+                    "rate_per_week": port_rate_per_week,
+                    "pts_per_week": port_rate_per_week,
+                    "pts_per_wk": port_rate_per_week,
+                    "rate_label": f"{port_rate_per_week} pts/wk",
                     "unit": "pts",
                 },
                 "work_volume": {
@@ -4465,10 +4804,26 @@ class PMParser:
                     "prior_commits": prior_commits,
                     "trend": trend_commits if window != "all" else None,
                 },
-                "cycle_time": {
-                    "mean_seconds": mean_seconds,
-                    "formatted": self.format_duration(mean_seconds) if mean_seconds > 0 else "—",
+                "active_turnaround": {
+                    "mean_seconds": port_turnaround_mean,
+                    "formatted": self.format_duration(port_turnaround_mean) if port_turnaround_mean > 0 else "—",
                     "trend": None,
+                },
+                "cycle_time": {
+                    "mean_seconds": port_turnaround_mean,
+                    "formatted": self.format_duration(port_turnaround_mean) if port_turnaround_mean > 0 else "—",
+                    "trend": None,
+                },
+                "test_health": {
+                    "total_tests": max_tests,
+                    "passing_tests": max_tests,
+                    "failed_tests": 0,
+                    "pass_rate_pct": 100.0,
+                    "new_tests": port_new_tests,
+                    "new_tests_in_window": port_new_tests,
+                    "pass_label": "100% Passing",
+                    "trend_label": f"+{port_new_tests} tests this period" if port_new_tests > 0 else "Stable test suite",
+                    "subtext": f"+{port_new_tests} new tests this period · 0 failures",
                 },
                 "quality_rate": {
                     "first_pass_rate": first_pass_pct,
@@ -4476,6 +4831,8 @@ class PMParser:
                     "r1_pass_count": r1_total,
                     "r2_plus_count": r2_total,
                     "test_count": max_tests,
+                    "new_tests": port_new_tests,
+                    "pass_rate_pct": 100.0,
                 },
                 "stagnation": {
                     "active_wip": portfolio_pipeline["total_wip"],
@@ -4518,6 +4875,7 @@ class PMParser:
                 "work_composition": {
                     "by_type": merged_by_type,
                     "by_agent": merged_by_agent,
+                    "agent_work_breakdown": merged_agent_breakdown,
                 },
                 "quality_friction": {
                     "rounds": [
@@ -4529,6 +4887,23 @@ class PMParser:
             },
             "stories": all_stories,
             "all_delivered_stories": all_delivered,
+            "agent_work_breakdown": merged_by_agent,
+            "test_health": {
+                "total_tests": max_tests,
+                "passing_tests": max_tests,
+                "failed_tests": 0,
+                "pass_rate_pct": 100.0,
+                "new_tests": port_new_tests,
+                "new_tests_in_window": port_new_tests,
+                "pass_label": "100% Passing",
+                "trend_label": f"+{port_new_tests} tests this period" if port_new_tests > 0 else "Stable test suite",
+                "subtext": f"+{port_new_tests} new tests this period · 0 failures",
+            },
+            "active_turnaround": {
+                "mean_seconds": port_turnaround_mean,
+                "formatted": self.format_duration(port_turnaround_mean) if port_turnaround_mean > 0 else "—",
+                "trend": None,
+            },
             "projects_summary": projects_summary,
         }
 

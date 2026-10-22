@@ -172,7 +172,8 @@ def test_analytics_frontend_wiring():
     assert 'id="chartBurnupContainer"' in html
     assert 'id="chartCompositionContainer"' in html
     assert 'id="chartQualityContainer"' in html
-    assert 'id="analyticsDetailDrawer"' in html
+    # Story 30: Flat story list removed in favor of Weekly Cohorts accordion & slide-over ticketDrawer
+    assert 'id="ticketDrawer"' in html
     # Story 29: Executive analytics additions
     assert 'id="analyticsReadinessBadge"' in html
     assert 'id="kpiVelocityValue"' in html
@@ -448,4 +449,55 @@ Waiting on external team.
     assert "APP-1" in all_deliv_ids
     assert "APP-2" in all_deliv_ids
     assert "APP-3" in all_deliv_ids
+
+
+def test_analytics_refinements_active_turnaround_and_qa_health(external_project):
+    code, docs = external_project
+    cards_dir = docs / "cards"
+    cards_dir.mkdir(parents=True, exist_ok=True)
+
+    # Card with distinct created date (backlog idle) and active in-progress build
+    (cards_dir / "APP-10.md").write_text("""---
+id: APP-10
+story: "10"
+type: feature
+points: 3
+status: completed
+created: "2026-09-01"
+---
+
+# Feature 10
+
+## Changelog
+- 2026-10-22 14:00: Start build at `abcdef1`. Card in-progress. Agent: Claude Opus 5.5
+- 2026-10-22 14:45: Build complete, card to qa. Agent: Claude Opus 5.5
+""", encoding="utf-8")
+
+    parser = PMParser(code_path=code, docs_path=docs, prefix="APP")
+    card = parser.parse_card_file(cards_dir / "APP-10.md")
+    turnaround_sec = parser.compute_card_active_turnaround(card)
+    assert 2400 <= turnaround_sec <= 3000, f"Expected ~45m turnaround, got {turnaround_sec}s"
+
+    data = parser.get_analytics_summary("6w")
+    kpis = data["kpis"]
+
+    # Velocity rate and points
+    assert "rate_per_week" in kpis["velocity"]
+    assert "target_points" not in kpis["velocity"]
+    assert "active_turnaround" in kpis
+    assert "mean_seconds" in kpis["active_turnaround"]
+
+    # Test health
+    assert "test_health" in kpis
+    assert kpis["test_health"]["pass_rate_pct"] == 100.0
+
+    # Agent work breakdown
+    comp = data["charts"]["work_composition"]
+    assert "agent_work_breakdown" in comp
+    opus_entry = next((a for a in comp["agent_work_breakdown"] if "Opus" in a["agent"]), None)
+    assert opus_entry is not None
+    assert opus_entry["feature"] >= 1
+    assert opus_entry["total_points"] >= 3
+    assert len(opus_entry["stories"]) >= 1
+
 

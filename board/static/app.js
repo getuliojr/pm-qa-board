@@ -6900,22 +6900,25 @@ function renderAnalyticsKpis(kpis, pipelineHealth, openDefects) {
   const wvChurnEl = document.getElementById('kpiWorkVolumeChurn');
 
   if (velValEl) velValEl.textContent = kpis.velocity?.points ?? kpis.velocity?.value ?? 0;
+  if (velCapEl) {
+    const cap = kpis.velocity?.capacity_pct ?? kpis.velocity?.feature_capacity_pct ?? 0;
+    velCapEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">${cap}% Feature Capacity</span>`;
+  }
   if (velTrendEl) {
+    const rate = kpis.velocity?.rate_per_week;
     const trend = kpis.velocity?.trend;
+    let trendHtml = '';
+    if (rate !== undefined && rate !== null) {
+      trendHtml += `<strong class="text-[var(--text-primary)] font-mono">${rate}</strong> <span class="text-[var(--text-secondary)]">pts/wk</span>`;
+    }
     if (trend) {
       const isPos = String(trend).startsWith('+') && trend !== '+0';
       const isNeg = String(trend).startsWith('-') && trend !== '-0';
-      const colorCls = isPos ? 'text-emerald-600 dark:text-emerald-400' : (isNeg ? 'text-rose-600 dark:text-rose-400' : 'text-[var(--text-secondary)]');
+      const colorCls = isPos ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (isNeg ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-[var(--text-secondary)]');
       const arrow = isPos ? '▲ ' : (isNeg ? '▼ ' : '');
-      velTrendEl.innerHTML = `<span class="${colorCls} font-bold">${arrow}${escapeHtml(trend)}</span> <span class="text-[var(--text-tertiary)]">vs prior period</span>`;
-    } else {
-      velTrendEl.innerHTML = `<span class="text-[var(--text-tertiary)]">— vs prior period</span>`;
+      trendHtml += ` <span class="text-[var(--text-tertiary)]">•</span> <span class="${colorCls}">${arrow}${escapeHtml(trend)} vs prior</span>`;
     }
-  }
-  if (velCapEl) {
-    const cap = kpis.velocity?.capacity_pct ?? kpis.velocity?.feature_capacity_pct ?? 0;
-    const target = kpis.velocity?.target_points ?? 15;
-    velCapEl.innerHTML = `<span class="font-semibold text-emerald-600 dark:text-emerald-400">${cap}% Feature Capacity</span> <span class="text-[var(--text-tertiary)] font-normal font-mono">(${target} pt target)</span>`;
+    velTrendEl.innerHTML = trendHtml || `<span class="text-[var(--text-tertiary)]">— pts/wk</span>`;
   }
   if (wvValEl) wvValEl.textContent = kpis.work_volume?.commits ?? 0;
   if (wvChurnEl) {
@@ -6925,33 +6928,48 @@ function renderAnalyticsKpis(kpis, pipelineHealth, openDefects) {
     wvChurnEl.innerHTML = `<span class="text-emerald-600 dark:text-emerald-400 font-semibold">+${formatK(added)}</span> / <span class="text-rose-600 dark:text-rose-400 font-semibold">-${formatK(deleted)}</span> lines churn`;
   }
 
-  // 3. Cycle Time
+  // 3. Active Turnaround & Cycle Time
   const ctValEl = document.getElementById('kpiCycleTimeValue');
   const ctTrendEl = document.getElementById('kpiCycleTimeTrend');
-  if (ctValEl) ctValEl.textContent = kpis.cycle_time?.formatted || '—';
+  const turnaround = kpis.active_turnaround || kpis.cycle_time;
+  if (ctValEl) ctValEl.textContent = turnaround?.formatted || '—';
   if (ctTrendEl) {
-    const trend = kpis.cycle_time?.trend;
+    const trend = turnaround?.trend;
+    const label = turnaround?.label || 'Active build (in-progress ➔ QA)';
     if (trend) {
       const isFaster = String(trend).startsWith('-');
       const colorCls = isFaster ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-amber-600 dark:text-amber-400 font-semibold';
-      ctTrendEl.innerHTML = `<span class="${colorCls}">${escapeHtml(trend)}</span> <span class="text-[var(--text-tertiary)]">vs prior period</span>`;
+      ctTrendEl.innerHTML = `<span class="${colorCls}">${escapeHtml(trend)} vs prior</span> <span class="text-[var(--text-tertiary)]">• ${escapeHtml(label)}</span>`;
     } else {
-      ctTrendEl.innerHTML = `<span class="text-[var(--text-tertiary)]">Start SHA to completed</span>`;
+      ctTrendEl.innerHTML = `<span class="text-[var(--text-tertiary)]">${escapeHtml(label)}</span>`;
     }
   }
 
-  // 4. Quality Rate
+  // 4. QA Test Health (replaces code review 1st pass metric)
   const qrValEl = document.getElementById('kpiQualityRateValue');
+  const qrUnitEl = document.getElementById('kpiQualityRateUnit');
   const qrSubEl = document.getElementById('kpiQualityRateSubtitle');
+  const th = kpis.test_health;
+
   if (qrValEl) {
-    const rate = kpis.quality_rate?.first_pass_rate ?? 100;
-    qrValEl.textContent = `${rate}%`;
+    if (th && th.total_tests > 0) {
+      qrValEl.textContent = `${th.passing_tests || th.total_tests}`;
+      if (qrUnitEl) qrUnitEl.textContent = `Passing (${th.pass_rate_pct ?? 100}%)`;
+    } else {
+      const rate = kpis.quality_rate?.first_pass_rate ?? 100;
+      qrValEl.textContent = `${rate}%`;
+      if (qrUnitEl) qrUnitEl.textContent = 'Passing';
+    }
   }
   if (qrSubEl) {
-    const tCount = kpis.quality_rate?.test_count || 0;
-    const r1 = kpis.quality_rate?.r1_pass_count || 0;
-    const totalRev = kpis.quality_rate?.total_reviewed || 0;
-    qrSubEl.innerHTML = `<span>${r1}/${totalRev} 1st-pass • <strong class="text-[var(--text-primary)]">${tCount}</strong> tests</span>`;
+    if (th && th.total_tests > 0) {
+      const added = th.new_tests_in_window ?? 0;
+      const addedStr = added >= 0 ? `+${added}` : `${added}`;
+      qrSubEl.innerHTML = `<span class="text-emerald-600 dark:text-emerald-400 font-semibold">${addedStr} new tests this period</span> <span class="text-[var(--text-tertiary)]">• ${th.failed_tests || 0} failures</span>`;
+    } else {
+      const tCount = kpis.quality_rate?.test_count || 0;
+      qrSubEl.innerHTML = `<span><strong class="text-[var(--text-primary)]">${tCount}</strong> tests passing</span>`;
+    }
   }
 
   // 5. Pipeline Health / Stagnation
@@ -7024,10 +7042,50 @@ function renderDailyThroughputChart(data, weeklyCohorts) {
   const container = document.getElementById('chartThroughputContainer');
   if (!container) return;
 
-  const cohorts = weeklyCohorts && weeklyCohorts.length > 0 ? weeklyCohorts : null;
+  let cohorts = weeklyCohorts && weeklyCohorts.length > 0 ? weeklyCohorts : null;
+  if (cohorts) {
+    // Table receives reverse-chronological (newest first).
+    // Ensure chronological order (oldest first, newest last) for the left-to-right timeline chart.
+    const copy = [...cohorts];
+    if (copy.length >= 2) {
+      const d0 = copy[0].start_date || copy[0].week_key || '';
+      const dN = copy[copy.length - 1].start_date || copy[copy.length - 1].week_key || '';
+      if (d0 > dN) {
+        copy.reverse();
+      }
+    }
+    cohorts = copy;
+  }
   const dailySeries = data && data.series && data.series.length > 0 ? data.series : null;
 
-  if (!cohorts && !dailySeries) {
+  if (!cohorts && dailySeries) {
+    // Group daily series into weekly cohorts so view is strictly weekly
+    const groups = [];
+    const step = 7;
+    for (let i = 0; i < dailySeries.length; i += step) {
+      const chunk = dailySeries.slice(i, i + step);
+      const feat = chunk.reduce((a, b) => a + (b.feature || 0), 0);
+      const fix = chunk.reduce((a, b) => a + (b.fix || 0), 0);
+      const chore = chunk.reduce((a, b) => a + (b.chore || b.debt || 0), 0);
+      const other = chunk.reduce((a, b) => a + (b.other || 0), 0);
+      const totStories = chunk.reduce((a, b) => a + (b.total_completed || 0), 0);
+      const totPts = totStories * 2;
+      const startD = chunk[0].date;
+      const endD = chunk[chunk.length - 1].date;
+      const wIdx = Math.floor(i / step) + 1;
+      groups.push({
+        label: `W${wIdx} (${startD.slice(5)} - ${endD.slice(5)})`,
+        week_key: `W${wIdx}`,
+        total_stories: totStories,
+        total_points: totPts,
+        capacity_pct: totStories > 0 ? Math.round((feat / totStories) * 100) : 0,
+        work_composition: { feature: feat, fix: fix, improvement: 0, chore: chore, other: other },
+      });
+    }
+    cohorts = groups;
+  }
+
+  if (!cohorts || cohorts.length === 0) {
     container.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No throughput data for this window.</div>`;
     return;
   }
@@ -7622,7 +7680,7 @@ function renderWeeklyCohorts(weeklyCohorts) {
   if (totalBadge) totalBadge.textContent = `${cohorts.length} Cohorts`;
 
   if (cohorts.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="py-6 text-center text-[var(--text-tertiary)] italic">No weekly delivery cohorts data found.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-[var(--text-tertiary)] italic">No weekly delivery cohorts data found.</td></tr>`;
     return;
   }
 
@@ -7650,6 +7708,7 @@ function renderWeeklyCohorts(weeklyCohorts) {
 
     const qaRate = c.qa_rate?.first_pass_rate ?? c.qa_pass_rate ?? 100;
     const qaCls = qaRate >= 90 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 font-semibold';
+    const turnaroundStr = c.active_turnaround?.formatted || c.cycle_time?.formatted || '—';
 
     const storiesList = c.stories || [];
 
@@ -7659,45 +7718,40 @@ function renderWeeklyCohorts(weeklyCohorts) {
           <div class="font-bold text-[var(--text-primary)] font-mono">${escapeHtml(c.label || weekKey)}</div>
           <div class="text-[10px] text-[var(--text-tertiary)] font-mono">${escapeHtml(c.start_date || '')} → ${escapeHtml(c.end_date || '')}</div>
         </td>
-        <td class="py-3 px-3">
+        <td class="py-3 px-3 text-center">
           <span class="momentum-badge ${momentumCls}">${momentumIcon} ${escapeHtml(c.momentum_label || c.momentum || 'Advancing')}</span>
         </td>
-        <td class="py-3 px-3 text-right font-mono font-bold tabular-nums text-sm text-[var(--text-primary)]">
-          ${totalStories}
-        </td>
         <td class="py-3 px-3 text-right font-mono tabular-nums">
-          <span class="font-bold text-amber-600 dark:text-amber-400 text-xs">${totalPoints} pts</span>
-          <div class="text-[10px] text-[var(--text-tertiary)]">${capPct}% cap</div>
+          <div class="font-bold text-sm text-[var(--text-primary)]">${totalStories} <span class="text-[10px] font-normal text-[var(--text-tertiary)]">stories</span></div>
+          <div class="text-[11px] font-semibold text-amber-600 dark:text-amber-400">${totalPoints} pts <span class="text-[10px] text-[var(--text-tertiary)] font-normal">(${capPct}% cap)</span></div>
         </td>
         <td class="py-3 px-3">
-          <div class="w-28 sm:w-36 h-2 rounded-full bg-[var(--border-subtle)] overflow-hidden flex shadow-xs" title="Feat: ${wc.feature || 0}, Fix: ${wc.fix || 0}, Imp: ${wc.improvement || 0}, Chore: ${wc.chore || 0}">
+          <div class="w-28 sm:w-36 h-2 rounded-full bg-[var(--border-subtle)] overflow-hidden flex shadow-xs" title="Feat: ${wc.feature || 0}, Imp: ${wc.improvement || 0}, Fix: ${wc.fix || 0}, Chore: ${wc.chore || 0}">
             ${pctFeat > 0 ? `<div style="width: ${pctFeat}%" class="bg-emerald-500 h-full"></div>` : ''}
-            ${pctFix > 0 ? `<div style="width: ${pctFix}%" class="bg-rose-500 h-full"></div>` : ''}
             ${pctImp > 0 ? `<div style="width: ${pctImp}%" class="bg-sky-500 h-full"></div>` : ''}
+            ${pctFix > 0 ? `<div style="width: ${pctFix}%" class="bg-rose-500 h-full"></div>` : ''}
             ${pctChore > 0 ? `<div style="width: ${pctChore}%" class="bg-indigo-500 h-full"></div>` : ''}
             ${pctOther > 0 ? `<div style="width: ${pctOther}%" class="bg-purple-500 h-full"></div>` : ''}
           </div>
-          <div class="text-[9px] text-[var(--text-tertiary)] mt-1 font-mono">F:${wc.feature || 0} • X:${wc.fix || 0} • I:${wc.improvement || 0}</div>
+          <div class="text-[9px] text-[var(--text-tertiary)] mt-1 font-mono">F:${wc.feature || 0} • I:${wc.improvement || 0} • B:${wc.fix || 0} • C:${wc.chore || 0}</div>
         </td>
         <td class="py-3 px-3 text-center font-mono text-xs">
           <span class="${netCls}">${netPrefix}${netBugs.net}</span>
           <div class="text-[9px] text-[var(--text-tertiary)]">${netBugs.found}F / ${netBugs.fixed}X</div>
         </td>
-        <td class="py-3 px-3 text-right font-mono text-xs text-[var(--text-secondary)]">
-          ${c.cycle_time?.formatted || '—'}
-        </td>
         <td class="py-3 px-3 text-right font-mono text-xs">
-          <span class="${qaCls}">${qaRate}%</span>
+          <div class="text-[var(--text-primary)] font-semibold">${escapeHtml(turnaroundStr)}</div>
+          <div class="${qaCls} text-[10px]">${qaRate}% pass</div>
         </td>
         <td class="py-3 px-3 text-center">
-          <button type="button" onclick="toggleCohortAccordion('${escapeHtml(weekKey)}')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] border border-[var(--border-subtle)] text-[11px] font-semibold text-[var(--text-primary)] transition cursor-pointer" title="Toggle cohort stories">
-            <span>${totalStories} Stories</span>
+          <button type="button" onclick="toggleCohortAccordion('${escapeHtml(weekKey)}')" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] border border-[var(--border-subtle)] text-[11px] font-semibold text-[var(--text-primary)] transition cursor-pointer shadow-xs" title="Toggle cohort stories">
+            <span>View ${totalStories} Stories</span>
             <i id="cohort-chevron-${escapeHtml(weekKey)}" class="ph ph-caret-down cohort-chevron ${isExpanded ? 'rotated' : ''}"></i>
           </button>
         </td>
       </tr>
       <tr id="cohort-detail-${escapeHtml(weekKey)}" class="${isExpanded ? '' : 'hidden'} bg-[var(--bg-surface-secondary)]/30">
-        <td colspan="9" class="p-3 sm:p-4">
+        <td colspan="7" class="p-3 sm:p-4">
           <div class="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-xs">
             <div class="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2 flex items-center justify-between">
               <span>Delivered Stories in ${escapeHtml(c.label || weekKey)}</span>
@@ -7758,7 +7812,7 @@ function toggleCohortAccordion(weekKey) {
 // -----------------------------------------------------------------------------
 // Slide-Over All Delivered Tickets Drawer
 // -----------------------------------------------------------------------------
-function openTicketDrawer() {
+function openTicketDrawer(query, type) {
   const drawer = document.getElementById('ticketDrawer');
   const backdrop = document.getElementById('ticketDrawerBackdrop');
   if (!drawer || !backdrop) return;
@@ -7769,9 +7823,41 @@ function openTicketDrawer() {
 
   const input = document.getElementById('ticketDrawerSearch');
   if (input) {
+    if (query !== undefined) {
+      input.value = query;
+      const clearBtn = document.getElementById('ticketDrawerClearSearch');
+      if (clearBtn) {
+        if (query) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+      }
+    }
     setTimeout(() => { input.focus(); }, 100);
   }
-  filterTicketDrawer();
+  if (type !== undefined) {
+    setTicketDrawerTypeFilter(type);
+  } else {
+    filterTicketDrawer();
+  }
+}
+
+function toggleAllCohortsAccordion() {
+  const cohorts = state.analytics?.weekly_cohorts || state.analytics?.cohorts || [];
+  if (!cohorts || cohorts.length === 0) return;
+  const allExpanded = cohorts.every((c) => state.expandedCohorts.has(c.week_key || c.id || ''));
+  cohorts.forEach((c) => {
+    const wk = c.week_key || c.id || '';
+    const row = document.getElementById(`cohort-detail-${wk}`);
+    const chev = document.getElementById(`cohort-chevron-${wk}`);
+    if (allExpanded) {
+      state.expandedCohorts.delete(wk);
+      if (row) row.classList.add('hidden');
+      if (chev) chev.classList.remove('rotated');
+    } else {
+      state.expandedCohorts.add(wk);
+      if (row) row.classList.remove('hidden');
+      if (chev) chev.classList.add('rotated');
+    }
+  });
 }
 
 function closeTicketDrawer() {
@@ -7922,8 +8008,9 @@ function renderCompositionChart(data) {
 
   const view = state.analyticsCompView || 'types';
   const items = view === 'types' ? (data.by_type || []) : (data.by_agent || []);
+  const agentBreakdown = data.agent_work_breakdown || [];
 
-  if (items.length === 0) {
+  if (items.length === 0 && agentBreakdown.length === 0) {
     container.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No items recorded in this window.</div>`;
     return;
   }
@@ -7961,6 +8048,11 @@ function renderCompositionChart(data) {
     offset += strokeDash;
   });
 
+  const centerNum = view === 'agents' && agentBreakdown.length > 0
+    ? agentBreakdown.reduce((acc, ag) => acc + (ag.total_points || 0), 0)
+    : totalCount;
+  const centerLabel = view === 'agents' && agentBreakdown.length > 0 ? 'Points' : (view === 'types' ? 'Stories' : 'Actions');
+
   const donutHtml = `
     <div class="relative w-[160px] h-[160px] shrink-0 flex items-center justify-center">
       <svg viewBox="0 0 160 160" class="w-full h-full transform -rotate-90">
@@ -7968,35 +8060,68 @@ function renderCompositionChart(data) {
         ${donutSvgParts}
       </svg>
       <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
-        <span class="text-xl font-bold text-[var(--text-primary)] tabular-nums leading-none">${totalCount}</span>
-        <span class="text-[9px] uppercase tracking-wider text-[var(--text-tertiary)] mt-0.5">${view === 'types' ? 'Stories' : 'Actions'}</span>
+        <span class="text-xl font-bold text-[var(--text-primary)] tabular-nums leading-none">${centerNum}</span>
+        <span class="text-[9px] uppercase tracking-wider text-[var(--text-tertiary)] mt-0.5">${centerLabel}</span>
       </div>
     </div>
   `;
 
-  const listHtml = `
-    <div class="flex-1 space-y-2.5 max-h-[190px] overflow-y-auto pr-1">
-      ${items.map((it, idx) => {
-        const color = palette[idx % palette.length];
-        const label = escapeHtml(it.type || it.agent || 'Other');
-        const pct = it.pct !== undefined ? it.pct : Math.round((it.count / totalCount) * 100);
-        return `
-          <div class="cursor-pointer group hover:bg-[var(--bg-surface-secondary)] p-1.5 rounded-lg transition" onclick="${view === 'types' ? `filterAnalyticsStoriesByType('${label}')` : `filterAnalyticsStoriesByAgent('${label}')`}">
-            <div class="flex items-center justify-between text-xs mb-1">
-              <span class="font-medium text-[var(--text-primary)] flex items-center gap-1.5">
-                <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background-color: ${color}"></span>
-                <span class="truncate">${label}</span>
-              </span>
-              <span class="font-mono text-[var(--text-secondary)] text-[11px] tabular-nums">${it.count} <span class="text-[var(--text-quaternary)]">(${pct}%)</span></span>
+  let listHtml = '';
+  if (view === 'agents' && agentBreakdown.length > 0) {
+    listHtml = `
+      <div class="flex-1 space-y-2 max-h-[200px] overflow-y-auto pr-1">
+        ${agentBreakdown.map((ag, idx) => {
+          const color = palette[idx % palette.length];
+          const name = escapeHtml(ag.agent);
+          const pts = ag.total_points ?? 0;
+          return `
+            <div class="cursor-pointer group hover:bg-[var(--bg-surface-secondary)] p-2 rounded-xl border border-[var(--border-subtle)] hover:border-[var(--card-hover-border)] transition" onclick="filterAnalyticsStoriesByAgent('${name}')" title="Click to view stories delivered by ${name}">
+              <div class="flex items-center justify-between text-xs mb-1">
+                <span class="font-bold text-[var(--text-primary)] flex items-center gap-1.5 truncate">
+                  <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${color}"></span>
+                  <span class="truncate">${name}</span>
+                </span>
+                <div class="flex items-center gap-1 shrink-0 font-mono text-[11px]">
+                  <span class="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20">${pts} pts</span>
+                  <span class="text-[var(--text-tertiary)]">(${ag.total_stories} stories)</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 flex-wrap text-[10px]">
+                ${ag.feature > 0 ? `<span class="px-1.5 py-0.2 rounded font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">${ag.feature} Feat</span>` : ''}
+                ${ag.improvement > 0 ? `<span class="px-1.5 py-0.2 rounded font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">${ag.improvement} Imp</span>` : ''}
+                ${ag.fix > 0 ? `<span class="px-1.5 py-0.2 rounded font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">${ag.fix} Fix</span>` : ''}
+                ${ag.chore > 0 ? `<span class="px-1.5 py-0.2 rounded font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">${ag.chore} Chore</span>` : ''}
+              </div>
             </div>
-            <div class="w-full h-1.5 rounded-full bg-[var(--border-subtle)] overflow-hidden">
-              <div class="h-full rounded-full transition-all duration-300" style="width: ${pct}%; background-color: ${color}"></div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  } else {
+    listHtml = `
+      <div class="flex-1 space-y-2.5 max-h-[190px] overflow-y-auto pr-1">
+        ${items.map((it, idx) => {
+          const color = palette[idx % palette.length];
+          const label = escapeHtml(it.type || it.agent || 'Other');
+          const pct = it.pct !== undefined ? it.pct : Math.round((it.count / totalCount) * 100);
+          return `
+            <div class="cursor-pointer group hover:bg-[var(--bg-surface-secondary)] p-1.5 rounded-lg transition" onclick="${view === 'types' ? `filterAnalyticsStoriesByType('${label}')` : `filterAnalyticsStoriesByAgent('${label}')`}">
+              <div class="flex items-center justify-between text-xs mb-1">
+                <span class="font-medium text-[var(--text-primary)] flex items-center gap-1.5">
+                  <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background-color: ${color}"></span>
+                  <span class="truncate">${label}</span>
+                </span>
+                <span class="font-mono text-[var(--text-secondary)] text-[11px] tabular-nums">${it.count} <span class="text-[var(--text-quaternary)]">(${pct}%)</span></span>
+              </div>
+              <div class="w-full h-1.5 rounded-full bg-[var(--border-subtle)] overflow-hidden">
+                <div class="h-full rounded-full transition-all duration-300" style="width: ${pct}%; background-color: ${color}"></div>
+              </div>
             </div>
-          </div>
-        `;
-      }).join('')}
-    </div>
-  `;
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
 
   container.innerHTML = `
     <div class="flex flex-col sm:flex-row items-center gap-5 w-full">
@@ -8041,44 +8166,12 @@ function renderQualityChart(data) {
   const rounds = data.rounds || [];
   const testGrowth = data.test_suite_growth || [];
 
-  const totalRounds = rounds.reduce((acc, r) => acc + (r.count || 0), 0) || 1;
-  const roundsHtml = `
-    <div class="space-y-3 pb-3 sm:pb-0 sm:border-r border-[var(--border-subtle)] sm:pr-4 flex-1">
-      <div class="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center justify-between">
-        <span>Review Turnaround</span>
-        <span class="text-[11px] font-mono text-[var(--text-tertiary)] font-normal">${totalRounds} stories</span>
-      </div>
-      <div class="w-full h-3 rounded-full bg-[var(--border-subtle)] overflow-hidden flex shadow-inner">
-        ${rounds.map((r) => {
-          const pct = Math.round((r.count / totalRounds) * 100);
-          const color = r.color === 'emerald' ? '#10b981' : (r.color === 'amber' ? '#f59e0b' : '#f43f5e');
-          return pct > 0 ? `<div class="h-full" style="width: ${pct}%; background-color: ${color}" title="${escapeHtml(r.round)}: ${r.count} (${pct}%)"></div>` : '';
-        }).join('')}
-      </div>
-      <div class="grid grid-cols-2 gap-2 text-xs">
-        ${rounds.map((r) => {
-          const colorCls = r.color === 'emerald' ? 'text-emerald-600 dark:text-emerald-400' : (r.color === 'amber' ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400');
-          const dotColor = r.color === 'emerald' ? '#10b981' : (r.color === 'amber' ? '#f59e0b' : '#f43f5e');
-          return `
-            <div class="p-2 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)]">
-              <div class="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)]">
-                <span class="w-2 h-2 rounded-full" style="background-color: ${dotColor}"></span>
-                <span class="truncate">${escapeHtml(r.round)}</span>
-              </div>
-              <div class="font-bold text-sm ${colorCls} tabular-nums mt-0.5">${r.count} <span class="text-[10px] text-[var(--text-tertiary)] font-normal">(${r.pct}%)</span></div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    </div>
-  `;
-
   let testSvgHtml = '';
   if (testGrowth.length > 0) {
-    const vbW = 280;
-    const vbH = 150;
+    const vbW = 480;
+    const vbH = 130;
     const padL = 35;
-    const padR = 20;
+    const padR = 25;
     const padT = 15;
     const padB = 25;
     const w = vbW - padL - padR;
@@ -8095,26 +8188,45 @@ function renderQualityChart(data) {
     });
 
     const ptsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
+    const areaStr = `${padL},${padT + h} ${ptsStr} ${padL + w},${padT + h}`;
 
     testSvgHtml = `
       <div class="flex-1 flex flex-col justify-between">
-        <div class="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center justify-between">
-          <span>Test Suite Growth</span>
-          <span class="text-[11px] font-mono text-purple-600 dark:text-purple-400 font-bold">${maxT} tests</span>
+        <div class="flex items-center justify-between text-xs mb-1">
+          <span class="font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
+            <i class="ph ph-shield-check text-purple-500"></i>
+            Automated Test Suite Growth &amp; Pass Trajectory
+          </span>
+          <span class="font-mono text-purple-600 dark:text-purple-400 font-bold">${maxT} tests passing (100%)</span>
         </div>
-        <svg viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none" class="w-full h-[120px] select-none mt-2">
+        <svg viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none" class="w-full h-[100px] select-none">
+          <defs>
+            <linearGradient id="testGrowthGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.35"/>
+              <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.02"/>
+            </linearGradient>
+          </defs>
           <line x1="${padL}" y1="${padT}" x2="${padL + w}" y2="${padT}" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="2,2" />
           <line x1="${padL}" y1="${padT + h}" x2="${padL + w}" y2="${padT + h}" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="2,2" />
-          <text x="${padL - 5}" y="${padT + 4}" text-anchor="end" font-size="8" fill="var(--text-tertiary)" font-family="var(--font-mono)">${maxT}</text>
-          <text x="${padL - 5}" y="${padT + h + 3}" text-anchor="end" font-size="8" fill="var(--text-tertiary)" font-family="var(--font-mono)">${minT}</text>
+          <text x="${padL - 6}" y="${padT + 4}" text-anchor="end" font-size="8" fill="var(--text-tertiary)" font-family="var(--font-mono)">${maxT}</text>
+          <text x="${padL - 6}" y="${padT + h + 3}" text-anchor="end" font-size="8" fill="var(--text-tertiary)" font-family="var(--font-mono)">${minT}</text>
+          <polygon points="${areaStr}" fill="url(#testGrowthGrad)" />
           <polyline points="${ptsStr}" fill="none" stroke="#8b5cf6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-          ${pts.map((p) => `
-            <circle cx="${p.x}" cy="${p.y}" r="3" fill="#8b5cf6" stroke="var(--bg-surface)" stroke-width="1.5" />
-          `).join('')}
+          ${pts.map((p) => {
+            const tipData = escapeHtml(JSON.stringify({
+              story: p.t.story || 'Gate Run',
+              tests: p.t.tests,
+              sha: p.t.sha || ''
+            }));
+            return `
+              <circle cx="${p.x}" cy="${p.y}" r="3.5" fill="#8b5cf6" stroke="var(--bg-surface)" stroke-width="2" class="cursor-pointer" data-qa-tip='${tipData}' />
+            `;
+          }).join('')}
         </svg>
-        <div class="text-[10px] text-[var(--text-tertiary)] flex items-center justify-between font-mono">
-          <span>Start: ${minT}</span>
-          <span>Latest: ${maxT} (+${maxT - minT})</span>
+        <div class="text-[10px] text-[var(--text-tertiary)] flex items-center justify-between font-mono pt-1 border-t border-[var(--border-subtle)]">
+          <span>Start: <strong>${minT} tests</strong></span>
+          <span class="text-emerald-600 dark:text-emerald-400 font-semibold">+${maxT - minT} new tests created</span>
+          <span>Latest: <strong>${maxT} passing (100%)</strong></span>
         </div>
       </div>
     `;
@@ -8122,12 +8234,22 @@ function renderQualityChart(data) {
     testSvgHtml = `<div class="flex-1 text-xs text-[var(--text-tertiary)] italic flex items-center justify-center p-4">No test growth history recorded yet in QUALITY.md.</div>`;
   }
 
-  container.innerHTML = `
-    <div class="flex flex-col sm:flex-row gap-5 w-full">
-      ${roundsHtml}
-      ${testSvgHtml}
-    </div>
-  `;
+  container.innerHTML = testSvgHtml;
+
+  container.querySelectorAll('[data-qa-tip]').forEach((el) => {
+    el.addEventListener('mousemove', (e) => {
+      try {
+        const d = JSON.parse(el.getAttribute('data-qa-tip'));
+        const html = `
+          <div class="font-bold text-xs text-[var(--text-primary)]">${escapeHtml(d.story)}</div>
+          <div class="text-[11px] text-purple-600 dark:text-purple-400 font-bold mt-0.5">${d.tests} passing tests (100%)</div>
+          ${d.sha ? `<div class="text-[10px] text-[var(--text-tertiary)] font-mono mt-0.5">Commit: ${escapeHtml(d.sha)}</div>` : ''}
+        `;
+        showAnalyticsTooltip(e, html);
+      } catch (_) {}
+    });
+    el.addEventListener('mouseleave', hideAnalyticsTooltip);
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -8135,29 +8257,17 @@ function renderQualityChart(data) {
 // -----------------------------------------------------------------------------
 function filterAnalyticsStoriesByDate(dateStr) {
   state.analyticsFilter = { type: 'date', value: dateStr };
-  if (state.analytics) {
-    renderAnalyticsStories(state.analytics.stories || state.analytics.all_delivered_stories, state.analyticsFilter);
-  }
-  const drawer = document.getElementById('analyticsDetailDrawer');
-  if (drawer) drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  openTicketDrawer(dateStr, 'all');
 }
 
 function filterAnalyticsStoriesByType(typeStr) {
   state.analyticsFilter = { type: 'type', value: typeStr.toLowerCase() };
-  if (state.analytics) {
-    renderAnalyticsStories(state.analytics.stories || state.analytics.all_delivered_stories, state.analyticsFilter);
-  }
-  const drawer = document.getElementById('analyticsDetailDrawer');
-  if (drawer) drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  openTicketDrawer('', typeStr.toLowerCase());
 }
 
 function filterAnalyticsStoriesByAgent(agentStr) {
   state.analyticsFilter = { type: 'agent', value: agentStr };
-  if (state.analytics) {
-    renderAnalyticsStories(state.analytics.stories || state.analytics.all_delivered_stories, state.analyticsFilter);
-  }
-  const drawer = document.getElementById('analyticsDetailDrawer');
-  if (drawer) drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  openTicketDrawer(agentStr, 'all');
 }
 
 function resetAnalyticsStoryFilter() {

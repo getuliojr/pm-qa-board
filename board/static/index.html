@@ -918,14 +918,14 @@
             <div class="bg-[var(--bg-surface)] p-4 sm:p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs hover:border-[var(--card-hover-border)] transition flex flex-col justify-between">
               <div>
                 <div class="flex items-center justify-between text-[var(--text-secondary)] mb-2">
-                  <span class="text-xs font-semibold uppercase tracking-wider">Velocity</span>
+                  <span class="text-xs font-semibold uppercase tracking-wider">Story Velocity</span>
                   <div class="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
                     <i class="ph ph-lightning text-base"></i>
                   </div>
                 </div>
                 <div class="flex items-baseline gap-2">
                   <span id="kpiVelocityValue" class="text-2xl sm:text-3xl font-bold text-amber-600 dark:text-amber-400 tabular-nums">0</span>
-                  <span class="text-xs text-[var(--text-tertiary)] font-medium">pts</span>
+                  <span class="text-xs text-[var(--text-tertiary)] font-medium">pts delivered</span>
                   <!-- Preserving kpiWorkVolumeValue element for test contract backward compatibility -->
                   <span id="kpiWorkVolumeValue" class="hidden">0</span>
                   <span id="kpiWorkVolumeChurn" class="hidden"></span>
@@ -945,18 +945,18 @@
             <div class="bg-[var(--bg-surface)] p-4 sm:p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs hover:border-[var(--card-hover-border)] transition flex flex-col justify-between">
               <div>
                 <div class="flex items-center justify-between text-[var(--text-secondary)] mb-2">
-                  <span class="text-xs font-semibold uppercase tracking-wider">Cycle Time</span>
+                  <span class="text-xs font-semibold uppercase tracking-wider">Active Turnaround</span>
                   <div class="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                     <i class="ph ph-timer text-base"></i>
                   </div>
                 </div>
                 <div class="flex items-baseline gap-2">
                   <span id="kpiCycleTimeValue" class="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] tabular-nums">—</span>
-                  <span class="text-xs text-[var(--text-tertiary)] font-medium">mean</span>
+                  <span class="text-xs text-[var(--text-tertiary)] font-medium">avg</span>
                 </div>
               </div>
               <div id="kpiCycleTimeTrend" class="mt-2 text-xs flex items-center gap-1 font-medium text-[var(--text-secondary)]">
-                <span>Start SHA to completed</span>
+                <span>Active build (in-progress ➔ QA)</span>
               </div>
             </div>
 
@@ -964,14 +964,14 @@
             <div class="bg-[var(--bg-surface)] p-4 sm:p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs hover:border-[var(--card-hover-border)] transition flex flex-col justify-between">
               <div>
                 <div class="flex items-center justify-between text-[var(--text-secondary)] mb-2">
-                  <span class="text-xs font-semibold uppercase tracking-wider">Quality Rate</span>
+                  <span class="text-xs font-semibold uppercase tracking-wider">QA Test Health</span>
                   <div class="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center">
                     <i class="ph ph-shield-check text-base"></i>
                   </div>
                 </div>
                 <div class="flex items-baseline gap-2">
                   <span id="kpiQualityRateValue" class="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] tabular-nums">100%</span>
-                  <span class="text-xs text-[var(--text-tertiary)] font-medium">1st-pass</span>
+                  <span class="text-xs text-[var(--text-tertiary)] id="kpiQualityRateUnit" class="text-xs text-[var(--text-tertiary)] font-medium">Passing</span>
                 </div>
               </div>
               <div id="kpiQualityRateSubtitle" class="mt-2 text-xs flex items-center gap-1 font-medium text-[var(--text-secondary)]">
@@ -1145,11 +1145,15 @@
                 <p class="text-[11px] text-[var(--text-tertiary)]">Delivery rollup by calendar week with momentum status, work mix breakdown, and net bug flow</p>
               </div>
               <div class="flex items-center gap-2">
+                <button type="button" onclick="toggleAllCohortsAccordion()" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition cursor-pointer">
+                  Expand / Collapse All
+                </button>
                 <span id="cohortsTotalBadge" class="text-xs font-mono font-semibold px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
                   0 Cohorts
                 </span>
-                <button type="button" onclick="openTicketDrawer()" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-subtle)] transition cursor-pointer">
-                  Search All
+                <button type="button" onclick="openTicketDrawer()" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-subtle)] transition cursor-pointer flex items-center gap-1.5">
+                  <i class="ph ph-magnifying-glass"></i>
+                  Search Full Changelog ➔
                 </button>
               </div>
             </div>
@@ -1159,45 +1163,21 @@
               <table class="w-full text-xs text-left" id="weeklyCohortsTable">
                 <thead>
                   <tr class="border-b border-[var(--border-subtle)] text-[var(--text-tertiary)] uppercase font-semibold text-[10px]">
-                    <th class="py-2.5 px-3">Calendar Week</th>
+                    <th class="py-2.5 px-3">Week Cohort & Date Range</th>
                     <th class="py-2.5 px-3">Momentum Status</th>
-                    <th class="py-2.5 px-3 text-right">Stories</th>
-                    <th class="py-2.5 px-3 text-right">Points (Capacity)</th>
-                    <th class="py-2.5 px-3">Work Mix</th>
-                    <th class="py-2.5 px-3 text-center">Net Bug Flow</th>
-                    <th class="py-2.5 px-3 text-right">Cycle Time</th>
-                    <th class="py-2.5 px-3 text-right">QA Pass</th>
-                    <th class="py-2.5 px-3 text-center">Actions</th>
+                    <th class="py-2.5 px-3 text-right">Stories & Points</th>
+                    <th class="py-2.5 px-3">Work Mix (Feat / Imp / Bug / Chore)</th>
+                    <th class="py-2.5 px-3 text-center">Net Bug Impact</th>
+                    <th class="py-2.5 px-3 text-right">Active Turnaround & QA Pass</th>
+                    <th class="py-2.5 px-3 text-center">Delivered Tickets</th>
                   </tr>
                 </thead>
                 <tbody id="weeklyCohortsTableBody" class="divide-y divide-[var(--border-subtle)]">
-                  <tr><td colspan="9" class="py-6 text-center text-[var(--text-tertiary)] italic">Loading weekly delivery cohorts...</td></tr>
+                  <tr><td colspan="7" class="py-6 text-center text-[var(--text-tertiary)] italic">Loading weekly delivery cohorts...</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
-
-          <!-- Contextual Drill-Down Inspection Tray Container -->
-          <div id="analyticsDetailDrawer" class="bg-[var(--bg-surface)] p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs">
-            <div class="flex items-center justify-between pb-3 border-b border-[var(--border-subtle)]">
-              <div class="flex items-center gap-2">
-                <div class="w-6 h-6 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center text-xs">
-                  <i class="ph ph-magnifying-glass"></i>
-                </div>
-                <h3 id="analyticsDetailTitle" class="font-bold text-sm text-[var(--text-primary)]">Delivered Stories in Window</h3>
-                <span id="analyticsDetailCount" class="px-2 py-0.5 text-xs font-mono rounded-full bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">0 stories</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <button type="button" id="analyticsResetFilterBtn" onclick="resetAnalyticsStoryFilter()" class="hidden px-2.5 py-1 text-xs rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition cursor-pointer">
-                  Reset Drill-Down Filter
-                </button>
-              </div>
-            </div>
-
-            <!-- Stories List -->
-            <div id="analyticsStoryList" class="mt-4 space-y-2.5">
-              <div class="text-xs text-[var(--text-tertiary)] italic p-4 text-center">Select any bar, slice, stage or cohort above to inspect specific story deliverables.</div>
-            </div>
           </div>
         </section>
 
