@@ -1171,7 +1171,7 @@ def test_story23_qa_grid_and_dedicated_drawer(server):
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
     # 1. Cachebuster bumped
-    assert re.search(r'app\.js\?v=2026\d+-(?:pqc23|pqc24)', index_html)
+    assert re.search(r'app\.js\?v=2026\d+-(?:pqc23|pqc24|pqc28)', index_html)
 
     # 2. Responsive QA Card Grid in index.html and app.js
     assert 'id="qaCardsGrid"' in index_html
@@ -1230,7 +1230,7 @@ def test_story24_mobile_ergonomics_live_console_roadmap_filter(server):
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
     # 1. Cachebuster bumped
-    assert 'app.js?v=20261020-pqc24' in index_html
+    assert re.search(r'app\.js\?v=2026\d+-(?:pqc24|pqc28)', index_html)
 
     # 2. QA Drawer Sticky Footer Polish: No Close button in sticky footer
     assert 'id="qaCardDrawer"' in index_html
