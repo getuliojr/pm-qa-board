@@ -173,6 +173,17 @@ def test_analytics_frontend_wiring():
     assert 'id="chartCompositionContainer"' in html
     assert 'id="chartQualityContainer"' in html
     assert 'id="analyticsDetailDrawer"' in html
+    # Story 29: Executive analytics additions
+    assert 'id="analyticsReadinessBadge"' in html
+    assert 'id="kpiVelocityValue"' in html
+    assert 'id="kpiStagnationAlertBadge"' in html
+    assert 'id="weeklyCohortsTable"' in html
+    assert 'id="weeklyCohortsTableBody"' in html
+    assert 'id="pipelineHealthTableBody"' in html
+    assert 'id="stuckTicketsList"' in html
+    assert 'id="ticketDrawer"' in html
+    assert 'id="ticketDrawerSearch"' in html
+    assert 'data-window="6w"' in html
 
     js_path = Path("board/static/app.js")
     assert js_path.exists()
@@ -184,6 +195,14 @@ def test_analytics_frontend_wiring():
     assert "renderBurnupChart" in js
     assert "renderCompositionChart" in js
     assert "renderQualityChart" in js
+    # Story 29 JS wiring
+    assert "toggleBurnupChartMode" in js
+    assert "renderPipelineHealth" in js
+    assert "renderWeeklyCohorts" in js
+    assert "toggleCohortAccordion" in js
+    assert "openTicketDrawer" in js
+    assert "closeTicketDrawer" in js
+    assert "filterTicketDrawer" in js
 
 
 def test_story_29_executive_analytics_cohorts_and_stagnation(external_project):
