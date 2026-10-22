@@ -1437,6 +1437,14 @@ class PMRequestHandler(BaseHTTPRequestHandler):
             self.serve_artifact(urllib.parse.unquote(path[len("/artifacts/"):]))
             return
 
+        if path == "/api/analytics":
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            window = query_params.get("window", ["7d"])[0]
+            project_slug = query_params.get("project", [None])[0]
+            data = STATE.parser.get_analytics_summary(window=window, project_slug=project_slug)
+            self.send_json(data)
+            return
+
         if path == "/api/cards":
             cards = STATE.parser.get_all_cards()
             self.send_json({"cards": cards, "total": len(cards)})

@@ -121,6 +121,7 @@ class PMParser:
         self._card_git_commit_map: dict[str, list[dict[str, str]]] | None = None
         self._cards_cache: list[dict[str, Any]] | None = None
         self._cards_cache_time: float = 0.0
+        self._analytics_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
     def _card_extra_tags(self, frontmatter: dict[str, Any]) -> list[dict[str, Any]]:
         """Declared extra tags present on a card, with per-card resolved (http/https only) links."""
@@ -209,6 +210,7 @@ class PMParser:
         self._cards_cache = None
         self._card_git_commit_map = None
         self._file_git_commits_cache = {}
+        self._analytics_cache = {}
 
     @staticmethod
     def format_duration(seconds: int) -> str:
@@ -248,7 +250,8 @@ class PMParser:
                 ] + git_paths,
                 cwd=str(self.cards_dir),
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             if res.returncode == 0:
@@ -1472,7 +1475,8 @@ class PMParser:
                 ],
                 cwd=str(self.root_dir),
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             if res.returncode == 0:
@@ -3046,7 +3050,8 @@ class PMParser:
                 ],
                 cwd=str(self.root_dir),
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             if res.returncode == 0:
@@ -3071,7 +3076,8 @@ class PMParser:
                 ["git", "status", "--porcelain"],
                 cwd=str(self.root_dir),
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             if res.returncode == 0:
@@ -3108,7 +3114,8 @@ class PMParser:
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 cwd=str(self.root_dir),
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             if res.returncode == 0:
@@ -3121,6 +3128,641 @@ class PMParser:
             "modified_files": modified_files,
             "commits": commits,
         }
+
+
+    # --------------------------------------------------------------------------
+    # Analytics & Executive Progress Aggregation (PQC-28)
+    # --------------------------------------------------------------------------
+    @staticmethod
+    def _format_analytics_date_label(dt_str: str) -> str:
+        try:
+            dt = datetime.date.fromisoformat(dt_str[:10])
+            return dt.strftime("%b %d")
+        except Exception:
+            return dt_str[-5:]
+
+    @staticmethod
+    def _clean_agent_display_name(raw: str) -> str:
+        s = raw.strip()
+        m = re.search(r"\(([^)]+)\)", s)
+        if m:
+            cand = m.group(1).strip()
+            if cand.lower() in ("pro", "medium", "flash", "haiku", "opus", "sonnet"):
+                base = re.sub(r"\s*\([^)]+\)", "", s).strip()
+                return f"{cand} ({base})"
+            return cand
+        m_opus = re.search(r"Opus\s+[\d.]+", s, re.IGNORECASE)
+        if m_opus:
+            return m_opus.group(0)
+        m_gpt = re.search(r"GPT-[\w.-]+", s, re.IGNORECASE)
+        if m_gpt:
+            return m_gpt.group(0)
+        if re.search(r"\bAntigravity\b", s, re.IGNORECASE):
+            return "Antigravity"
+        if re.search(r"\bUser\b", s, re.IGNORECASE):
+            return "User"
+        return s[:24]
+
+    def _get_git_churn(self, since_date: str | None = None) -> list[dict[str, Any]]:
+        commits: list[dict[str, Any]] = []
+        cmd = [
+            "git",
+            "log",
+            "--numstat",
+            "--date=format:%Y-%m-%d",
+            "--pretty=format:COMMIT%x09%h%x09%ad%x09%s%x09%an",
+        ]
+        if since_date:
+            cmd.append(f"--since={since_date}")
+
+        try:
+            res = subprocess.run(
+                cmd,
+                cwd=str(self.root_dir),
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            if res.returncode == 0:
+                current_commit: dict[str, Any] | None = None
+                for raw_line in res.stdout.splitlines():
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    if line.startswith("COMMIT\t"):
+                        parts = line.split("\t")
+                        if len(parts) >= 3:
+                            current_commit = {
+                                "sha": parts[1] if len(parts) > 1 else "",
+                                "date": parts[2] if len(parts) > 2 else "",
+                                "subject": parts[3] if len(parts) > 3 else "",
+                                "author": parts[4] if len(parts) > 4 else "",
+                                "added": 0,
+                                "deleted": 0,
+                            }
+                            commits.append(current_commit)
+                    elif current_commit and "\t" in line:
+                        parts = line.split("\t")
+                        if len(parts) >= 2:
+                            added = int(parts[0]) if parts[0].isdigit() else 0
+                            deleted = int(parts[1]) if parts[1].isdigit() else 0
+                            current_commit["added"] += added
+                            current_commit["deleted"] += deleted
+        except Exception:
+            pass
+        return commits
+
+    def _parse_gate_runs_from_quality(self) -> list[dict[str, Any]]:
+        growth: list[dict[str, Any]] = []
+        if not self.quality_file.exists():
+            return growth
+        try:
+            content = self.quality_file.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return growth
+
+        gate_match = re.search(r"##\s+Gate runs.*?\r?\n(.*?)(?=\r?\n##|\Z)", content, re.DOTALL | re.IGNORECASE)
+        table_text = gate_match.group(1) if gate_match else content
+
+        for line in table_text.splitlines():
+            line = line.strip()
+            if not line.startswith("|") or line.startswith("| ---") or line.startswith("| Story") or line.startswith("| Sprint"):
+                continue
+            parts = [p.strip() for p in line.strip("|").split("|")]
+            if len(parts) >= 4:
+                story_raw = parts[0].strip("*").strip()
+                tree_raw = parts[1].strip("`").strip()
+                res_raw = parts[3].strip()
+
+                m_p = re.search(r"(\d+)\s+passed", res_raw, re.IGNORECASE)
+                if m_p:
+                    passed_cnt = int(m_p.group(1))
+                    m_sha = re.search(r"`?([0-9a-fA-F]{7,40})`?", tree_raw)
+                    sha_val = m_sha.group(1)[:7] if m_sha else tree_raw[:7]
+                    growth.append({
+                        "story": story_raw,
+                        "tests": passed_cnt,
+                        "sha": sha_val,
+                    })
+        return growth
+
+    def _compute_project_analytics(self, window: str = "7d") -> dict[str, Any]:
+        norm_window = (window or "7d").lower().strip()
+        if norm_window not in ("7d", "14d", "30d", "all"):
+            norm_window = "7d"
+
+        ref_today = datetime.date.today()
+        all_cards = self.get_all_cards()
+
+        # Extract dates for cards
+        for c in all_cards:
+            status = str(c.get("status") or "backlog").lower().strip()
+            c_date = None
+            if status == "completed":
+                end_t = str(c.get("end_time") or c.get("validated") or "")
+                m = re.match(r"^(\d{4}-\d{2}-\d{2})", end_t)
+                if not m:
+                    for cl in reversed(c.get("changelog") or []):
+                        m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(cl.get("date") or ""))
+                        if m:
+                            break
+                if not m:
+                    m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(c.get("created_date") or c.get("created_at") or ""))
+                c_date = m.group(1) if m else ref_today.isoformat()
+            c["_comp_date"] = c_date
+
+            cr_m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(c.get("created_date") or c.get("created_at") or ""))
+            c["_cr_date"] = cr_m.group(1) if cr_m else (c_date or ref_today.isoformat())
+
+        # Determine date range & prior period
+        if norm_window in ("7d", "14d", "30d"):
+            days = 7 if norm_window == "7d" else (14 if norm_window == "14d" else 30)
+            dates = [(ref_today - datetime.timedelta(days=i)).isoformat() for i in reversed(range(days))]
+            start_date = dates[0]
+            end_date = dates[-1]
+            prior_start = (ref_today - datetime.timedelta(days=2 * days - 1)).isoformat()
+            prior_end = (ref_today - datetime.timedelta(days=days)).isoformat()
+            since_date = prior_start
+        else:
+            prior_start = None
+            prior_end = None
+            since_date = None
+            known_dates = [c["_cr_date"] for c in all_cards if c.get("_cr_date")] + [c["_comp_date"] for c in all_cards if c.get("_comp_date")]
+            if known_dates:
+                earliest_d = min(datetime.date.fromisoformat(d[:10]) for d in known_dates)
+            else:
+                earliest_d = ref_today - datetime.timedelta(days=29)
+            if (ref_today - earliest_d).days > 90:
+                earliest_d = ref_today - datetime.timedelta(days=90)
+            span = max(1, (ref_today - earliest_d).days + 1)
+            dates = [(earliest_d + datetime.timedelta(days=i)).isoformat() for i in range(span)]
+            start_date = dates[0]
+            end_date = dates[-1]
+
+        # Filter completed cards
+        curr_completed = [
+            c for c in all_cards
+            if c.get("status") == "completed" and c.get("_comp_date") and start_date <= c["_comp_date"] <= end_date
+        ]
+        prior_completed = [
+            c for c in all_cards
+            if c.get("status") == "completed" and c.get("_comp_date") and prior_start and prior_start <= c["_comp_date"] <= prior_end
+        ]
+
+        # Git churn
+        commits = self._get_git_churn(since_date=since_date)
+        curr_commits = [c for c in commits if start_date <= c.get("date", "") <= end_date]
+        prior_commits = [c for c in commits if prior_start and prior_start <= c.get("date", "") <= prior_end]
+
+        # KPI 1: Throughput
+        tp_value = len(curr_completed)
+        prior_tp = len(prior_completed)
+        diff_tp = tp_value - prior_tp
+        trend_tp = (f"+{diff_tp}" if diff_tp > 0 else f"{diff_tp}") if prior_start else None
+
+        # KPI 2: Work Volume
+        commit_count = len(curr_commits)
+        lines_added = sum(c.get("added", 0) for c in curr_commits)
+        lines_deleted = sum(c.get("deleted", 0) for c in curr_commits)
+        prior_commit_count = len(prior_commits)
+        diff_commits = commit_count - prior_commit_count
+        trend_commits = (f"+{diff_commits}" if diff_commits > 0 else f"{diff_commits}") if prior_start else None
+
+        # KPI 3: Cycle Time
+        curr_durations = [c.get("elapsed_seconds", 0) for c in curr_completed if (c.get("elapsed_seconds") or 0) > 0]
+        mean_seconds = int(sum(curr_durations) / len(curr_durations)) if curr_durations else 0
+        prior_durations = [c.get("elapsed_seconds", 0) for c in prior_completed if (c.get("elapsed_seconds") or 0) > 0]
+        prior_mean_seconds = int(sum(prior_durations) / len(prior_durations)) if prior_durations else 0
+        cycle_trend = None
+        if prior_start and prior_mean_seconds > 0 and mean_seconds > 0:
+            d_sec = mean_seconds - prior_mean_seconds
+            cycle_trend = f"{'+' if d_sec > 0 else '-'}{self.format_duration(abs(d_sec))}"
+
+        # KPI 4: Quality Rate
+        cards_for_quality = curr_completed if len(curr_completed) >= 3 else [c for c in all_cards if c.get("status") in ("qa", "completed")]
+        if not cards_for_quality:
+            cards_for_quality = all_cards
+
+        reviewed_cards = []
+        for c in cards_for_quality:
+            revs = c.get("reviews") or []
+            rounds = [r.get("round", 1) for r in revs]
+            if not rounds:
+                rounds = [cl.get("review_round", 1) for cl in (c.get("changelog") or []) if cl.get("has_review")]
+            if rounds or revs:
+                max_r = max(rounds) if rounds else 1
+                reviewed_cards.append((c, max_r))
+
+        r1_count = sum(1 for _, mr in reviewed_cards if mr == 1)
+        r2_count = sum(1 for _, mr in reviewed_cards if mr == 2)
+        r3_plus_count = sum(1 for _, mr in reviewed_cards if mr >= 3)
+        total_rev = len(reviewed_cards)
+        first_pass_rate = round((r1_count / total_rev) * 100, 1) if total_rev > 0 else 100.0
+
+        gate_growth = self._parse_gate_runs_from_quality()
+        latest_test_count = gate_growth[-1]["tests"] if gate_growth else len(all_cards)
+
+        # Chart 1: Daily Throughput Series
+        commits_by_date: dict[str, list[dict[str, Any]]] = {}
+        for cm in curr_commits:
+            commits_by_date.setdefault(cm.get("date", ""), []).append(cm)
+
+        daily_throughput_series = []
+        for d in dates:
+            d_cards = [c for c in curr_completed if c.get("_comp_date") == d]
+            d_commits = commits_by_date.get(d, [])
+            f_cnt = sum(1 for c in d_cards if str(c.get("type", "")).lower() == "feature")
+            fix_cnt = sum(1 for c in d_cards if str(c.get("type", "")).lower() == "fix")
+            chore_cnt = sum(1 for c in d_cards if str(c.get("type", "")).lower() in ("chore", "debt", "refactor"))
+            docs_cnt = sum(1 for c in d_cards if str(c.get("type", "")).lower() == "docs")
+            other_cnt = len(d_cards) - (f_cnt + fix_cnt + chore_cnt + docs_cnt)
+
+            daily_throughput_series.append({
+                "date": d,
+                "label": self._format_analytics_date_label(d),
+                "feature": f_cnt,
+                "fix": fix_cnt,
+                "chore": chore_cnt,
+                "debt": chore_cnt,
+                "other": max(0, other_cnt),
+                "total_completed": len(d_cards),
+                "commits": len(d_commits),
+                "lines_added": sum(c.get("added", 0) for c in d_commits),
+                "lines_deleted": sum(c.get("deleted", 0) for c in d_commits),
+            })
+
+        # Chart 2: Cumulative Burnup Series
+        burnup_series = []
+        for d in dates:
+            cum_comp = sum(1 for c in all_cards if c.get("status") == "completed" and (c.get("_comp_date") or "") <= d)
+            cum_created = sum(1 for c in all_cards if (c.get("_cr_date") or "") <= d)
+            burnup_series.append({
+                "date": d,
+                "label": self._format_analytics_date_label(d),
+                "cumulative_completed": cum_comp,
+                "cumulative_created": cum_created,
+                "in_flight": max(0, cum_created - cum_comp),
+            })
+
+        # Chart 3: Work Composition
+        type_counter: dict[str, int] = {}
+        target_cards_for_comp = curr_completed if curr_completed else all_cards
+        for c in target_cards_for_comp:
+            t = str(c.get("type") or "feature").lower().strip()
+            type_counter[t] = type_counter.get(t, 0) + 1
+        total_types = sum(type_counter.values()) or 1
+        by_type = [
+            {"type": t, "count": cnt, "pct": round((cnt / total_types) * 100, 1)}
+            for t, cnt in sorted(type_counter.items(), key=lambda x: x[1], reverse=True)
+        ]
+
+        # Agents
+        agent_counter: dict[str, int] = {}
+        for c in target_cards_for_comp:
+            for cl in (c.get("changelog") or []):
+                ag = cl.get("agent")
+                if ag:
+                    clean_ag = self._clean_agent_display_name(ag)
+                    agent_counter[clean_ag] = agent_counter.get(clean_ag, 0) + 1
+        total_ag = sum(agent_counter.values()) or 1
+        by_agent = [
+            {"agent": ag, "count": cnt, "pct": round((cnt / total_ag) * 100, 1)}
+            for ag, cnt in sorted(agent_counter.items(), key=lambda x: x[1], reverse=True)[:8]
+        ]
+
+        # Chart 4: Quality & Review Friction
+        friction_rounds = [
+            {"round": "Round 1 PASS", "count": r1_count, "pct": round((r1_count / (total_rev or 1)) * 100, 1), "color": "emerald"},
+            {"round": "Round 2 PASS", "count": r2_count, "pct": round((r2_count / (total_rev or 1)) * 100, 1), "color": "amber"},
+            {"round": "Round 3+ PASS", "count": r3_plus_count, "pct": round((r3_plus_count / (total_rev or 1)) * 100, 1), "color": "rose"},
+        ]
+
+        # Stories list for drill-down (window completed + all in-progress/qa)
+        drill_down_stories = []
+        stories_set: set[str] = set()
+        for c in (curr_completed + [c for c in all_cards if c.get("status") in ("in-progress", "qa")]):
+            cid = c.get("mn_id") or c.get("id") or ""
+            if cid in stories_set:
+                continue
+            stories_set.add(cid)
+            cl = c.get("changelog") or []
+            lead = cl[0].get("agent", "") if cl else ""
+            if lead:
+                lead = self._clean_agent_display_name(lead)
+            drill_down_stories.append({
+                "id": cid,
+                "title": c.get("title", ""),
+                "type": c.get("type", "feature"),
+                "status": c.get("status", "backlog"),
+                "completed_date": c.get("_comp_date"),
+                "created_date": c.get("_cr_date"),
+                "duration": c.get("duration_formatted", "—"),
+                "elapsed_seconds": c.get("elapsed_seconds", 0),
+                "lead": lead,
+                "review_rounds": c.get("review_count", 0),
+                "closeout": c.get("closeout"),
+                "file_path": c.get("file_path", ""),
+            })
+
+        return {
+            "window": norm_window,
+            "project": self.project.get("slug") or "current",
+            "kpis": {
+                "throughput": {
+                    "value": tp_value,
+                    "trend": trend_tp,
+                    "prior_value": prior_tp,
+                    "unit": "stories",
+                },
+                "work_volume": {
+                    "commits": commit_count,
+                    "lines_added": lines_added,
+                    "lines_deleted": lines_deleted,
+                    "churn_net": lines_added - lines_deleted,
+                    "prior_commits": prior_commit_count,
+                    "trend": trend_commits,
+                },
+                "cycle_time": {
+                    "mean_seconds": mean_seconds,
+                    "formatted": self.format_duration(mean_seconds) if mean_seconds > 0 else "—",
+                    "trend": cycle_trend,
+                },
+                "quality_rate": {
+                    "first_pass_rate": first_pass_rate,
+                    "total_reviewed": total_rev,
+                    "r1_pass_count": r1_count,
+                    "r2_plus_count": r2_count + r3_plus_count,
+                    "test_count": latest_test_count,
+                },
+            },
+            "charts": {
+                "daily_throughput": {
+                    "dates": dates,
+                    "series": daily_throughput_series,
+                    "story_types": ["feature", "fix", "chore", "debt", "other"],
+                },
+                "burnup": {
+                    "dates": dates,
+                    "series": burnup_series,
+                },
+                "work_composition": {
+                    "by_type": by_type,
+                    "by_agent": by_agent,
+                },
+                "quality_friction": {
+                    "rounds": friction_rounds,
+                    "test_suite_growth": gate_growth,
+                },
+            },
+            "stories": drill_down_stories,
+            "projects_summary": [
+                {
+                    "slug": self.project.get("slug") or "current",
+                    "name": self.project.get("name") or "Current Project",
+                    "prefix": self.prefix,
+                    "completed": tp_value,
+                    "commits": commit_count,
+                    "churn_added": lines_added,
+                    "churn_deleted": lines_deleted,
+                    "active_count": len([s for s in drill_down_stories if s.get("status") in ("in-progress", "qa")]),
+                }
+            ],
+        }
+
+    def _compute_portfolio_analytics(self, window: str = "7d") -> dict[str, Any]:
+        try:
+            from board import projects
+        except ImportError:
+            try:
+                import projects
+            except ImportError:
+                projects = None
+
+        registry_projects: dict[str, Any] = {}
+        if projects:
+            try:
+                reg = projects.load_registry()
+                registry_projects = reg.get("projects", {})
+            except Exception:
+                registry_projects = {}
+
+        if not registry_projects:
+            single = self._compute_project_analytics(window)
+            single["project"] = "all"
+            return single
+
+        sub_analytics: list[dict[str, Any]] = []
+        projects_summary: list[dict[str, Any]] = []
+
+        cur_slug = self.project.get("slug")
+        for p_slug, p_conf in registry_projects.items():
+            try:
+                if cur_slug and p_slug == cur_slug:
+                    p_parser = self
+                else:
+                    p_parser = PMParser(project=p_conf)
+                p_ana = p_parser._compute_project_analytics(window)
+                sub_analytics.append(p_ana)
+                projects_summary.append({
+                    "slug": p_slug,
+                    "name": p_conf.get("name") or p_slug,
+                    "prefix": p_conf.get("prefix") or "",
+                    "completed": p_ana["kpis"]["throughput"]["value"],
+                    "commits": p_ana["kpis"]["work_volume"]["commits"],
+                    "churn_added": p_ana["kpis"]["work_volume"]["lines_added"],
+                    "churn_deleted": p_ana["kpis"]["work_volume"]["lines_deleted"],
+                    "active_count": len([s for s in p_ana["stories"] if s.get("status") in ("in-progress", "qa")]),
+                })
+            except Exception:
+                pass
+
+        if not sub_analytics:
+            single = self._compute_project_analytics(window)
+            single["project"] = "all"
+            return single
+
+        total_completed = sum(a["kpis"]["throughput"]["value"] for a in sub_analytics)
+        prior_completed = sum(a["kpis"]["throughput"].get("prior_value", 0) for a in sub_analytics)
+        diff_tp = total_completed - prior_completed
+        trend_tp = f"+{diff_tp}" if diff_tp > 0 else f"{diff_tp}"
+
+        total_commits = sum(a["kpis"]["work_volume"]["commits"] for a in sub_analytics)
+        total_added = sum(a["kpis"]["work_volume"]["lines_added"] for a in sub_analytics)
+        total_deleted = sum(a["kpis"]["work_volume"]["lines_deleted"] for a in sub_analytics)
+        prior_commits = sum(a["kpis"]["work_volume"].get("prior_commits", 0) for a in sub_analytics)
+        diff_commits = total_commits - prior_commits
+        trend_commits = f"+{diff_commits}" if diff_commits > 0 else f"{diff_commits}"
+
+        all_stories = []
+        for a in sub_analytics:
+            all_stories.extend(a.get("stories", []))
+
+        completed_stories = [s for s in all_stories if s.get("status") == "completed"]
+        durations = [s.get("elapsed_seconds", 0) for s in completed_stories if s.get("elapsed_seconds", 0) > 0]
+        mean_seconds = int(sum(durations) / len(durations)) if durations else 0
+
+        date_map: dict[str, dict[str, Any]] = {}
+        for a in sub_analytics:
+            for s in a["charts"]["daily_throughput"]["series"]:
+                d = s["date"]
+                if d not in date_map:
+                    date_map[d] = {
+                        "date": d,
+                        "label": s.get("label") or self._format_analytics_date_label(d),
+                        "feature": 0,
+                        "fix": 0,
+                        "chore": 0,
+                        "debt": 0,
+                        "other": 0,
+                        "total_completed": 0,
+                        "commits": 0,
+                        "lines_added": 0,
+                        "lines_deleted": 0,
+                    }
+                for k in ("feature", "fix", "chore", "debt", "other", "total_completed", "commits", "lines_added", "lines_deleted"):
+                    date_map[d][k] += s.get(k, 0)
+
+        sorted_dates = sorted(date_map.keys())
+        merged_throughput_series = [date_map[d] for d in sorted_dates]
+
+        burnup_map: dict[str, dict[str, Any]] = {}
+        for a in sub_analytics:
+            for b in a["charts"]["burnup"]["series"]:
+                d = b["date"]
+                if d not in burnup_map:
+                    burnup_map[d] = {
+                        "date": d,
+                        "label": b.get("label") or self._format_analytics_date_label(d),
+                        "cumulative_completed": 0,
+                        "cumulative_created": 0,
+                        "in_flight": 0,
+                    }
+                burnup_map[d]["cumulative_completed"] += b.get("cumulative_completed", 0)
+                burnup_map[d]["cumulative_created"] += b.get("cumulative_created", 0)
+                burnup_map[d]["in_flight"] += b.get("in_flight", 0)
+
+        merged_burnup_series = [burnup_map[d] for d in sorted(burnup_map.keys())]
+
+        type_counts: dict[str, int] = {}
+        for a in sub_analytics:
+            for item in a["charts"]["work_composition"]["by_type"]:
+                type_counts[item["type"]] = type_counts.get(item["type"], 0) + item["count"]
+        total_type_count = sum(type_counts.values()) or 1
+        merged_by_type = [
+            {"type": t, "count": cnt, "pct": round((cnt / total_type_count) * 100, 1)}
+            for t, cnt in sorted(type_counts.items(), key=lambda x: x[1], reverse=True)
+        ]
+
+        agent_counts: dict[str, int] = {}
+        for a in sub_analytics:
+            for item in a["charts"]["work_composition"]["by_agent"]:
+                agent_counts[item["agent"]] = agent_counts.get(item["agent"], 0) + item["count"]
+        total_agent_count = sum(agent_counts.values()) or 1
+        merged_by_agent = [
+            {"agent": ag, "count": cnt, "pct": round((cnt / total_agent_count) * 100, 1)}
+            for ag, cnt in sorted(agent_counts.items(), key=lambda x: x[1], reverse=True)[:8]
+        ]
+
+        r1_total = sum(a["kpis"]["quality_rate"].get("r1_pass_count", 0) for a in sub_analytics)
+        r2_total = sum(a["kpis"]["quality_rate"].get("r2_plus_count", 0) for a in sub_analytics)
+        total_rev = r1_total + r2_total
+        first_pass_pct = round((r1_total / total_rev) * 100, 1) if total_rev > 0 else 100.0
+        max_tests = max((a["kpis"]["quality_rate"].get("test_count", 0) for a in sub_analytics), default=0)
+
+        return {
+            "window": window,
+            "project": "all",
+            "kpis": {
+                "throughput": {
+                    "value": total_completed,
+                    "trend": trend_tp if window != "all" else None,
+                    "prior_value": prior_completed,
+                    "unit": "stories",
+                },
+                "work_volume": {
+                    "commits": total_commits,
+                    "lines_added": total_added,
+                    "lines_deleted": total_deleted,
+                    "churn_net": total_added - total_deleted,
+                    "prior_commits": prior_commits,
+                    "trend": trend_commits if window != "all" else None,
+                },
+                "cycle_time": {
+                    "mean_seconds": mean_seconds,
+                    "formatted": self.format_duration(mean_seconds) if mean_seconds > 0 else "—",
+                    "trend": None,
+                },
+                "quality_rate": {
+                    "first_pass_rate": first_pass_pct,
+                    "total_reviewed": total_rev,
+                    "r1_pass_count": r1_total,
+                    "r2_plus_count": r2_total,
+                    "test_count": max_tests,
+                },
+            },
+            "charts": {
+                "daily_throughput": {
+                    "dates": sorted_dates,
+                    "series": merged_throughput_series,
+                    "story_types": ["feature", "fix", "chore", "debt", "other"],
+                },
+                "burnup": {
+                    "dates": sorted(burnup_map.keys()),
+                    "series": merged_burnup_series,
+                },
+                "work_composition": {
+                    "by_type": merged_by_type,
+                    "by_agent": merged_by_agent,
+                },
+                "quality_friction": {
+                    "rounds": [
+                        {"round": "Round 1 PASS", "count": r1_total, "pct": round((r1_total / (total_rev or 1)) * 100, 1), "color": "emerald"},
+                        {"round": "Round 2+ PASS", "count": r2_total, "pct": round((r2_total / (total_rev or 1)) * 100, 1), "color": "amber"},
+                    ],
+                    "test_suite_growth": sub_analytics[0]["charts"]["quality_friction"].get("test_suite_growth", []) if sub_analytics else [],
+                },
+            },
+            "stories": all_stories,
+            "projects_summary": projects_summary,
+        }
+
+    def get_analytics_summary(
+        self, window: str = "7d", project_slug: str | None = None
+    ) -> dict[str, Any]:
+        """Calculates executive progress charts, KPIs and trends for the requested time window."""
+        norm_window = (window or "7d").lower().strip()
+        if norm_window not in ("7d", "14d", "30d", "all"):
+            norm_window = "7d"
+
+        cache_key = f"{norm_window}:{project_slug or ''}"
+        now = time.time()
+        if cache_key in self._analytics_cache:
+            c_time, c_data = self._analytics_cache[cache_key]
+            if (now - c_time) < 15.0:
+                return c_data
+
+        if project_slug == "all":
+            result = self._compute_portfolio_analytics(norm_window)
+        elif project_slug and project_slug != self.project.get("slug"):
+            try:
+                from board import projects
+            except ImportError:
+                try:
+                    import projects
+                except ImportError:
+                    projects = None
+            reg_projects = projects.load_registry().get("projects", {}) if projects else {}
+            if project_slug in reg_projects:
+                target_parser = PMParser(project=reg_projects[project_slug])
+                result = target_parser.get_analytics_summary(window=norm_window)
+            else:
+                result = self._compute_project_analytics(norm_window)
+        else:
+            result = self._compute_project_analytics(norm_window)
+
+        self._analytics_cache[cache_key] = (now, result)
+        return result
 
     # --------------------------------------------------------------------------
     # Write-Back Operations

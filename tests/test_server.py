@@ -1288,19 +1288,30 @@ def test_favicon_served_successfully(server):
         assert "<svg" in svg_text
 
 
+def test_server_api_analytics_endpoint(server, external_project):
+    base, srv = server
+    code, docs = external_project
+    (docs / "cards").mkdir(parents=True, exist_ok=True)
 
+    status, res = post(
+        f"{base}/api/projects/configure",
+        {"name": "Story App", "code_path": str(code), "docs_path": str(docs), "prefix": "APP"},
+    )
+    assert status == 200 and res["success"]
 
+    # Test GET /api/analytics default (7d)
+    status, body = get(f"{base}/api/analytics")
+    assert status == 200
+    payload = json.loads(body)
+    assert payload["window"] == "7d"
+    assert "kpis" in payload
+    assert "charts" in payload
 
-
-
-
-
-
-
-
-
-
-
-
-
+    # Test GET /api/analytics with window=14d and project=all
+    status, body = get(f"{base}/api/analytics?window=14d&project=all")
+    assert status == 200
+    payload = json.loads(body)
+    assert payload["window"] == "14d"
+    assert payload["project"] == "all"
+    assert len(payload["charts"]["daily_throughput"]["dates"]) == 14
 
