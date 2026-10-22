@@ -774,6 +774,33 @@ class PMParser:
                 warnings_list.append(warn_msg)
                 print(f"[WARN] {warn_msg}", file=sys.stderr)
 
+        # Smart hybrid sizing (Story 29): read points/estimate frontmatter, or default:
+        # Feature = 3 pts, Improvement = 2 pts, Bug/Fix/Chore/Docs/Other = 1 pt.
+        raw_pts = frontmatter.get("points") or frontmatter.get("estimate")
+        parsed_pts: int | None = None
+        if raw_pts is not None:
+            try:
+                p_fl = float(str(raw_pts).strip())
+                parsed_pts = int(p_fl) if p_fl.is_integer() else int(p_fl)
+            except (ValueError, TypeError):
+                pass
+        c_type_norm = str(frontmatter.get("type") or "feature").lower().strip()
+        if parsed_pts is not None:
+            pts_val = max(1, parsed_pts)
+            pts_custom = True
+        elif c_type_norm == "feature":
+            pts_val = 3
+            pts_custom = False
+        elif c_type_norm in ("improvement", "enhance", "enhancement"):
+            pts_val = 2
+            pts_custom = False
+        else:
+            pts_val = 1
+            pts_custom = False
+
+        sev_raw = str(frontmatter.get("severity") or frontmatter.get("priority") or "").strip()
+        sev_val = sev_raw if sev_raw else None
+
         card_dict = {
             "mn_id": mn_id,
             "id": mn_id,
@@ -782,6 +809,10 @@ class PMParser:
             "story": str(frontmatter.get("sprint", "")),
             "schema": frontmatter.get("_schema", "sprint"),
             "type": frontmatter.get("type", "feature"),
+            "points": pts_val,
+            "points_custom": pts_custom,
+            "severity": sev_val,
+            "blocked": bool(frontmatter.get("blocked") is True or str(frontmatter.get("blocked", "")).lower() == "true"),
             "extra_tags": self._card_extra_tags(frontmatter),
             "status": status,
             "warnings": warnings_list,
@@ -1112,6 +1143,9 @@ class PMParser:
                         "story": clean_g_sprint,
                         "schema": "story",
                         "type": "grill",
+                        "points": 3,
+                        "points_custom": False,
+                        "severity": None,
                         "is_grill": True,
                         "status": "in-progress",
                         "warnings": [],
@@ -3247,16 +3281,405 @@ class PMParser:
                     })
         return growth
 
-    def _compute_project_analytics(self, window: str = "7d") -> dict[str, Any]:
-        norm_window = (window or "7d").lower().strip()
-        if norm_window not in ("7d", "14d", "30d", "all"):
-            norm_window = "7d"
+    @staticmethod
+    def _is_critical_defect(card: dict[str, Any]) -> bool:
+        """Determines if an open bug/fix card is Critical (frontmatter severity/priority or title/tags keyword)."""
+        c_type = str(card.get("type") or "").lower().strip()
+        if c_type not in ("fix", "bug"):
+            return False
+        sev = str(card.get("severity") or card.get("priority") or "").lower().strip()
+        if sev in ("critical", "high", "p0", "p1", "urgent", "blocker"):
+            return True
+        title = str(card.get("title") or "").lower()
+        if re.search(r"\b(critical|p0|p1|blocker)\b", title, re.IGNORECASE):
+            return True
+        tags = [str(t).lower() for t in (card.get("extra_tags") or [])]
+        for t in tags:
+            if re.search(r"\b(critical|p0|p1|blocker)\b", t, re.IGNORECASE):
+                return True
+        return False
+
+    @staticmethod
+    def _get_card_stage(card: dict[str, Any]) -> str:
+        """Maps an active card into one of the 4 native WIP stages (or backlog):
+        ready, development, qa, blocked.
+        """
+        st = str(card.get("status") or "backlog").lower().strip()
+        tags = [str(t).lower() for t in (card.get("extra_tags") or [])]
+        if st == "blocked" or "blocked" in tags or card.get("blocked") is True:
+            return "blocked"
+        if st in ("in-progress", "wip", "dev", "development"):
+            return "development"
+        if st in ("qa", "qa-verification", "verification"):
+            return "qa"
+        if st in ("story-backlog", "sprint-backlog"):
+            return "ready"
+        if st == "backlog":
+            return "backlog"
+        return "development"
+
+    @staticmethod
+    def _get_card_days_in_stage(card: dict[str, Any], ref_today: datetime.date) -> int:
+        """Calculates elapsed days a card has been in its current stage without movement."""
+        changelog = card.get("changelog") or []
+        last_date_str = None
+        if changelog:
+            for cl in reversed(changelog):
+                d_val = str(cl.get("date") or "")
+                m = re.match(r"^(\d{4}-\d{2}-\d{2})", d_val)
+                if m:
+                    last_date_str = m.group(1)
+                    break
+        if not last_date_str and card.get("qa_entered_at"):
+            m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(card["qa_entered_at"]))
+            if m:
+                last_date_str = m.group(1)
+        if not last_date_str:
+            m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(card.get("created_date") or card.get("created_at") or ""))
+            if m:
+                last_date_str = m.group(1)
+        if not last_date_str:
+            return 0
+        try:
+            d_obj = datetime.date.fromisoformat(last_date_str[:10])
+            return max(0, (ref_today - d_obj).days)
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _is_reopened_or_bounced(card: dict[str, Any]) -> bool:
+        """Detects whether a card was reopened / bounced during review or QA."""
+        reviews = card.get("reviews") or []
+        if len(reviews) > 1:
+            return True
+        for r in reviews:
+            rnd = r.get("round")
+            if rnd is not None and rnd > 1:
+                return True
+        changelog = card.get("changelog") or []
+        for cl in changelog:
+            rr = cl.get("review_round")
+            if rr is not None and rr > 1:
+                return True
+            what = str(cl.get("what") or "").lower()
+            if re.search(r"\b(round\s+[2-9]|rework|bounced|qa finding|review finding|findings fixed)\b", what):
+                return True
+        return False
+
+    def _compute_pipeline_health(
+        self, all_cards: list[dict[str, Any]], ref_today: datetime.date
+    ) -> dict[str, Any]:
+        """Calculates Pipeline Health & WIP Stagnation Monitor (7-day aging threshold)."""
+        active_cards = [
+            c for c in all_cards
+            if str(c.get("status") or "").lower() not in ("completed", "done", "closed")
+        ]
+
+        stage_buckets: dict[str, list[dict[str, Any]]] = {
+            "ready": [],
+            "development": [],
+            "qa": [],
+            "blocked": [],
+        }
+
+        stuck_tickets: list[dict[str, Any]] = []
+        reopened_count = 0
+
+        for c in active_cards:
+            stage_key = self._get_card_stage(c)
+            days_in_stage = self._get_card_days_in_stage(c, ref_today)
+            is_aging = days_in_stage > 7
+            is_reopened = self._is_reopened_or_bounced(c)
+            if is_reopened:
+                reopened_count += 1
+
+            c["_days_in_stage"] = days_in_stage
+            c["_is_aging"] = is_aging
+            c["_stage_key"] = stage_key
+
+            if stage_key in stage_buckets:
+                stage_buckets[stage_key].append(c)
+
+            if is_aging:
+                cl = c.get("changelog") or []
+                lead = cl[0].get("agent", "") if cl else ""
+                if lead:
+                    lead = self._clean_agent_display_name(lead)
+                stage_names = {
+                    "ready": "Ready to Build",
+                    "development": "Development",
+                    "qa": "QA & Verification",
+                    "blocked": "Blocked",
+                    "backlog": "Backlog",
+                }
+                stuck_tickets.append({
+                    "id": c.get("mn_id") or c.get("id"),
+                    "title": c.get("title", ""),
+                    "stage": stage_names.get(stage_key, stage_key.title()),
+                    "stage_id": stage_key,
+                    "days_in_stage": days_in_stage,
+                    "points": c.get("points", 1),
+                    "type": c.get("type", "feature"),
+                    "lead": lead,
+                    "is_reopened": is_reopened,
+                    "file_path": c.get("file_path", ""),
+                })
+
+        stuck_tickets.sort(key=lambda t: t["days_in_stage"], reverse=True)
+
+        stages_meta = [
+            ("ready", "Ready to Build", "sky"),
+            ("development", "Development", "amber"),
+            ("qa", "QA & Verification", "purple"),
+            ("blocked", "Blocked", "rose"),
+        ]
+
+        stages_result = []
+        for s_id, s_name, s_color in stages_meta:
+            items = stage_buckets[s_id]
+            stages_result.append({
+                "id": s_id,
+                "name": s_name,
+                "count": len(items),
+                "points": sum(c.get("points", 1) for c in items),
+                "aging_count": sum(1 for c in items if c.get("_is_aging")),
+                "color": s_color,
+            })
+
+        total_wip = sum(len(stage_buckets[k]) for k in stage_buckets)
+        total_wip_points = sum(sum(c.get("points", 1) for c in stage_buckets[k]) for k in stage_buckets)
+
+        return {
+            "stages": stages_result,
+            "total_wip": total_wip,
+            "total_wip_points": total_wip_points,
+            "aging_threshold_days": 7,
+            "total_aging": len(stuck_tickets),
+            "reopened_count": reopened_count,
+            "stuck_tickets": stuck_tickets,
+        }
+
+    def _generate_weekly_cohorts(
+        self,
+        all_cards: list[dict[str, Any]],
+        commits: list[dict[str, Any]],
+        window_preset: str,
+        ref_today: datetime.date,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        current_monday = ref_today - datetime.timedelta(days=ref_today.weekday())
+        current_sunday = current_monday + datetime.timedelta(days=6)
+
+        norm = (window_preset or "6w").lower().strip()
+        if norm == "4w":
+            num_weeks = 4
+        elif norm == "qtd":
+            q_month = ((ref_today.month - 1) // 3) * 3 + 1
+            q_start = datetime.date(ref_today.year, q_month, 1)
+            q_monday = q_start - datetime.timedelta(days=q_start.weekday())
+            num_weeks = max(1, (current_monday - q_monday).days // 7 + 1)
+        elif norm == "all":
+            known_dates = [c["_cr_date"] for c in all_cards if c.get("_cr_date")] + [c["_comp_date"] for c in all_cards if c.get("_comp_date")]
+            if known_dates:
+                earliest_d = min(datetime.date.fromisoformat(d[:10]) for d in known_dates)
+            else:
+                earliest_d = current_monday - datetime.timedelta(weeks=5)
+            earliest_monday = earliest_d - datetime.timedelta(days=earliest_d.weekday())
+            num_weeks = max(1, (current_monday - earliest_monday).days // 7 + 1)
+            if num_weeks > 52:
+                num_weeks = 52
+        elif norm in ("7d", "14d"):
+            num_weeks = 2 if norm == "7d" else 3
+        elif norm == "30d":
+            num_weeks = 5
+        else:
+            num_weeks = 6
+
+        week_defs = []
+        for i in range(num_weeks - 1, -1, -1):
+            w_start = current_monday - datetime.timedelta(weeks=i)
+            w_end = w_start + datetime.timedelta(days=6)
+            week_defs.append((w_start, w_end))
+
+        weekly_cohorts_chrono = []
+        scope_burnup_series = []
+        net_bug_flow_series = []
+        weekly_velocity_series = []
+
+        for w_start, w_end in week_defs:
+            w_start_str = w_start.isoformat()
+            w_end_str = w_end.isoformat()
+            iso_year, iso_week, _ = w_start.isocalendar()
+            label = f"{w_start.strftime('%b %d')} - {w_end.strftime('%b %d')}"
+            full_label = f"W{iso_week} · {label}"
+            cohort_id = f"{iso_year}-W{iso_week:02d}"
+
+            completed_in_week = [
+                c for c in all_cards
+                if c.get("status") == "completed" and c.get("_comp_date") and w_start_str <= c["_comp_date"] <= w_end_str
+            ]
+            completed_in_week.sort(key=lambda c: str(c.get("_comp_date") or ""), reverse=True)
+
+            points_total = sum(c.get("points", 1) for c in completed_in_week)
+            feat_points = sum(c.get("points", 1) for c in completed_in_week if str(c.get("type", "")).lower() == "feature")
+            feat_cap_pct = round((feat_points / points_total) * 100, 1) if points_total > 0 else 0.0
+
+            feat_cnt = sum(1 for c in completed_in_week if str(c.get("type", "")).lower() == "feature")
+            fix_cnt = sum(1 for c in completed_in_week if str(c.get("type", "")).lower() in ("fix", "bug"))
+            imp_cnt = sum(1 for c in completed_in_week if str(c.get("type", "")).lower() in ("improvement", "enhance", "enhancement"))
+            chore_cnt = sum(1 for c in completed_in_week if str(c.get("type", "")).lower() in ("chore", "debt", "refactor"))
+            docs_cnt = sum(1 for c in completed_in_week if str(c.get("type", "")).lower() == "docs")
+            other_cnt = max(0, len(completed_in_week) - (feat_cnt + fix_cnt + imp_cnt + chore_cnt + docs_cnt))
+
+            bugs_found = sum(1 for c in all_cards if str(c.get("type", "")).lower() in ("fix", "bug") and c.get("_cr_date") and w_start_str <= c["_cr_date"] <= w_end_str)
+            bugs_fixed = sum(1 for c in all_cards if str(c.get("type", "")).lower() in ("fix", "bug") and c.get("status") == "completed" and c.get("_comp_date") and w_start_str <= c["_comp_date"] <= w_end_str)
+            net_bugs = bugs_fixed - bugs_found
+            net_label = f"+{net_bugs} Net Fixed" if net_bugs >= 0 else f"{net_bugs} Bug Drag"
+
+            durations = [c.get("elapsed_seconds", 0) for c in completed_in_week if (c.get("elapsed_seconds") or 0) > 0]
+            mean_dur = int(sum(durations) / len(durations)) if durations else 0
+            dur_fmt = self.format_duration(mean_dur) if mean_dur > 0 else "—"
+
+            r1_pass = sum(1 for c in completed_in_week if (c.get("review_count") or 1) <= 1)
+            qa_pass_pct = round((r1_pass / len(completed_in_week)) * 100, 1) if completed_in_week else 100.0
+
+            # Momentum status heuristic (Settled Decision 6)
+            non_feat_pts = sum(c.get("points", 1) for c in completed_in_week if str(c.get("type", "")).lower() in ("fix", "bug", "chore", "debt", "refactor", "docs"))
+            has_drag = (net_bugs < 0) or (qa_pass_pct < 70.0) or (points_total > 0 and (non_feat_pts / points_total) > 0.5)
+
+            if (feat_cnt + imp_cnt) == 0:
+                momentum = "stagnated"
+                momentum_label = "Stagnated 🔴"
+                momentum_badge = "🔴 Stagnated"
+            elif has_drag:
+                momentum = "bug_drag"
+                momentum_label = "High Bug Drag 🟡"
+                momentum_badge = "🟡 High Bug Drag"
+            else:
+                momentum = "advancing"
+                momentum_label = "Advancing 🟢"
+                momentum_badge = "🟢 Advancing"
+
+            stories_in_cohort = []
+            for sc in completed_in_week:
+                cl = sc.get("changelog") or []
+                lead = cl[0].get("agent", "") if cl else ""
+                if lead:
+                    lead = self._clean_agent_display_name(lead)
+                stories_in_cohort.append({
+                    "id": sc.get("mn_id") or sc.get("id"),
+                    "title": sc.get("title", ""),
+                    "type": sc.get("type", "feature"),
+                    "points": sc.get("points", 1),
+                    "status": "completed",
+                    "completed_date": sc.get("_comp_date"),
+                    "created_date": sc.get("_cr_date"),
+                    "duration": sc.get("duration_formatted", "—"),
+                    "elapsed_seconds": sc.get("elapsed_seconds", 0),
+                    "lead": lead,
+                    "review_rounds": sc.get("review_count", 0),
+                    "closeout": sc.get("closeout"),
+                    "file_path": sc.get("file_path", ""),
+                })
+
+            cohort_dict = {
+                "id": cohort_id,
+                "label": label,
+                "full_label": full_label,
+                "week_number": iso_week,
+                "year": iso_year,
+                "start_date": w_start_str,
+                "end_date": w_end_str,
+                "stories_count": len(completed_in_week),
+                "velocity_points": points_total,
+                "feature_points": feat_points,
+                "feature_capacity_pct": feat_cap_pct,
+                "work_mix": {
+                    "feature": feat_cnt,
+                    "fix": fix_cnt,
+                    "improvement": imp_cnt,
+                    "chore": chore_cnt,
+                    "docs": docs_cnt,
+                    "other": other_cnt,
+                },
+                "net_bug_flow": {
+                    "found": bugs_found,
+                    "fixed": bugs_fixed,
+                    "net": net_bugs,
+                    "impact_label": net_label,
+                },
+                "cycle_time": {
+                    "mean_seconds": mean_dur,
+                    "formatted": dur_fmt,
+                },
+                "qa_pass_rate": qa_pass_pct,
+                "momentum": momentum,
+                "momentum_label": momentum_label,
+                "momentum_badge": momentum_badge,
+                "stories": stories_in_cohort,
+            }
+            weekly_cohorts_chrono.append(cohort_dict)
+
+            cum_scope = sum(1 for c in all_cards if (c.get("_cr_date") or "") <= w_end_str)
+            cum_done = sum(1 for c in all_cards if c.get("status") == "completed" and (c.get("_comp_date") or "") <= w_end_str)
+            scope_burnup_series.append({
+                "date": w_end_str,
+                "label": label,
+                "full_label": full_label,
+                "total_scope": cum_scope,
+                "cumulative_created": cum_scope,
+                "cumulative_completed": cum_done,
+                "in_flight": max(0, cum_scope - cum_done),
+            })
+
+            net_bug_flow_series.append({
+                "date": w_end_str,
+                "label": label,
+                "full_label": full_label,
+                "bugs_found": bugs_found,
+                "bugs_fixed": bugs_fixed,
+                "net": net_bugs,
+                "net_label": net_label,
+            })
+
+            commits_in_w = [cm for cm in commits if w_start_str <= cm.get("date", "") <= w_end_str]
+            weekly_velocity_series.append({
+                "date": w_end_str,
+                "label": label,
+                "full_label": full_label,
+                "feature": feat_cnt,
+                "fix": fix_cnt,
+                "improvement": imp_cnt,
+                "chore": chore_cnt,
+                "docs": docs_cnt,
+                "other": other_cnt,
+                "total_completed": len(completed_in_week),
+                "velocity_points": points_total,
+                "commits": len(commits_in_w),
+            })
+
+        cohorts_table = list(reversed(weekly_cohorts_chrono))
+        return cohorts_table, weekly_velocity_series, scope_burnup_series, net_bug_flow_series
+
+    def _compute_project_analytics(self, window: str = "6w") -> dict[str, Any]:
+        norm_window = (window or "6w").lower().strip()
+        if norm_window not in ("6w", "4w", "qtd", "all", "7d", "14d", "30d"):
+            norm_window = "6w"
 
         ref_today = datetime.date.today()
         all_cards = self.get_all_cards()
 
-        # Extract dates for cards
+        # Extract dates and ensure hybrid points for cards
         for c in all_cards:
+            if "points" not in c:
+                t = str(c.get("type") or "feature").lower().strip()
+                if t == "feature":
+                    c["points"] = 3
+                elif t in ("improvement", "enhance", "enhancement"):
+                    c["points"] = 2
+                else:
+                    c["points"] = 1
+                c["points_custom"] = False
+
             status = str(c.get("status") or "backlog").lower().strip()
             c_date = None
             if status == "completed":
@@ -3275,6 +3698,23 @@ class PMParser:
             cr_m = re.match(r"^(\d{4}-\d{2}-\d{2})", str(c.get("created_date") or c.get("created_at") or ""))
             c["_cr_date"] = cr_m.group(1) if cr_m else (c_date or ref_today.isoformat())
 
+        # Compute Pipeline Health (WIP stages, >7d aging threshold)
+        pipeline_health = self._compute_pipeline_health(all_cards, ref_today)
+
+        # Compute Open Defect Severity Counter (Critical vs Normal)
+        open_bugs = [
+            c for c in all_cards
+            if str(c.get("status") or "").lower() not in ("completed", "done", "closed")
+            and str(c.get("type") or "").lower() in ("fix", "bug")
+        ]
+        crit_bugs = [c for c in open_bugs if self._is_critical_defect(c)]
+        norm_bugs = [c for c in open_bugs if not self._is_critical_defect(c)]
+        open_defects = {
+            "critical": len(crit_bugs),
+            "normal": len(norm_bugs),
+            "total": len(open_bugs),
+        }
+
         # Determine date range & prior period
         if norm_window in ("7d", "14d", "30d"):
             days = 7 if norm_window == "7d" else (14 if norm_window == "14d" else 30)
@@ -3284,7 +3724,29 @@ class PMParser:
             prior_start = (ref_today - datetime.timedelta(days=2 * days - 1)).isoformat()
             prior_end = (ref_today - datetime.timedelta(days=days)).isoformat()
             since_date = prior_start
+        elif norm_window in ("6w", "4w"):
+            num_w = 6 if norm_window == "6w" else 4
+            cur_mon = ref_today - datetime.timedelta(days=ref_today.weekday())
+            start_dt = cur_mon - datetime.timedelta(weeks=num_w - 1)
+            end_dt = cur_mon + datetime.timedelta(days=6)
+            start_date = start_dt.isoformat()
+            end_date = end_dt.isoformat()
+            span_d = (end_dt - start_dt).days + 1
+            prior_start = (start_dt - datetime.timedelta(days=span_d)).isoformat()
+            prior_end = (start_dt - datetime.timedelta(days=1)).isoformat()
+            since_date = prior_start
+            dates = [(start_dt + datetime.timedelta(days=i)).isoformat() for i in range(span_d)]
+        elif norm_window == "qtd":
+            q_month = ((ref_today.month - 1) // 3) * 3 + 1
+            q_start = datetime.date(ref_today.year, q_month, 1)
+            start_date = q_start.isoformat()
+            end_date = ref_today.isoformat()
+            prior_start = None
+            prior_end = None
+            since_date = start_date
+            dates = [(q_start + datetime.timedelta(days=i)).isoformat() for i in range((ref_today - q_start).days + 1)]
         else:
+            # "all"
             prior_start = None
             prior_end = None
             since_date = None
@@ -3292,7 +3754,7 @@ class PMParser:
             if known_dates:
                 earliest_d = min(datetime.date.fromisoformat(d[:10]) for d in known_dates)
             else:
-                earliest_d = ref_today - datetime.timedelta(days=29)
+                earliest_d = ref_today - datetime.timedelta(days=42)
             if (ref_today - earliest_d).days > 90:
                 earliest_d = ref_today - datetime.timedelta(days=90)
             span = max(1, (ref_today - earliest_d).days + 1)
@@ -3300,7 +3762,7 @@ class PMParser:
             start_date = dates[0]
             end_date = dates[-1]
 
-        # Filter completed cards
+        # Filter completed cards in window & prior period
         if norm_window == "all":
             curr_completed = [c for c in all_cards if c.get("status") == "completed"]
         else:
@@ -3321,13 +3783,29 @@ class PMParser:
             curr_commits = [c for c in commits if start_date <= c.get("date", "") <= end_date]
         prior_commits = [c for c in commits if prior_start and prior_start <= c.get("date", "") <= prior_end]
 
+        # Generate Weekly Cohorts and Chart Series
+        cohorts, weekly_velocity_series, scope_burnup_series, net_bug_flow_series = self._generate_weekly_cohorts(
+            all_cards=all_cards,
+            commits=commits,
+            window_preset=norm_window,
+            ref_today=ref_today,
+        )
+
         # KPI 1: Throughput
         tp_value = len(curr_completed)
         prior_tp = len(prior_completed)
         diff_tp = tp_value - prior_tp
         trend_tp = (f"+{diff_tp}" if diff_tp > 0 else f"{diff_tp}") if prior_start else None
 
-        # KPI 2: Work Volume
+        # KPI 2: Velocity (Story Points & Feature Capacity %)
+        curr_pts = sum(c.get("points", 1) for c in curr_completed)
+        prior_pts = sum(c.get("points", 1) for c in prior_completed)
+        diff_pts = curr_pts - prior_pts
+        trend_pts = (f"+{diff_pts}" if diff_pts > 0 else f"{diff_pts}") if prior_start else None
+        feat_pts = sum(c.get("points", 1) for c in curr_completed if str(c.get("type", "")).lower() == "feature")
+        feat_cap_pct = round((feat_pts / curr_pts) * 100, 1) if curr_pts > 0 else 0.0
+
+        # Work Volume
         commit_count = len(curr_commits)
         lines_added = sum(c.get("added", 0) for c in curr_commits)
         lines_deleted = sum(c.get("deleted", 0) for c in curr_commits)
@@ -3369,7 +3847,10 @@ class PMParser:
         gate_growth = self._parse_gate_runs_from_quality()
         latest_test_count = gate_growth[-1]["tests"] if gate_growth else len(all_cards)
 
-        # Chart 1: Daily Throughput Series
+        # KPI 5: Stagnation / Pipeline Alert
+        stagnation_alert_level = "critical" if open_defects["critical"] > 0 or pipeline_health["total_aging"] > 2 else ("warning" if pipeline_health["total_aging"] > 0 else "healthy")
+
+        # Daily Throughput Series (for compatibility and daily inspection)
         commits_by_date: dict[str, list[dict[str, Any]]] = {}
         for cm in curr_commits:
             commits_by_date.setdefault(cm.get("date", ""), []).append(cm)
@@ -3379,7 +3860,7 @@ class PMParser:
             d_cards = [c for c in curr_completed if c.get("_comp_date") == d]
             d_commits = commits_by_date.get(d, [])
             f_cnt = sum(1 for c in d_cards if str(c.get("type", "")).lower() == "feature")
-            fix_cnt = sum(1 for c in d_cards if str(c.get("type", "")).lower() == "fix")
+            fix_cnt = sum(1 for c in d_cards if str(c.get("type", "")).lower() in ("fix", "bug"))
             chore_cnt = sum(1 for c in d_cards if str(c.get("type", "")).lower() in ("chore", "debt", "refactor"))
             docs_cnt = sum(1 for c in d_cards if str(c.get("type", "")).lower() == "docs")
             other_cnt = len(d_cards) - (f_cnt + fix_cnt + chore_cnt + docs_cnt)
@@ -3398,7 +3879,7 @@ class PMParser:
                 "lines_deleted": sum(c.get("deleted", 0) for c in d_commits),
             })
 
-        # Chart 2: Cumulative Burnup Series
+        # Cumulative Burnup Series (daily)
         burnup_series = []
         for d in dates:
             cum_comp = sum(1 for c in all_cards if c.get("status") == "completed" and (c.get("_comp_date") or "") <= d)
@@ -3411,7 +3892,7 @@ class PMParser:
                 "in_flight": max(0, cum_created - cum_comp),
             })
 
-        # Chart 3: Work Composition
+        # Work Composition
         type_counter: dict[str, int] = {}
         target_cards_for_comp = curr_completed if curr_completed else all_cards
         for c in target_cards_for_comp:
@@ -3437,7 +3918,7 @@ class PMParser:
             for ag, cnt in sorted(agent_counter.items(), key=lambda x: x[1], reverse=True)[:8]
         ]
 
-        # Chart 4: Quality & Review Friction
+        # Quality & Review Friction
         friction_rounds = [
             {"round": "Round 1 PASS", "count": r1_count, "pct": round((r1_count / (total_rev or 1)) * 100, 1), "color": "emerald"},
             {"round": "Round 2 PASS", "count": r2_count, "pct": round((r2_count / (total_rev or 1)) * 100, 1), "color": "amber"},
@@ -3460,6 +3941,7 @@ class PMParser:
                 "id": cid,
                 "title": c.get("title", ""),
                 "type": c.get("type", "feature"),
+                "points": c.get("points", 1),
                 "status": c.get("status", "backlog"),
                 "completed_date": c.get("_comp_date"),
                 "created_date": c.get("_cr_date"),
@@ -3471,6 +3953,35 @@ class PMParser:
                 "file_path": c.get("file_path", ""),
             })
 
+        # All Delivered Stories (for slide-over ticket drawer search)
+        all_delivered_stories = []
+        delivered_set: set[str] = set()
+        for c in [c for c in all_cards if c.get("status") == "completed"]:
+            cid = c.get("mn_id") or c.get("id") or ""
+            if cid in delivered_set:
+                continue
+            delivered_set.add(cid)
+            cl = c.get("changelog") or []
+            lead = cl[0].get("agent", "") if cl else ""
+            if lead:
+                lead = self._clean_agent_display_name(lead)
+            all_delivered_stories.append({
+                "id": cid,
+                "title": c.get("title", ""),
+                "type": c.get("type", "feature"),
+                "points": c.get("points", 1),
+                "status": "completed",
+                "completed_date": c.get("_comp_date"),
+                "created_date": c.get("_cr_date"),
+                "duration": c.get("duration_formatted", "—"),
+                "elapsed_seconds": c.get("elapsed_seconds", 0),
+                "lead": lead,
+                "review_rounds": c.get("review_count", 0),
+                "closeout": c.get("closeout"),
+                "file_path": c.get("file_path", ""),
+            })
+        all_delivered_stories.sort(key=lambda s: str(s.get("completed_date") or ""), reverse=True)
+
         return {
             "window": norm_window,
             "project": self.project.get("slug") or "current",
@@ -3480,6 +3991,13 @@ class PMParser:
                     "trend": trend_tp,
                     "prior_value": prior_tp,
                     "unit": "stories",
+                },
+                "velocity": {
+                    "value": curr_pts,
+                    "trend": trend_pts,
+                    "prior_value": prior_pts,
+                    "feature_capacity_pct": feat_cap_pct,
+                    "unit": "pts",
                 },
                 "work_volume": {
                     "commits": commit_count,
@@ -3501,7 +4019,18 @@ class PMParser:
                     "r2_plus_count": r2_count + r3_plus_count,
                     "test_count": latest_test_count,
                 },
+                "stagnation": {
+                    "active_wip": pipeline_health["total_wip"],
+                    "active_wip_points": pipeline_health["total_wip_points"],
+                    "aging_count": pipeline_health["total_aging"],
+                    "critical_bugs": open_defects["critical"],
+                    "reopened_count": pipeline_health["reopened_count"],
+                    "alert_level": stagnation_alert_level,
+                },
             },
+            "cohorts": cohorts,
+            "pipeline_health": pipeline_health,
+            "open_defects": open_defects,
             "charts": {
                 "daily_throughput": {
                     "dates": dates,
@@ -3511,6 +4040,15 @@ class PMParser:
                 "burnup": {
                     "dates": dates,
                     "series": burnup_series,
+                },
+                "weekly_velocity": {
+                    "series": weekly_velocity_series,
+                },
+                "scope_burnup": {
+                    "series": scope_burnup_series,
+                },
+                "net_bug_flow": {
+                    "series": net_bug_flow_series,
                 },
                 "work_composition": {
                     "by_type": by_type,
@@ -3522,12 +4060,14 @@ class PMParser:
                 },
             },
             "stories": drill_down_stories,
+            "all_delivered_stories": all_delivered_stories,
             "projects_summary": [
                 {
                     "slug": self.project.get("slug") or "current",
                     "name": self.project.get("name") or "Current Project",
                     "prefix": self.prefix,
                     "completed": tp_value,
+                    "velocity_points": curr_pts,
                     "commits": commit_count,
                     "churn_added": lines_added,
                     "churn_deleted": lines_deleted,
@@ -3536,7 +4076,7 @@ class PMParser:
             ],
         }
 
-    def _compute_portfolio_analytics(self, window: str = "7d") -> dict[str, Any]:
+    def _compute_portfolio_analytics(self, window: str = "6w") -> dict[str, Any]:
         try:
             from board import projects
         except ImportError:
@@ -3575,6 +4115,7 @@ class PMParser:
                     "name": p_conf.get("name") or p_slug,
                     "prefix": p_conf.get("prefix") or "",
                     "completed": p_ana["kpis"]["throughput"]["value"],
+                    "velocity_points": p_ana["kpis"]["velocity"]["value"],
                     "commits": p_ana["kpis"]["work_volume"]["commits"],
                     "churn_added": p_ana["kpis"]["work_volume"]["lines_added"],
                     "churn_deleted": p_ana["kpis"]["work_volume"]["lines_deleted"],
@@ -3593,6 +4134,16 @@ class PMParser:
         diff_tp = total_completed - prior_completed
         trend_tp = f"+{diff_tp}" if diff_tp > 0 else f"{diff_tp}"
 
+        total_pts = sum(a["kpis"]["velocity"]["value"] for a in sub_analytics)
+        prior_pts = sum(a["kpis"]["velocity"].get("prior_value", 0) for a in sub_analytics)
+        diff_pts = total_pts - prior_pts
+        trend_pts = f"+{diff_pts}" if diff_pts > 0 else f"{diff_pts}"
+        total_feat_pts = sum(
+            round((a["kpis"]["velocity"].get("feature_capacity_pct", 0) / 100.0) * a["kpis"]["velocity"]["value"])
+            for a in sub_analytics
+        )
+        portfolio_feat_cap_pct = round((total_feat_pts / total_pts) * 100, 1) if total_pts > 0 else 0.0
+
         total_commits = sum(a["kpis"]["work_volume"]["commits"] for a in sub_analytics)
         total_added = sum(a["kpis"]["work_volume"]["lines_added"] for a in sub_analytics)
         total_deleted = sum(a["kpis"]["work_volume"]["lines_deleted"] for a in sub_analytics)
@@ -3604,10 +4155,183 @@ class PMParser:
         for a in sub_analytics:
             all_stories.extend(a.get("stories", []))
 
+        all_delivered = []
+        for a in sub_analytics:
+            all_delivered.extend(a.get("all_delivered_stories", []))
+
         completed_stories = [s for s in all_stories if s.get("status") == "completed"]
         durations = [s.get("elapsed_seconds", 0) for s in completed_stories if s.get("elapsed_seconds", 0) > 0]
         mean_seconds = int(sum(durations) / len(durations)) if durations else 0
 
+        # Merge Pipeline Health across portfolio
+        merged_stages_dict: dict[str, dict[str, Any]] = {
+            "ready": {"id": "ready", "name": "Ready to Build", "count": 0, "points": 0, "aging_count": 0, "color": "sky"},
+            "development": {"id": "development", "name": "Development", "count": 0, "points": 0, "aging_count": 0, "color": "amber"},
+            "qa": {"id": "qa", "name": "QA & Verification", "count": 0, "points": 0, "aging_count": 0, "color": "purple"},
+            "blocked": {"id": "blocked", "name": "Blocked", "count": 0, "points": 0, "aging_count": 0, "color": "rose"},
+        }
+        all_stuck: list[dict[str, Any]] = []
+        total_wip = 0
+        total_wip_points = 0
+        total_reopened = 0
+
+        for a in sub_analytics:
+            ph = a.get("pipeline_health", {})
+            for st in ph.get("stages", []):
+                sid = st.get("id")
+                if sid in merged_stages_dict:
+                    merged_stages_dict[sid]["count"] += st.get("count", 0)
+                    merged_stages_dict[sid]["points"] += st.get("points", 0)
+                    merged_stages_dict[sid]["aging_count"] += st.get("aging_count", 0)
+            all_stuck.extend(ph.get("stuck_tickets", []))
+            total_wip += ph.get("total_wip", 0)
+            total_wip_points += ph.get("total_wip_points", 0)
+            total_reopened += ph.get("reopened_count", 0)
+
+        all_stuck.sort(key=lambda t: t.get("days_in_stage", 0), reverse=True)
+        portfolio_pipeline = {
+            "stages": list(merged_stages_dict.values()),
+            "total_wip": total_wip,
+            "total_wip_points": total_wip_points,
+            "aging_threshold_days": 7,
+            "total_aging": len(all_stuck),
+            "reopened_count": total_reopened,
+            "stuck_tickets": all_stuck,
+        }
+
+        # Merge Open Defects
+        crit_defects = sum(a.get("open_defects", {}).get("critical", 0) for a in sub_analytics)
+        norm_defects = sum(a.get("open_defects", {}).get("normal", 0) for a in sub_analytics)
+        portfolio_open_defects = {
+            "critical": crit_defects,
+            "normal": norm_defects,
+            "total": crit_defects + norm_defects,
+        }
+
+        # Merge Cohorts across sub_analytics by cohort id
+        cohort_map: dict[str, dict[str, Any]] = {}
+        for a in sub_analytics:
+            for ch in a.get("cohorts", []):
+                cid = ch["id"]
+                if cid not in cohort_map:
+                    cohort_map[cid] = {
+                        "id": cid,
+                        "label": ch.get("label", ""),
+                        "full_label": ch.get("full_label", ""),
+                        "week_number": ch.get("week_number", 0),
+                        "year": ch.get("year", 0),
+                        "start_date": ch.get("start_date", ""),
+                        "end_date": ch.get("end_date", ""),
+                        "stories_count": 0,
+                        "velocity_points": 0,
+                        "feature_points": 0,
+                        "work_mix": {"feature": 0, "fix": 0, "improvement": 0, "chore": 0, "docs": 0, "other": 0},
+                        "net_bug_flow": {"found": 0, "fixed": 0, "net": 0, "impact_label": ""},
+                        "durations": [],
+                        "r1_pass": 0,
+                        "stories": [],
+                    }
+                cm = cohort_map[cid]
+                cm["stories_count"] += ch.get("stories_count", 0)
+                cm["velocity_points"] += ch.get("velocity_points", 0)
+                cm["feature_points"] += ch.get("feature_points", 0)
+                for mk in ("feature", "fix", "improvement", "chore", "docs", "other"):
+                    cm["work_mix"][mk] += ch.get("work_mix", {}).get(mk, 0)
+                cm["net_bug_flow"]["found"] += ch.get("net_bug_flow", {}).get("found", 0)
+                cm["net_bug_flow"]["fixed"] += ch.get("net_bug_flow", {}).get("fixed", 0)
+                cm["stories"].extend(ch.get("stories", []))
+                mean_sec = ch.get("cycle_time", {}).get("mean_seconds", 0)
+                if mean_sec > 0:
+                    cm["durations"].append(mean_sec)
+                # Count r1 passes
+                r1_cnt = sum(1 for s in ch.get("stories", []) if (s.get("review_rounds") or 1) <= 1)
+                cm["r1_pass"] += r1_cnt
+
+        merged_cohorts = []
+        for cid in sorted(cohort_map.keys(), reverse=True):
+            cm = cohort_map[cid]
+            net_b = cm["net_bug_flow"]["fixed"] - cm["net_bug_flow"]["found"]
+            cm["net_bug_flow"]["net"] = net_b
+            cm["net_bug_flow"]["impact_label"] = f"+{net_b} Net Fixed" if net_b >= 0 else f"{net_b} Bug Drag"
+            cm["feature_capacity_pct"] = round((cm["feature_points"] / cm["velocity_points"]) * 100, 1) if cm["velocity_points"] > 0 else 0.0
+            mean_c_dur = int(sum(cm["durations"]) / len(cm["durations"])) if cm["durations"] else 0
+            cm["cycle_time"] = {
+                "mean_seconds": mean_c_dur,
+                "formatted": self.format_duration(mean_c_dur) if mean_c_dur > 0 else "—",
+            }
+            qa_pct = round((cm["r1_pass"] / cm["stories_count"]) * 100, 1) if cm["stories_count"] > 0 else 100.0
+            cm["qa_pass_rate"] = qa_pct
+
+            # Momentum status heuristic
+            non_f_pts = cm["velocity_points"] - cm["feature_points"]
+            has_drag = (net_b < 0) or (qa_pct < 70.0) or (cm["velocity_points"] > 0 and (non_f_pts / cm["velocity_points"]) > 0.5)
+            if (cm["work_mix"]["feature"] + cm["work_mix"]["improvement"]) == 0:
+                cm["momentum"] = "stagnated"
+                cm["momentum_label"] = "Stagnated 🔴"
+                cm["momentum_badge"] = "🔴 Stagnated"
+            elif has_drag:
+                cm["momentum"] = "bug_drag"
+                cm["momentum_label"] = "High Bug Drag 🟡"
+                cm["momentum_badge"] = "🟡 High Bug Drag"
+            else:
+                cm["momentum"] = "advancing"
+                cm["momentum_label"] = "Advancing 🟢"
+                cm["momentum_badge"] = "🟢 Advancing"
+
+            del cm["durations"]
+            del cm["r1_pass"]
+            merged_cohorts.append(cm)
+
+        # Merge Weekly Velocity series (chronological)
+        weekly_vel_map: dict[str, dict[str, Any]] = {}
+        for a in sub_analytics:
+            for wv in a.get("charts", {}).get("weekly_velocity", {}).get("series", []):
+                dt = wv["date"]
+                if dt not in weekly_vel_map:
+                    weekly_vel_map[dt] = {
+                        "date": dt,
+                        "label": wv.get("label", ""),
+                        "full_label": wv.get("full_label", ""),
+                        "feature": 0, "fix": 0, "improvement": 0, "chore": 0, "docs": 0, "other": 0,
+                        "total_completed": 0, "velocity_points": 0, "commits": 0,
+                    }
+                for k in ("feature", "fix", "improvement", "chore", "docs", "other", "total_completed", "velocity_points", "commits"):
+                    weekly_vel_map[dt][k] += wv.get(k, 0)
+        merged_weekly_vel = [weekly_vel_map[k] for k in sorted(weekly_vel_map.keys())]
+
+        # Merge Scope Burnup series
+        scope_burnup_map: dict[str, dict[str, Any]] = {}
+        for a in sub_analytics:
+            for sb in a.get("charts", {}).get("scope_burnup", {}).get("series", []):
+                dt = sb["date"]
+                if dt not in scope_burnup_map:
+                    scope_burnup_map[dt] = {
+                        "date": dt, "label": sb.get("label", ""), "full_label": sb.get("full_label", ""),
+                        "total_scope": 0, "cumulative_created": 0, "cumulative_completed": 0, "in_flight": 0,
+                    }
+                for k in ("total_scope", "cumulative_created", "cumulative_completed", "in_flight"):
+                    scope_burnup_map[dt][k] += sb.get(k, 0)
+        merged_scope_burnup = [scope_burnup_map[k] for k in sorted(scope_burnup_map.keys())]
+
+        # Merge Net Bug Flow series
+        net_bug_map: dict[str, dict[str, Any]] = {}
+        for a in sub_analytics:
+            for nb in a.get("charts", {}).get("net_bug_flow", {}).get("series", []):
+                dt = nb["date"]
+                if dt not in net_bug_map:
+                    net_bug_map[dt] = {
+                        "date": dt, "label": nb.get("label", ""), "full_label": nb.get("full_label", ""),
+                        "bugs_found": 0, "bugs_fixed": 0, "net": 0, "net_label": "",
+                    }
+                net_bug_map[dt]["bugs_found"] += nb.get("bugs_found", 0)
+                net_bug_map[dt]["bugs_fixed"] += nb.get("bugs_fixed", 0)
+        for dt, nb in net_bug_map.items():
+            net_v = nb["bugs_fixed"] - nb["bugs_found"]
+            nb["net"] = net_v
+            nb["net_label"] = f"+{net_v} Net Fixed" if net_v >= 0 else f"{net_v} Bug Drag"
+        merged_net_bug = [net_bug_map[k] for k in sorted(net_bug_map.keys())]
+
+        # Merge Daily Throughput Series
         date_map: dict[str, dict[str, Any]] = {}
         for a in sub_analytics:
             for s in a["charts"]["daily_throughput"]["series"]:
@@ -3632,6 +4356,7 @@ class PMParser:
         sorted_dates = sorted(date_map.keys())
         merged_throughput_series = [date_map[d] for d in sorted_dates]
 
+        # Merge Burnup Series (daily)
         burnup_map: dict[str, dict[str, Any]] = {}
         for a in sub_analytics:
             for b in a["charts"]["burnup"]["series"]:
@@ -3650,6 +4375,7 @@ class PMParser:
 
         merged_burnup_series = [burnup_map[d] for d in sorted(burnup_map.keys())]
 
+        # Work Composition
         type_counts: dict[str, int] = {}
         for a in sub_analytics:
             for item in a["charts"]["work_composition"]["by_type"]:
@@ -3676,6 +4402,8 @@ class PMParser:
         first_pass_pct = round((r1_total / total_rev) * 100, 1) if total_rev > 0 else 100.0
         max_tests = max((a["kpis"]["quality_rate"].get("test_count", 0) for a in sub_analytics), default=0)
 
+        portfolio_stagnation_alert = "critical" if crit_defects > 0 or portfolio_pipeline["total_aging"] > 2 else ("warning" if portfolio_pipeline["total_aging"] > 0 else "healthy")
+
         return {
             "window": window,
             "project": "all",
@@ -3685,6 +4413,13 @@ class PMParser:
                     "trend": trend_tp if window != "all" else None,
                     "prior_value": prior_completed,
                     "unit": "stories",
+                },
+                "velocity": {
+                    "value": total_pts,
+                    "trend": trend_pts if window != "all" else None,
+                    "prior_value": prior_pts,
+                    "feature_capacity_pct": portfolio_feat_cap_pct,
+                    "unit": "pts",
                 },
                 "work_volume": {
                     "commits": total_commits,
@@ -3706,7 +4441,18 @@ class PMParser:
                     "r2_plus_count": r2_total,
                     "test_count": max_tests,
                 },
+                "stagnation": {
+                    "active_wip": portfolio_pipeline["total_wip"],
+                    "active_wip_points": portfolio_pipeline["total_wip_points"],
+                    "aging_count": portfolio_pipeline["total_aging"],
+                    "critical_bugs": crit_defects,
+                    "reopened_count": portfolio_pipeline["reopened_count"],
+                    "alert_level": portfolio_stagnation_alert,
+                },
             },
+            "cohorts": merged_cohorts,
+            "pipeline_health": portfolio_pipeline,
+            "open_defects": portfolio_open_defects,
             "charts": {
                 "daily_throughput": {
                     "dates": sorted_dates,
@@ -3716,6 +4462,15 @@ class PMParser:
                 "burnup": {
                     "dates": sorted(burnup_map.keys()),
                     "series": merged_burnup_series,
+                },
+                "weekly_velocity": {
+                    "series": merged_weekly_vel,
+                },
+                "scope_burnup": {
+                    "series": merged_scope_burnup,
+                },
+                "net_bug_flow": {
+                    "series": merged_net_bug,
                 },
                 "work_composition": {
                     "by_type": merged_by_type,
@@ -3730,16 +4485,17 @@ class PMParser:
                 },
             },
             "stories": all_stories,
+            "all_delivered_stories": all_delivered,
             "projects_summary": projects_summary,
         }
 
     def get_analytics_summary(
-        self, window: str = "7d", project_slug: str | None = None
+        self, window: str = "6w", project_slug: str | None = None
     ) -> dict[str, Any]:
         """Calculates executive progress charts, KPIs and trends for the requested time window."""
-        norm_window = (window or "7d").lower().strip()
-        if norm_window not in ("7d", "14d", "30d", "all"):
-            norm_window = "7d"
+        norm_window = (window or "6w").lower().strip()
+        if norm_window not in ("6w", "4w", "qtd", "all", "7d", "14d", "30d"):
+            norm_window = "6w"
 
         cache_key = f"{norm_window}:{project_slug or ''}"
         now = time.time()

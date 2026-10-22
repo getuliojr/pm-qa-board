@@ -1439,7 +1439,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/analytics":
             query_params = urllib.parse.parse_qs(parsed_url.query)
-            window = query_params.get("window", ["7d"])[0]
+            window = query_params.get("window", ["6w"])[0]
             project_slug = query_params.get("project", [None])[0]
             data = STATE.parser.get_analytics_summary(window=window, project_slug=project_slug)
             self.send_json(data)

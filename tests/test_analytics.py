@@ -26,15 +26,29 @@ def test_analytics_summary_windows_and_defaults(external_project):
         assert "cycle_time" in data["kpis"]
         assert "quality_rate" in data["kpis"]
 
-    # Invalid window defaults to 7d
+    # Invalid window defaults to 6w (Story 29 cohort default)
     invalid_data = parser.get_analytics_summary(window="unknown_window")
-    assert invalid_data["window"] == "7d"
-    assert len(invalid_data["charts"]["daily_throughput"]["dates"]) == 7
+    assert invalid_data["window"] == "6w"
+    assert len(invalid_data["cohorts"]) == 6
+
+    # Weekly Cohort presets (Story 29)
+    w6_data = parser.get_analytics_summary(window="6w")
+    assert w6_data["window"] == "6w"
+    assert len(w6_data["cohorts"]) == 6
+
+    w4_data = parser.get_analytics_summary(window="4w")
+    assert w4_data["window"] == "4w"
+    assert len(w4_data["cohorts"]) == 4
+
+    qtd_data = parser.get_analytics_summary(window="qtd")
+    assert qtd_data["window"] == "qtd"
+    assert len(qtd_data["cohorts"]) >= 1
 
     # "all" window
     all_data = parser.get_analytics_summary(window="all")
     assert all_data["window"] == "all"
     assert len(all_data["charts"]["daily_throughput"]["dates"]) >= 1
+    assert len(all_data["cohorts"]) >= 1
 
 
 def test_analytics_card_metrics_and_churn(external_project):
@@ -170,3 +184,249 @@ def test_analytics_frontend_wiring():
     assert "renderBurnupChart" in js
     assert "renderCompositionChart" in js
     assert "renderQualityChart" in js
+
+
+def test_story_29_executive_analytics_cohorts_and_stagnation(external_project):
+    code, docs = external_project
+    cards_dir = docs / "cards"
+    cards_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Completed Feature with custom points: 5
+    card1 = """---
+id: APP-1
+story: "1"
+type: feature
+points: 5
+status: completed
+created: 2026-10-18
+validated: 2026-10-20
+---
+# APP-1 - Custom Points Feature
+## Description
+Custom points.
+## Definition of Done
+- [x] Item 1
+## Changelog
+| Date & Time | Agent | What |
+|---|---|---|
+| 2026-10-18 10:00 | Lead (Antigravity) | Build started |
+| 2026-10-20 12:00 | Cold Reviewer (Pro) | Review round 1: PASS |
+"""
+    (cards_dir / "APP-1.md").write_text(card1, encoding="utf-8")
+
+    # 2. Completed Improvement (default 2 points)
+    card2 = """---
+id: APP-2
+story: "2"
+type: improvement
+status: completed
+created: 2026-10-19
+validated: 2026-10-21
+---
+# APP-2 - Default Points Improvement
+## Description
+Improvement description.
+## Definition of Done
+- [x] Item 1
+## Changelog
+| Date & Time | Agent | What |
+|---|---|---|
+| 2026-10-19 10:00 | Lead (Antigravity) | Build started |
+| 2026-10-21 15:00 | Lead (Antigravity) | Validated |
+"""
+    (cards_dir / "APP-2.md").write_text(card2, encoding="utf-8")
+
+    # 3. Completed Bug (default 1 point, net bug fixed)
+    card3 = """---
+id: APP-3
+story: "3"
+type: fix
+status: completed
+created: 2026-10-20
+validated: 2026-10-22
+---
+# APP-3 - Resolved Bug
+## Description
+Bug description.
+## Definition of Done
+- [x] Item 1
+## Changelog
+| Date & Time | Agent | What |
+|---|---|---|
+| 2026-10-20 10:00 | Lead (Antigravity) | Build started |
+| 2026-10-22 11:00 | Cold Reviewer (Pro) | Review round 1: PASS |
+"""
+    (cards_dir / "APP-3.md").write_text(card3, encoding="utf-8")
+
+    # 4. Active In-Progress Bug aging > 7 days in Development stage
+    card4 = """---
+id: APP-4
+story: "4"
+type: fix
+status: in-progress
+created: 2026-09-30
+---
+# APP-4 - Aging Bug in Development
+## Description
+Old bug not touched.
+## Definition of Done
+- [ ] Item 1
+## Changelog
+| Date & Time | Agent | What |
+|---|---|---|
+| 2026-10-01 09:00 | Lead (Antigravity) | Build started |
+"""
+    (cards_dir / "APP-4.md").write_text(card4, encoding="utf-8")
+
+    # 5. Active Critical Bug (keyword in title)
+    card5 = """---
+id: APP-5
+story: "5"
+type: bug
+severity: critical
+status: in-progress
+created: 2026-10-22
+---
+# APP-5 - Critical Outage In Production
+## Description
+Critical issue.
+## Definition of Done
+- [ ] Item 1
+## Changelog
+| Date & Time | Agent | What |
+|---|---|---|
+| 2026-10-22 14:00 | Lead (Antigravity) | Build started |
+"""
+    (cards_dir / "APP-5.md").write_text(card5, encoding="utf-8")
+
+    # 6. Card in QA with Review Round 2 (Reopened / Bounced ticket)
+    card6 = """---
+id: APP-6
+story: "6"
+type: feature
+status: qa
+created: 2026-10-21
+---
+# APP-6 - Feature with Rework
+## Description
+Feature in QA.
+## Definition of Done
+- [x] Item 1
+## Changelog
+| Date & Time | Agent | What |
+|---|---|---|
+| 2026-10-21 10:00 | Lead (Antigravity) | Build started |
+| 2026-10-22 09:00 | Cold Reviewer (Pro) | Review round 2: findings fixed |
+"""
+    (cards_dir / "APP-6.md").write_text(card6, encoding="utf-8")
+
+    # 7. Card in Ready to Build (story-backlog)
+    card7 = """---
+id: APP-7
+story: "7"
+type: chore
+status: story-backlog
+created: 2026-10-22
+---
+# APP-7 - Refactor Database Layer
+## Description
+Chore in backlog.
+## Definition of Done
+- [ ] Item 1
+"""
+    (cards_dir / "APP-7.md").write_text(card7, encoding="utf-8")
+
+    # 8. Blocked card
+    card8 = """---
+id: APP-8
+story: "8"
+type: feature
+status: in-progress
+blocked: true
+created: 2026-10-22
+---
+# APP-8 - Blocked by External API
+## Description
+Waiting on external team.
+## Definition of Done
+- [ ] Item 1
+"""
+    (cards_dir / "APP-8.md").write_text(card8, encoding="utf-8")
+
+    parser = PMParser(code_path=code, docs_path=docs, prefix="APP")
+    data = parser.get_analytics_summary(window="6w")
+
+    # 1. Smart hybrid sizing & Velocity KPI
+    # APP-1 (5 pts) + APP-2 (2 pts) + APP-3 (1 pt) = 8 points completed
+    assert data["kpis"]["throughput"]["value"] == 3
+    assert data["kpis"]["velocity"]["value"] == 8
+    assert data["kpis"]["velocity"]["unit"] == "pts"
+    # Feature capacity: APP-1 (5 pts feature) / 8 pts total = 62.5%
+    assert data["kpis"]["velocity"]["feature_capacity_pct"] == 62.5
+
+    # 2. Open Defect Severity Counter
+    # APP-4 (normal) and APP-5 (critical)
+    assert data["open_defects"]["critical"] == 1
+    assert data["open_defects"]["normal"] == 1
+    assert data["open_defects"]["total"] == 2
+
+    # 3. Pipeline Health & WIP Stagnation Monitor
+    ph = data["pipeline_health"]
+    stages_dict = {s["id"]: s for s in ph["stages"]}
+    assert "ready" in stages_dict
+    assert "development" in stages_dict
+    assert "qa" in stages_dict
+    assert "blocked" in stages_dict
+
+    assert stages_dict["ready"]["count"] == 1  # APP-7
+    assert stages_dict["development"]["count"] == 2  # APP-4, APP-5
+    assert stages_dict["qa"]["count"] == 1  # APP-6
+    assert stages_dict["blocked"]["count"] == 1  # APP-8
+
+    # APP-4 has been in stage since 2026-10-01 (>7 days)
+    assert ph["total_aging"] >= 1
+    stuck_ids = [t["id"] for t in ph["stuck_tickets"]]
+    assert "APP-4" in stuck_ids
+    assert ph["stuck_tickets"][0]["days_in_stage"] > 7
+
+    # Reopened / Bounced ticket detection (APP-6 had round 2)
+    assert ph["reopened_count"] >= 1
+
+    # Stagnation Alert KPI
+    assert data["kpis"]["stagnation"]["aging_count"] >= 1
+    assert data["kpis"]["stagnation"]["critical_bugs"] == 1
+    assert data["kpis"]["stagnation"]["alert_level"] == "critical"
+
+    # 4. Weekly Cohorts Matrix
+    cohorts = data["cohorts"]
+    assert len(cohorts) == 6
+    # Most recent cohort has stories delivered
+    recent_cohort = cohorts[0]
+    assert "velocity_points" in recent_cohort
+    assert "feature_capacity_pct" in recent_cohort
+    assert "work_mix" in recent_cohort
+    assert "net_bug_flow" in recent_cohort
+    assert "momentum" in recent_cohort
+    assert recent_cohort["momentum"] in ("advancing", "stagnated", "bug_drag")
+
+    # 5. Charts series
+    charts = data["charts"]
+    assert "scope_burnup" in charts
+    assert len(charts["scope_burnup"]["series"]) == 6
+    assert "total_scope" in charts["scope_burnup"]["series"][-1]
+    assert "cumulative_completed" in charts["scope_burnup"]["series"][-1]
+
+    assert "net_bug_flow" in charts
+    assert len(charts["net_bug_flow"]["series"]) == 6
+    assert ("Net Fixed" in charts["net_bug_flow"]["series"][-1]["net_label"] or "Bug Drag" in charts["net_bug_flow"]["series"][-1]["net_label"])
+
+    assert "weekly_velocity" in charts
+    assert len(charts["weekly_velocity"]["series"]) == 6
+    assert "velocity_points" in charts["weekly_velocity"]["series"][-1]
+
+    # 6. All delivered stories search list
+    all_deliv_ids = [s["id"] for s in data["all_delivered_stories"]]
+    assert "APP-1" in all_deliv_ids
+    assert "APP-2" in all_deliv_ids
+    assert "APP-3" in all_deliv_ids
+
