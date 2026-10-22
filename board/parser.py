@@ -3418,6 +3418,8 @@ class PMParser:
                     "stage": stage_names.get(stage_key, stage_key.title()),
                     "stage_id": stage_key,
                     "days_in_stage": days_in_stage,
+                    "age_days": days_in_stage,
+                    "days_over_threshold": max(0.0, round(days_in_stage - 7.0, 1)),
                     "points": c.get("points", 1),
                     "type": c.get("type", "feature"),
                     "lead": lead,
@@ -3457,6 +3459,14 @@ class PMParser:
             "total_aging": len(stuck_tickets),
             "reopened_count": reopened_count,
             "stuck_tickets": stuck_tickets,
+            "aging_tickets": stuck_tickets,
+            "summary": {
+                "total_wip": total_wip,
+                "total_wip_points": total_wip_points,
+                "aging_count": len(stuck_tickets),
+                "reopened_count": reopened_count,
+                "status": "stagnated" if len(stuck_tickets) > 0 else "healthy",
+            },
         }
 
     def _generate_weekly_cohorts(
@@ -3581,8 +3591,17 @@ class PMParser:
                     "file_path": sc.get("file_path", ""),
                 })
 
+            work_mix_dict = {
+                "feature": feat_cnt,
+                "fix": fix_cnt,
+                "improvement": imp_cnt,
+                "chore": chore_cnt,
+                "docs": docs_cnt,
+                "other": other_cnt,
+            }
             cohort_dict = {
                 "id": cohort_id,
+                "week_key": cohort_id,
                 "label": label,
                 "full_label": full_label,
                 "week_number": iso_week,
@@ -3590,17 +3609,14 @@ class PMParser:
                 "start_date": w_start_str,
                 "end_date": w_end_str,
                 "stories_count": len(completed_in_week),
+                "total_stories": len(completed_in_week),
                 "velocity_points": points_total,
+                "total_points": points_total,
                 "feature_points": feat_points,
                 "feature_capacity_pct": feat_cap_pct,
-                "work_mix": {
-                    "feature": feat_cnt,
-                    "fix": fix_cnt,
-                    "improvement": imp_cnt,
-                    "chore": chore_cnt,
-                    "docs": docs_cnt,
-                    "other": other_cnt,
-                },
+                "capacity_pct": feat_cap_pct,
+                "work_mix": work_mix_dict,
+                "work_composition": work_mix_dict,
                 "net_bug_flow": {
                     "found": bugs_found,
                     "fixed": bugs_fixed,
@@ -3612,6 +3628,9 @@ class PMParser:
                     "formatted": dur_fmt,
                 },
                 "qa_pass_rate": qa_pass_pct,
+                "qa_rate": {
+                    "first_pass_rate": qa_pass_pct,
+                },
                 "momentum": momentum,
                 "momentum_label": momentum_label,
                 "momentum_badge": momentum_badge,
@@ -3994,9 +4013,12 @@ class PMParser:
                 },
                 "velocity": {
                     "value": curr_pts,
+                    "points": curr_pts,
                     "trend": trend_pts,
                     "prior_value": prior_pts,
                     "feature_capacity_pct": feat_cap_pct,
+                    "capacity_pct": feat_cap_pct,
+                    "target_points": 15,
                     "unit": "pts",
                 },
                 "work_volume": {
@@ -4029,8 +4051,19 @@ class PMParser:
                 },
             },
             "cohorts": cohorts,
+            "weekly_cohorts": cohorts,
             "pipeline_health": pipeline_health,
             "open_defects": open_defects,
+            "scope_burnup": {
+                "series": scope_burnup_series,
+            },
+            "net_bug_flow": {
+                "series": net_bug_flow_series,
+                "summary": {
+                    "total_found": sum(s["bugs_found"] for s in net_bug_flow_series),
+                    "total_fixed": sum(s["bugs_fixed"] for s in net_bug_flow_series),
+                },
+            },
             "charts": {
                 "daily_throughput": {
                     "dates": dates,
@@ -4416,9 +4449,12 @@ class PMParser:
                 },
                 "velocity": {
                     "value": total_pts,
+                    "points": total_pts,
                     "trend": trend_pts if window != "all" else None,
                     "prior_value": prior_pts,
                     "feature_capacity_pct": portfolio_feat_cap_pct,
+                    "capacity_pct": portfolio_feat_cap_pct,
+                    "target_points": 15,
                     "unit": "pts",
                 },
                 "work_volume": {
@@ -4451,8 +4487,15 @@ class PMParser:
                 },
             },
             "cohorts": merged_cohorts,
+            "weekly_cohorts": merged_cohorts,
             "pipeline_health": portfolio_pipeline,
             "open_defects": portfolio_open_defects,
+            "scope_burnup": {
+                "series": merged_scope_burnup,
+            },
+            "net_bug_flow": {
+                "series": merged_net_bug,
+            },
             "charts": {
                 "daily_throughput": {
                     "dates": sorted_dates,

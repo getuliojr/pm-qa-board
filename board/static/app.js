@@ -6753,7 +6753,9 @@ function toggleBurnupChartMode(mode) {
   }
 
   if (state.analytics) {
-    renderBurnupChart(state.analytics.scope_burnup || (state.analytics.charts ? state.analytics.charts.burnup : null), state.analytics.net_bug_flow);
+    const scopeBurnup = state.analytics.scope_burnup || (state.analytics.charts ? state.analytics.charts.scope_burnup || state.analytics.charts.burnup : null);
+    const netBugFlow = state.analytics.net_bug_flow || (state.analytics.charts ? state.analytics.charts.net_bug_flow : null);
+    renderBurnupChart(scopeBurnup, netBugFlow);
   }
 }
 
@@ -6818,6 +6820,7 @@ function renderAnalyticsView() {
     charts,
     pipeline_health,
     weekly_cohorts,
+    cohorts,
     scope_burnup,
     net_bug_flow,
     open_defects,
@@ -6826,22 +6829,27 @@ function renderAnalyticsView() {
     projects_summary
   } = state.analytics;
 
+  const resolvedCohorts = weekly_cohorts || cohorts || [];
+  const resolvedBurnup = scope_burnup || (charts ? charts.scope_burnup || charts.burnup : null);
+  const resolvedNetBug = net_bug_flow || (charts ? charts.net_bug_flow : null);
+  const resolvedStories = all_delivered_stories || stories || [];
+
   renderAnalyticsKpis(kpis, pipeline_health, open_defects);
-  renderAnalyticsReadinessBadge(kpis, pipeline_health, weekly_cohorts);
+  renderAnalyticsReadinessBadge(kpis, pipeline_health, resolvedCohorts);
   renderPortfolioSummary(projects_summary);
 
-  renderDailyThroughputChart(charts ? charts.daily_throughput : null, weekly_cohorts);
-  renderBurnupChart(scope_burnup || (charts ? charts.burnup : null), net_bug_flow);
+  renderDailyThroughputChart(charts ? charts.daily_throughput : null, resolvedCohorts);
+  renderBurnupChart(resolvedBurnup, resolvedNetBug);
   renderPipelineHealth(pipeline_health);
-  renderWeeklyCohorts(weekly_cohorts);
+  renderWeeklyCohorts(resolvedCohorts);
 
   if (charts) {
     renderCompositionChart(charts.work_composition);
     renderQualityChart(charts.quality_friction);
   }
 
-  renderAnalyticsStories(stories || all_delivered_stories, state.analyticsFilter);
-  updateTicketDrawerData(all_delivered_stories || stories || []);
+  renderAnalyticsStories(resolvedStories, state.analyticsFilter);
+  updateTicketDrawerData(resolvedStories);
 }
 
 function renderAnalyticsReadinessBadge(kpis, pipelineHealth, weeklyCohorts) {
@@ -6891,7 +6899,7 @@ function renderAnalyticsKpis(kpis, pipelineHealth, openDefects) {
   const wvValEl = document.getElementById('kpiWorkVolumeValue');
   const wvChurnEl = document.getElementById('kpiWorkVolumeChurn');
 
-  if (velValEl) velValEl.textContent = kpis.velocity?.points ?? 0;
+  if (velValEl) velValEl.textContent = kpis.velocity?.points ?? kpis.velocity?.value ?? 0;
   if (velTrendEl) {
     const trend = kpis.velocity?.trend;
     if (trend) {
@@ -6905,7 +6913,7 @@ function renderAnalyticsKpis(kpis, pipelineHealth, openDefects) {
     }
   }
   if (velCapEl) {
-    const cap = kpis.velocity?.capacity_pct ?? 0;
+    const cap = kpis.velocity?.capacity_pct ?? kpis.velocity?.feature_capacity_pct ?? 0;
     const target = kpis.velocity?.target_points ?? 15;
     velCapEl.innerHTML = `<span class="font-semibold text-emerald-600 dark:text-emerald-400">${cap}% Feature Capacity</span> <span class="text-[var(--text-tertiary)] font-normal font-mono">(${target} pt target)</span>`;
   }
@@ -6949,9 +6957,9 @@ function renderAnalyticsKpis(kpis, pipelineHealth, openDefects) {
   // 5. Pipeline Health / Stagnation
   const stagBadge = document.getElementById('kpiStagnationAlertBadge');
   const stagCounts = document.getElementById('kpiStagnationCounts');
-  const agingCount = pipelineHealth?.summary?.aging_count || 0;
-  const reopenedCount = pipelineHealth?.summary?.reopened_count || 0;
-  const totalWip = pipelineHealth?.summary?.total_wip || 0;
+  const agingCount = pipelineHealth?.summary?.aging_count ?? pipelineHealth?.total_aging ?? pipelineHealth?.aging_count ?? 0;
+  const reopenedCount = pipelineHealth?.summary?.reopened_count ?? pipelineHealth?.reopened_count ?? 0;
+  const totalWip = pipelineHealth?.summary?.total_wip ?? pipelineHealth?.total_wip ?? 0;
 
   if (stagBadge) {
     if (agingCount > 0) {
@@ -7036,8 +7044,8 @@ function renderDailyThroughputChart(data, weeklyCohorts) {
   if (cohorts) {
     // Render Weekly Delivery Cohorts with Dual-Axis Points Velocity Polyline
     const n = cohorts.length;
-    const maxStories = Math.max(4, ...cohorts.map((c) => c.total_stories));
-    const maxPoints = Math.max(5, ...cohorts.map((c) => c.total_points || 0));
+    const maxStories = Math.max(4, ...cohorts.map((c) => c.total_stories ?? c.stories_count ?? 0));
+    const maxPoints = Math.max(5, ...cohorts.map((c) => c.total_points ?? c.velocity_points ?? 0));
 
     const colW = chartW / n;
     const barW = Math.max(12, Math.min(36, colW * 0.55));
@@ -7061,10 +7069,14 @@ function renderDailyThroughputChart(data, weeklyCohorts) {
     cohorts.forEach((c, idx) => {
       const cx = padLeft + (idx + 0.5) * colW;
       const bx = cx - barW / 2;
-      const wc = c.work_composition || { feature: 0, fix: 0, improvement: 0, chore: 0, other: 0 };
+      const wc = c.work_composition || c.work_mix || { feature: 0, fix: 0, improvement: 0, chore: 0, other: 0 };
+      const cStories = c.total_stories ?? c.stories_count ?? 0;
+      const cPoints = c.total_points ?? c.velocity_points ?? 0;
+      const cCap = c.capacity_pct ?? c.feature_capacity_pct ?? 0;
+      const weekKey = c.week_key || c.id || '';
 
-      const featH = (wc.feature / maxStories) * chartH;
-      const fixH = (wc.fix / maxStories) * chartH;
+      const featH = ((wc.feature || 0) / maxStories) * chartH;
+      const fixH = ((wc.fix || 0) / maxStories) * chartH;
       const impH = ((wc.improvement || 0) / maxStories) * chartH;
       const choreH = ((wc.chore || 0) / maxStories) * chartH;
       const otherH = ((wc.other || 0) / maxStories) * chartH;
@@ -7098,27 +7110,27 @@ function renderDailyThroughputChart(data, weeklyCohorts) {
       }
 
       // X Label
-      const shortLabel = (c.label || c.week_key).split(' ')[0];
+      const shortLabel = (c.label || weekKey).split(' ')[0];
       barsHtml += `<text x="${cx}" y="${padTop + chartH + 18}" text-anchor="middle" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${escapeHtml(shortLabel)}</text>`;
 
       // Velocity point
-      const cy = padTop + chartH - ((c.total_points || 0) / maxPoints) * chartH;
-      velocityPoints.push({ x: cx, y: cy, points: c.total_points, weekKey: c.week_key });
+      const cy = padTop + chartH - (cPoints / maxPoints) * chartH;
+      velocityPoints.push({ x: cx, y: cy, points: cPoints, weekKey: weekKey });
 
       // Hitbox
       const tipData = escapeHtml(JSON.stringify({
-        week: c.label || c.week_key,
-        stories: c.total_stories,
-        points: c.total_points,
-        capacity: c.capacity_pct,
-        momentum: c.momentum_label,
-        feat: wc.feature,
-        fix: wc.fix,
+        week: c.label || weekKey,
+        stories: cStories,
+        points: cPoints,
+        capacity: cCap,
+        momentum: c.momentum_label || c.momentum || 'Advancing',
+        feat: wc.feature || 0,
+        fix: wc.fix || 0,
         imp: wc.improvement || 0,
         chore: wc.chore || 0,
         net_bug_flow: c.net_bug_flow,
       }));
-      barsHtml += `<rect x="${padLeft + idx * colW}" y="${padTop}" width="${colW}" height="${chartH}" fill="transparent" class="cursor-pointer" data-weekly-tip='${tipData}' data-week="${c.week_key}" />`;
+      barsHtml += `<rect x="${padLeft + idx * colW}" y="${padTop}" width="${colW}" height="${chartH}" fill="transparent" class="cursor-pointer" data-weekly-tip='${tipData}' data-week="${escapeHtml(weekKey)}" />`;
     });
 
     // Velocity Polyline
@@ -7275,7 +7287,9 @@ function renderBurnupChart(scopeBurnupData, netBugFlowData) {
 
   if (mode === 'netbug') {
     // Render Net Bug Flow (Bugs Found vs Bugs Fixed)
-    const netSeries = (netBugFlowData && netBugFlowData.series) ? netBugFlowData.series : [];
+    const netSeries = (netBugFlowData && netBugFlowData.series)
+      ? netBugFlowData.series
+      : (state.analytics?.net_bug_flow?.series || state.analytics?.charts?.net_bug_flow?.series || []);
     if (netSeries.length === 0) {
       container.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No bug flow recorded in this window.</div>`;
       return;
@@ -7371,7 +7385,7 @@ function renderBurnupChart(scopeBurnupData, netBugFlowData) {
   }
 
   // Scope Burnup Mode
-  const burnupData = scopeBurnupData || (state.analytics?.charts ? state.analytics.charts.burnup : null);
+  const burnupData = scopeBurnupData || state.analytics?.scope_burnup || (state.analytics?.charts ? state.analytics.charts.scope_burnup || state.analytics.charts.burnup : null);
   if (!burnupData || !burnupData.series || burnupData.series.length === 0) {
     container.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No burnup data for this window.</div>`;
     return;
@@ -7495,9 +7509,10 @@ function renderPipelineHealth(pipelineHealth) {
   const summaryBadge = document.getElementById('stagnationSummaryBadge');
   if (!pipelineHealth) return;
 
-  if (summaryBadge && pipelineHealth.summary) {
-    const s = pipelineHealth.summary;
-    summaryBadge.innerHTML = `<span class="${s.aging_count > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : ''}">${s.aging_count} aging</span> • ${s.total_wip} active WIP`;
+  if (summaryBadge && pipelineHealth) {
+    const aging = pipelineHealth.summary?.aging_count ?? pipelineHealth.total_aging ?? pipelineHealth.aging_count ?? 0;
+    const wip = pipelineHealth.summary?.total_wip ?? pipelineHealth.total_wip ?? 0;
+    summaryBadge.innerHTML = `<span class="${aging > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : ''}">${aging} aging</span> • ${wip} active WIP`;
   }
 
   if (tbody) {
@@ -7508,7 +7523,7 @@ function renderPipelineHealth(pipelineHealth) {
       tbody.innerHTML = stages.map((st) => {
         const isSelected = state.selectedPipelineStage === st.id;
         const icon = st.id === 'ready' ? 'ph-stack text-sky-500'
-          : (st.id === 'in_progress' ? 'ph-code text-amber-500'
+          : (st.id === 'development' || st.id === 'in_progress' ? 'ph-code text-amber-500'
           : (st.id === 'qa' ? 'ph-shield-check text-purple-500' : 'ph-prohibit text-rose-500'));
         const agingBadge = st.aging_count > 0
           ? `<span class="px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 font-bold font-mono">🔴 ${st.aging_count}</span>`
@@ -7533,7 +7548,7 @@ function renderPipelineHealth(pipelineHealth) {
     }
   }
 
-  renderStuckTickets(pipelineHealth.aging_tickets || []);
+  renderStuckTickets(pipelineHealth.aging_tickets || pipelineHealth.stuck_tickets || []);
 }
 
 function togglePipelineStageFilter(stageId) {
@@ -7565,7 +7580,8 @@ function renderStuckTickets(agingTickets) {
   }
 
   listEl.innerHTML = filtered.map((t) => {
-    const daysOver = t.days_over_threshold || Math.max(0, (t.age_days - 7)).toFixed(1);
+    const ageDays = t.age_days ?? t.days_in_stage ?? 0;
+    const daysOver = t.days_over_threshold ?? Math.max(0, (ageDays - 7)).toFixed(1);
     const stageBadgeBg = t.is_blocked
       ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
       : (t.stage_id === 'qa' ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20');
@@ -7584,7 +7600,7 @@ function renderStuckTickets(agingTickets) {
         <h5 class="text-xs font-semibold text-[var(--text-primary)] truncate mb-2">${escapeHtml(t.title || t.id)}</h5>
         <div class="flex items-center justify-between text-[11px] text-[var(--text-secondary)] pt-1 border-t border-[var(--border-subtle)]">
           <span class="text-rose-600 dark:text-rose-400 font-bold font-mono">
-            <i class="ph ph-hourglass mr-0.5"></i> ${t.age_days}d in stage
+            <i class="ph ph-hourglass mr-0.5"></i> ${ageDays}d in stage
             <span class="text-rose-500/80 font-normal text-[10px]">(+${daysOver}d over SLA)</span>
           </span>
           ${t.lead ? `<span class="text-[10px] text-[var(--text-tertiary)] truncate max-w-[120px]">${escapeHtml(t.lead)}</span>` : ''}
@@ -7611,12 +7627,16 @@ function renderWeeklyCohorts(weeklyCohorts) {
   }
 
   tbody.innerHTML = cohorts.map((c) => {
-    const isExpanded = state.expandedCohorts.has(c.week_key);
-    const wc = c.work_composition || { feature: 0, fix: 0, improvement: 0, chore: 0, other: 0 };
-    const tot = c.total_stories || 1;
+    const weekKey = c.week_key || c.id || '';
+    const isExpanded = state.expandedCohorts.has(weekKey);
+    const wc = c.work_composition || c.work_mix || { feature: 0, fix: 0, improvement: 0, chore: 0, other: 0 };
+    const totalStories = c.total_stories ?? c.stories_count ?? 0;
+    const totalPoints = c.total_points ?? c.velocity_points ?? 0;
+    const capPct = c.capacity_pct ?? c.feature_capacity_pct ?? 0;
+    const tot = totalStories || 1;
 
-    const pctFeat = Math.round((wc.feature / tot) * 100);
-    const pctFix = Math.round((wc.fix / tot) * 100);
+    const pctFeat = Math.round(((wc.feature || 0) / tot) * 100);
+    const pctFix = Math.round(((wc.fix || 0) / tot) * 100);
     const pctImp = Math.round(((wc.improvement || 0) / tot) * 100);
     const pctChore = Math.round(((wc.chore || 0) / tot) * 100);
     const pctOther = Math.max(0, 100 - pctFeat - pctFix - pctImp - pctChore);
@@ -7628,7 +7648,7 @@ function renderWeeklyCohorts(weeklyCohorts) {
     const netCls = netBugs.net > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : (netBugs.net < 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-[var(--text-tertiary)] font-normal');
     const netPrefix = netBugs.net > 0 ? '+' : '';
 
-    const qaRate = c.qa_rate?.first_pass_rate ?? 100;
+    const qaRate = c.qa_rate?.first_pass_rate ?? c.qa_pass_rate ?? 100;
     const qaCls = qaRate >= 90 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 font-semibold';
 
     const storiesList = c.stories || [];
@@ -7636,28 +7656,28 @@ function renderWeeklyCohorts(weeklyCohorts) {
     return `
       <tr class="cohort-table-row">
         <td class="py-3 px-3">
-          <div class="font-bold text-[var(--text-primary)] font-mono">${escapeHtml(c.label || c.week_key)}</div>
+          <div class="font-bold text-[var(--text-primary)] font-mono">${escapeHtml(c.label || weekKey)}</div>
           <div class="text-[10px] text-[var(--text-tertiary)] font-mono">${escapeHtml(c.start_date || '')} → ${escapeHtml(c.end_date || '')}</div>
         </td>
         <td class="py-3 px-3">
-          <span class="momentum-badge ${momentumCls}">${momentumIcon} ${escapeHtml(c.momentum_label || c.momentum)}</span>
+          <span class="momentum-badge ${momentumCls}">${momentumIcon} ${escapeHtml(c.momentum_label || c.momentum || 'Advancing')}</span>
         </td>
         <td class="py-3 px-3 text-right font-mono font-bold tabular-nums text-sm text-[var(--text-primary)]">
-          ${c.total_stories}
+          ${totalStories}
         </td>
         <td class="py-3 px-3 text-right font-mono tabular-nums">
-          <span class="font-bold text-amber-600 dark:text-amber-400 text-xs">${c.total_points || 0} pts</span>
-          <div class="text-[10px] text-[var(--text-tertiary)]">${c.capacity_pct || 0}% cap</div>
+          <span class="font-bold text-amber-600 dark:text-amber-400 text-xs">${totalPoints} pts</span>
+          <div class="text-[10px] text-[var(--text-tertiary)]">${capPct}% cap</div>
         </td>
         <td class="py-3 px-3">
-          <div class="w-28 sm:w-36 h-2 rounded-full bg-[var(--border-subtle)] overflow-hidden flex shadow-xs" title="Feat: ${wc.feature}, Fix: ${wc.fix}, Imp: ${wc.improvement || 0}, Chore: ${wc.chore || 0}">
+          <div class="w-28 sm:w-36 h-2 rounded-full bg-[var(--border-subtle)] overflow-hidden flex shadow-xs" title="Feat: ${wc.feature || 0}, Fix: ${wc.fix || 0}, Imp: ${wc.improvement || 0}, Chore: ${wc.chore || 0}">
             ${pctFeat > 0 ? `<div style="width: ${pctFeat}%" class="bg-emerald-500 h-full"></div>` : ''}
             ${pctFix > 0 ? `<div style="width: ${pctFix}%" class="bg-rose-500 h-full"></div>` : ''}
             ${pctImp > 0 ? `<div style="width: ${pctImp}%" class="bg-sky-500 h-full"></div>` : ''}
             ${pctChore > 0 ? `<div style="width: ${pctChore}%" class="bg-indigo-500 h-full"></div>` : ''}
             ${pctOther > 0 ? `<div style="width: ${pctOther}%" class="bg-purple-500 h-full"></div>` : ''}
           </div>
-          <div class="text-[9px] text-[var(--text-tertiary)] mt-1 font-mono">F:${wc.feature} • X:${wc.fix} • I:${wc.improvement || 0}</div>
+          <div class="text-[9px] text-[var(--text-tertiary)] mt-1 font-mono">F:${wc.feature || 0} • X:${wc.fix || 0} • I:${wc.improvement || 0}</div>
         </td>
         <td class="py-3 px-3 text-center font-mono text-xs">
           <span class="${netCls}">${netPrefix}${netBugs.net}</span>
@@ -7670,17 +7690,17 @@ function renderWeeklyCohorts(weeklyCohorts) {
           <span class="${qaCls}">${qaRate}%</span>
         </td>
         <td class="py-3 px-3 text-center">
-          <button type="button" onclick="toggleCohortAccordion('${escapeHtml(c.week_key)}')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] border border-[var(--border-subtle)] text-[11px] font-semibold text-[var(--text-primary)] transition cursor-pointer" title="Toggle cohort stories">
-            <span>${c.total_stories} Stories</span>
-            <i id="cohort-chevron-${escapeHtml(c.week_key)}" class="ph ph-caret-down cohort-chevron ${isExpanded ? 'rotated' : ''}"></i>
+          <button type="button" onclick="toggleCohortAccordion('${escapeHtml(weekKey)}')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] border border-[var(--border-subtle)] text-[11px] font-semibold text-[var(--text-primary)] transition cursor-pointer" title="Toggle cohort stories">
+            <span>${totalStories} Stories</span>
+            <i id="cohort-chevron-${escapeHtml(weekKey)}" class="ph ph-caret-down cohort-chevron ${isExpanded ? 'rotated' : ''}"></i>
           </button>
         </td>
       </tr>
-      <tr id="cohort-detail-${escapeHtml(c.week_key)}" class="${isExpanded ? '' : 'hidden'} bg-[var(--bg-surface-secondary)]/30">
+      <tr id="cohort-detail-${escapeHtml(weekKey)}" class="${isExpanded ? '' : 'hidden'} bg-[var(--bg-surface-secondary)]/30">
         <td colspan="9" class="p-3 sm:p-4">
           <div class="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-xs">
             <div class="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2 flex items-center justify-between">
-              <span>Delivered Stories in ${escapeHtml(c.label || c.week_key)}</span>
+              <span>Delivered Stories in ${escapeHtml(c.label || weekKey)}</span>
               <span class="font-mono text-[10px] text-[var(--text-tertiary)] font-normal">${storiesList.length} total deliverables</span>
             </div>
             ${storiesList.length === 0 ? `<div class="text-xs text-[var(--text-tertiary)] italic py-2">No individual stories found for this cohort.</div>` : `
