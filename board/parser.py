@@ -3301,10 +3301,13 @@ class PMParser:
             end_date = dates[-1]
 
         # Filter completed cards
-        curr_completed = [
-            c for c in all_cards
-            if c.get("status") == "completed" and c.get("_comp_date") and start_date <= c["_comp_date"] <= end_date
-        ]
+        if norm_window == "all":
+            curr_completed = [c for c in all_cards if c.get("status") == "completed"]
+        else:
+            curr_completed = [
+                c for c in all_cards
+                if c.get("status") == "completed" and c.get("_comp_date") and start_date <= c["_comp_date"] <= end_date
+            ]
         prior_completed = [
             c for c in all_cards
             if c.get("status") == "completed" and c.get("_comp_date") and prior_start and prior_start <= c["_comp_date"] <= prior_end
@@ -3312,7 +3315,10 @@ class PMParser:
 
         # Git churn
         commits = self._get_git_churn(since_date=since_date)
-        curr_commits = [c for c in commits if start_date <= c.get("date", "") <= end_date]
+        if norm_window == "all":
+            curr_commits = commits
+        else:
+            curr_commits = [c for c in commits if start_date <= c.get("date", "") <= end_date]
         prior_commits = [c for c in commits if prior_start and prior_start <= c.get("date", "") <= prior_end]
 
         # KPI 1: Throughput
@@ -3384,7 +3390,7 @@ class PMParser:
                 "feature": f_cnt,
                 "fix": fix_cnt,
                 "chore": chore_cnt,
-                "debt": chore_cnt,
+                "debt": 0,
                 "other": max(0, other_cnt),
                 "total_completed": len(d_cards),
                 "commits": len(d_commits),

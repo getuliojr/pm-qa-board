@@ -6937,7 +6937,7 @@ function renderDailyThroughputChart(data) {
       completed: s.total_completed,
       feature: s.feature,
       fix: s.fix,
-      chore: (s.chore || 0) + (s.debt || 0),
+      chore: s.chore || 0,
       commits: s.commits,
       churn_added: s.lines_added,
       churn_deleted: s.lines_deleted,
