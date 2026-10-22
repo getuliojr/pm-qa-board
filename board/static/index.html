@@ -28,7 +28,7 @@
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 
   <!-- Dual-Theme Design System Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=20261018-apple-daylight">
+  <link rel="stylesheet" href="style.css?v=20261022-pqc28">
 
   <!-- Synchronous Zero-Flash Theme Initializer -->
   <script>
@@ -150,6 +150,11 @@
         <button class="nav-tab" data-tab="activity" title="Agent Activity & Git">
           <i class="ph ph-pulse text-base mr-2.5 shrink-0"></i>
           <span class="sidebar-label">Agent Activity</span>
+        </button>
+
+        <button class="nav-tab" data-tab="analytics" title="Analytics & Trends">
+          <i class="ph ph-chart-line-up text-base mr-2.5 shrink-0"></i>
+          <span class="sidebar-label">Analytics &amp; Trends</span>
         </button>
       </nav>
 
@@ -825,6 +830,235 @@
                 </div>
               </div>
               <div class="mt-4 space-y-3 max-h-96 overflow-y-auto" id="activityCommitList"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6. ANALYTICS & TRENDS TAB (PQC-28) -->
+        <section id="tab-analytics" class="tab-content hidden space-y-6">
+          <!-- Top Control Header: Title, Time Window Pills & Project Scope -->
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[var(--bg-surface)] p-4 sm:p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs">
+            <div>
+              <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-500/20">
+                  <i class="ph ph-chart-line-up text-lg"></i>
+                </div>
+                <h2 class="text-base sm:text-lg font-bold text-[var(--text-primary)] tracking-tight">Executive Analytics &amp; Velocity</h2>
+              </div>
+              <p class="text-xs text-[var(--text-secondary)] mt-1">Cross-lifecycle throughput, git code churn, delivery velocity, and 1st-pass review quality.</p>
+            </div>
+
+            <!-- Controls: Window Filter & Project Scope -->
+            <div class="flex flex-wrap items-center gap-2.5">
+              <!-- Project Scope Selector -->
+              <div class="flex items-center p-1 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] text-xs">
+                <button type="button" class="analytics-scope-btn px-2.5 py-1 rounded-lg font-semibold transition active-scope-pill" data-scope="active" onclick="setAnalyticsScope('active')">Active Project</button>
+                <button type="button" class="analytics-scope-btn px-2.5 py-1 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition" data-scope="all" onclick="setAnalyticsScope('all')">Portfolio (All)</button>
+              </div>
+
+              <!-- Time Window Filter Pills -->
+              <div class="flex items-center p-1 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] text-xs">
+                <button type="button" class="analytics-window-btn px-2.5 py-1 rounded-lg font-semibold transition active-window-pill" data-window="7d" onclick="setAnalyticsWindow('7d')">7 Days</button>
+                <button type="button" class="analytics-window-btn px-2.5 py-1 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition" data-window="14d" onclick="setAnalyticsWindow('14d')">14 Days</button>
+                <button type="button" class="analytics-window-btn px-2.5 py-1 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition" data-window="30d" onclick="setAnalyticsWindow('30d')">30 Days</button>
+                <button type="button" class="analytics-window-btn px-2.5 py-1 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition" data-window="all" onclick="setAnalyticsWindow('all')">All Time</button>
+              </div>
+
+              <!-- Refresh Button -->
+              <button type="button" onclick="loadAnalytics(state.analyticsWindow || '7d', true)" class="p-2 rounded-xl bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer" title="Refresh Analytics Data">
+                <i class="ph ph-arrows-clockwise text-sm"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Portfolio Projects Summary Bar (Visible only when scope='all') -->
+          <div id="analyticsPortfolioBar" class="hidden bg-[var(--bg-surface)] p-4 rounded-2xl border border-[var(--border-subtle)] shadow-xs">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-3 flex items-center gap-1.5">
+              <i class="ph ph-squares-four text-purple-500"></i>
+              Portfolio Projects Breakdown
+            </h3>
+            <div id="analyticsPortfolioList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+          </div>
+
+          <!-- Executive KPI Scorecard Strip (4-card metric strip) -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- KPI 1: Throughput -->
+            <div class="bg-[var(--bg-surface)] p-4 sm:p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs hover:border-[var(--card-hover-border)] transition">
+              <div class="flex items-center justify-between text-[var(--text-secondary)] mb-2">
+                <span class="text-xs font-semibold uppercase tracking-wider">Throughput</span>
+                <div class="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <i class="ph ph-check-circle text-base"></i>
+                </div>
+              </div>
+              <div class="flex items-baseline gap-2">
+                <span id="kpiThroughputValue" class="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] tabular-nums">0</span>
+                <span class="text-xs text-[var(--text-tertiary)] font-medium">stories</span>
+              </div>
+              <div id="kpiThroughputTrend" class="mt-2 text-xs flex items-center gap-1 font-medium text-[var(--text-secondary)]">
+                <span>— vs prior period</span>
+              </div>
+            </div>
+
+            <!-- KPI 2: Work Volume -->
+            <div class="bg-[var(--bg-surface)] p-4 sm:p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs hover:border-[var(--card-hover-border)] transition">
+              <div class="flex items-center justify-between text-[var(--text-secondary)] mb-2">
+                <span class="text-xs font-semibold uppercase tracking-wider">Work Volume</span>
+                <div class="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <i class="ph ph-git-commit text-base"></i>
+                </div>
+              </div>
+              <div class="flex items-baseline gap-2">
+                <span id="kpiWorkVolumeValue" class="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] tabular-nums">0</span>
+                <span class="text-xs text-[var(--text-tertiary)] font-medium">commits</span>
+              </div>
+              <div id="kpiWorkVolumeChurn" class="mt-2 text-xs flex items-center gap-1 font-mono text-[var(--text-secondary)]">
+                <span>+0 / -0 lines</span>
+              </div>
+            </div>
+
+            <!-- KPI 3: Cycle Time -->
+            <div class="bg-[var(--bg-surface)] p-4 sm:p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs hover:border-[var(--card-hover-border)] transition">
+              <div class="flex items-center justify-between text-[var(--text-secondary)] mb-2">
+                <span class="text-xs font-semibold uppercase tracking-wider">Cycle Time</span>
+                <div class="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                  <i class="ph ph-timer text-base"></i>
+                </div>
+              </div>
+              <div class="flex items-baseline gap-2">
+                <span id="kpiCycleTimeValue" class="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] tabular-nums">—</span>
+                <span class="text-xs text-[var(--text-tertiary)] font-medium">mean</span>
+              </div>
+              <div id="kpiCycleTimeTrend" class="mt-2 text-xs flex items-center gap-1 font-medium text-[var(--text-secondary)]">
+                <span>Start SHA to completed</span>
+              </div>
+            </div>
+
+            <!-- KPI 4: Quality Rate -->
+            <div class="bg-[var(--bg-surface)] p-4 sm:p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs hover:border-[var(--card-hover-border)] transition">
+              <div class="flex items-center justify-between text-[var(--text-secondary)] mb-2">
+                <span class="text-xs font-semibold uppercase tracking-wider">Quality Rate</span>
+                <div class="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+                  <i class="ph ph-shield-check text-base"></i>
+                </div>
+              </div>
+              <div class="flex items-baseline gap-2">
+                <span id="kpiQualityRateValue" class="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] tabular-nums">100%</span>
+                <span class="text-xs text-[var(--text-tertiary)] font-medium">1st-pass</span>
+              </div>
+              <div id="kpiQualityRateSubtitle" class="mt-2 text-xs flex items-center gap-1 font-medium text-[var(--text-secondary)]">
+                <span>0 tests passing</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Core Visual Charts: Balanced 4-Chart Grid -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Chart 1: Daily Throughput & Commits -->
+            <div class="bg-[var(--bg-surface)] p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs flex flex-col">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[var(--border-subtle)]">
+                <div>
+                  <h3 class="font-bold text-sm text-[var(--text-primary)] flex items-center gap-2">
+                    <i class="ph ph-chart-bar text-emerald-500"></i>
+                    Daily Throughput &amp; Commits
+                  </h3>
+                  <p class="text-[11px] text-[var(--text-tertiary)]">Stories completed per day by type with dual-axis commit volume line</p>
+                </div>
+                <div class="flex items-center gap-3 text-[11px] text-[var(--text-secondary)]">
+                  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>Feature</span>
+                  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-rose-500"></span>Fix</span>
+                  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-indigo-500"></span>Chore</span>
+                  <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-amber-500"></span>Commits</span>
+                </div>
+              </div>
+              <div id="chartThroughputContainer" class="flex-1 min-h-[260px] pt-4 flex items-center justify-center">
+                <div class="text-xs text-[var(--text-tertiary)]">Loading throughput chart...</div>
+              </div>
+            </div>
+
+            <!-- Chart 2: Cumulative Flow & Burnup -->
+            <div class="bg-[var(--bg-surface)] p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs flex flex-col">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[var(--border-subtle)]">
+                <div>
+                  <h3 class="font-bold text-sm text-[var(--text-primary)] flex items-center gap-2">
+                    <i class="ph ph-chart-line text-purple-500"></i>
+                    Cumulative Burnup &amp; Delivery Progress
+                  </h3>
+                  <p class="text-[11px] text-[var(--text-tertiary)]">Cumulative story completion trajectory vs total created scope</p>
+                </div>
+                <div class="flex items-center gap-3 text-[11px] text-[var(--text-secondary)]">
+                  <span class="flex items-center gap-1.5"><span class="w-3 h-1 rounded-sm bg-purple-500"></span>Completed</span>
+                  <span class="flex items-center gap-1.5"><span class="w-3 h-1 rounded-sm bg-sky-500"></span>Total Scope</span>
+                  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500/40"></span>In-Flight WIP</span>
+                </div>
+              </div>
+              <div id="chartBurnupContainer" class="flex-1 min-h-[260px] pt-4 flex items-center justify-center">
+                <div class="text-xs text-[var(--text-tertiary)]">Loading burnup chart...</div>
+              </div>
+            </div>
+
+            <!-- Chart 3: Work Composition & Agent Distribution -->
+            <div class="bg-[var(--bg-surface)] p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs flex flex-col">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[var(--border-subtle)]">
+                <div>
+                  <h3 class="font-bold text-sm text-[var(--text-primary)] flex items-center gap-2">
+                    <i class="ph ph-pie-chart text-sky-500"></i>
+                    Work Composition &amp; Agent Roster
+                  </h3>
+                  <p class="text-[11px] text-[var(--text-tertiary)]">Distribution of work types and autonomous agent execution models</p>
+                </div>
+                <!-- Mini Toggle for Types vs Agents -->
+                <div class="flex items-center p-0.5 rounded-lg bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] text-[11px]">
+                  <button type="button" id="btnCompTypes" class="px-2 py-0.5 rounded-md font-semibold transition bg-[var(--bg-surface)] shadow-xs text-[var(--text-primary)]" onclick="toggleCompositionView('types')">By Type</button>
+                  <button type="button" id="btnCompAgents" class="px-2 py-0.5 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition" onclick="toggleCompositionView('agents')">By Agent</button>
+                </div>
+              </div>
+              <div id="chartCompositionContainer" class="flex-1 min-h-[260px] pt-4 flex items-center justify-center">
+                <div class="text-xs text-[var(--text-tertiary)]">Loading composition chart...</div>
+              </div>
+            </div>
+
+            <!-- Chart 4: Quality & Review Friction -->
+            <div class="bg-[var(--bg-surface)] p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs flex flex-col">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[var(--border-subtle)]">
+                <div>
+                  <h3 class="font-bold text-sm text-[var(--text-primary)] flex items-center gap-2">
+                    <i class="ph ph-shield-check text-indigo-500"></i>
+                    Quality, Review Friction &amp; Test Suite Growth
+                  </h3>
+                  <p class="text-[11px] text-[var(--text-tertiary)]">Review rounds to merge alongside regression test suite expansion</p>
+                </div>
+                <div class="flex items-center gap-3 text-[11px] text-[var(--text-secondary)]">
+                  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>R1 Pass</span>
+                  <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500"></span>R2+ Rework</span>
+                  <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-purple-500"></span>Tests</span>
+                </div>
+              </div>
+              <div id="chartQualityContainer" class="flex-1 min-h-[260px] pt-4 flex items-center justify-center">
+                <div class="text-xs text-[var(--text-tertiary)]">Loading quality metrics...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Contextual Drill-Down Inspection Tray Container -->
+          <div id="analyticsDetailDrawer" class="bg-[var(--bg-surface)] p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs">
+            <div class="flex items-center justify-between pb-3 border-b border-[var(--border-subtle)]">
+              <div class="flex items-center gap-2">
+                <div class="w-6 h-6 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center text-xs">
+                  <i class="ph ph-magnifying-glass"></i>
+                </div>
+                <h3 id="analyticsDetailTitle" class="font-bold text-sm text-[var(--text-primary)]">Delivered Stories in Window</h3>
+                <span id="analyticsDetailCount" class="px-2 py-0.5 text-xs font-mono rounded-full bg-[var(--bg-surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">0 stories</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button type="button" id="analyticsResetFilterBtn" onclick="resetAnalyticsStoryFilter()" class="hidden px-2.5 py-1 text-xs rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition">
+                  Reset Drill-Down Filter
+                </button>
+              </div>
+            </div>
+
+            <!-- Stories List -->
+            <div id="analyticsStoryList" class="mt-4 space-y-2.5">
+              <div class="text-xs text-[var(--text-tertiary)] italic p-4 text-center">Select any bar, slice or metric above to inspect specific story deliverables.</div>
             </div>
           </div>
         </section>
@@ -1568,7 +1802,7 @@
   </div>
 
   <script src="qrcode.min.js"></script>
-  <script src="app.js?v=20261020-pqc24"></script>
+  <script src="app.js?v=20261022-pqc28"></script>
 </body>
 </html>
 

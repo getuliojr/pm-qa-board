@@ -143,3 +143,30 @@ def test_analytics_portfolio_and_all_projects(external_project, tmp_path):
 
 
 
+
+def test_analytics_frontend_wiring():
+    html_path = Path("board/static/index.html")
+    assert html_path.exists()
+    html = html_path.read_text(encoding="utf-8")
+    assert 'data-tab="analytics"' in html
+    assert 'id="tab-analytics"' in html
+    assert 'id="kpiThroughputValue"' in html
+    assert 'id="kpiWorkVolumeValue"' in html
+    assert 'id="kpiCycleTimeValue"' in html
+    assert 'id="kpiQualityRateValue"' in html
+    assert 'id="chartThroughputContainer"' in html
+    assert 'id="chartBurnupContainer"' in html
+    assert 'id="chartCompositionContainer"' in html
+    assert 'id="chartQualityContainer"' in html
+    assert 'id="analyticsDetailDrawer"' in html
+
+    js_path = Path("board/static/app.js")
+    assert js_path.exists()
+    js = js_path.read_text(encoding="utf-8")
+    assert "loadAnalytics" in js
+    assert "setAnalyticsWindow" in js
+    assert "setAnalyticsScope" in js
+    assert "renderDailyThroughputChart" in js
+    assert "renderBurnupChart" in js
+    assert "renderCompositionChart" in js
+    assert "renderQualityChart" in js
