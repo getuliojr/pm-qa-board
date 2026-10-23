@@ -1319,14 +1319,29 @@ class PMParser:
                         reviews_by_card.setdefault(sp, []).append(r)
 
                 batch_upsert = []
+                unparsed_keys = []
                 for f in to_parse:
+                    key = self.rel_path(f)
                     card = self.parse_card_file(f, _preloaded_reviews=reviews_by_card)
                     if card:
-                        key = self.rel_path(f)
                         _, mtime, size = found_map[key]
                         batch_upsert.append((key, mtime, size, card))
+                    else:
+                        unparsed_keys.append(key)
+                if unparsed_keys:
+                    self._index.remove_cards(unparsed_keys)
                 if batch_upsert:
                     self._index.upsert_cards_batch(batch_upsert)
+
+            # Pre-load reviews for dynamic attachment so new reviews appear immediately on cached cards
+            all_revs = self.get_all_reviews(refresh=refresh)
+            reviews_by_card: dict[str, list[dict[str, Any]]] = {}
+            for r in all_revs:
+                cid = r["card_id"].lower()
+                sp = r["sprint"].lower()
+                reviews_by_card.setdefault(cid, []).append(r)
+                if sp != cid:
+                    reviews_by_card.setdefault(sp, []).append(r)
 
             cached_cards = self._index.get_all_cards()
             cards: list[dict[str, Any]] = []
@@ -1336,6 +1351,19 @@ class PMParser:
                 if c:
                     if "_frontmatter" in c:
                         c["extra_tags"] = self._card_extra_tags(c["_frontmatter"])
+
+                    # Dynamically attach reviews and closeout artifact
+                    card_id = c.get("mn_id") or c.get("id") or ""
+                    c_key = card_id.lower()
+                    s_val = str(c.get("sprint") or "").strip()
+                    sp_key = re.sub(r"^(?:Sprint|Story|Phase)\s+", "", s_val, flags=re.IGNORECASE).strip().lower()
+                    revs = reviews_by_card.get(c_key, [])
+                    if not revs and sp_key:
+                        revs = reviews_by_card.get(sp_key, [])
+                    c["reviews"] = revs
+                    c["review_count"] = len(revs)
+                    c["closeout"] = self.get_closeout_artifact(card_id)
+
                     if c.get("status") == "in-progress":
                         c.update(self.compute_card_duration(c))
                     cards.append(c)

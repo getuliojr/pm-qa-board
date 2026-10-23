@@ -62,14 +62,6 @@ class CardIndex:
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_card_status ON card_cache(status)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_card_id ON card_cache(card_id)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_card_sprint ON card_cache(sprint)")
-                    conn.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS meta_cache (
-                            key TEXT PRIMARY KEY,
-                            value TEXT NOT NULL
-                        )
-                        """
-                    )
             finally:
                 conn.close()
 
@@ -185,6 +177,5 @@ class CardIndex:
             try:
                 with conn:
                     conn.execute("DELETE FROM card_cache")
-                    conn.execute("DELETE FROM meta_cache")
             finally:
                 conn.close()

@@ -129,3 +129,61 @@ def test_parser_with_card_index(tmp_path: Path, monkeypatch):
     assert len(cards_after_delete) == 0
     assert len(parser._index.get_all_file_stats()) == 0
 
+
+def test_cached_cards_receive_new_reviews_and_artifacts(tmp_path: Path, monkeypatch):
+    from parser import PMParser
+    monkeypatch.setenv("PM_QA_COCKPIT_HOME", str(tmp_path / ".pm-qa-cockpit"))
+
+    docs = tmp_path / "docs"
+    cards_dir = docs / "cards"
+    cards_dir.mkdir(parents=True)
+    reviews_dir = docs / "reviews"
+    reviews_dir.mkdir(parents=True)
+    artifacts_dir = docs / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+
+    card_file = cards_dir / "MN-200 - Review Test Story.md"
+    card_file.write_text(
+        "---\n"
+        "id: MN-200\n"
+        "status: qa\n"
+        "story: 200\n"
+        "---\n"
+        "# MN-200 - Review Test Story\n",
+        encoding="utf-8",
+    )
+
+    parser = PMParser(root_dir=tmp_path, docs_path=docs, project={"slug": "rev-test"})
+    cards = parser.get_all_cards()
+    assert len(cards) == 1
+    assert cards[0]["reviews"] == []
+    assert cards[0]["closeout"] is None
+
+    # Add a review file without touching the card file
+    rev_file = reviews_dir / "MN-200-round-1.md"
+    rev_file.write_text(
+        "---\n"
+        "story: 200\n"
+        "card: MN-200\n"
+        "round: 1\n"
+        "verdict: PASS\n"
+        "reviewer: Cold Reviewer\n"
+        "---\n"
+        "Review details\n",
+        encoding="utf-8",
+    )
+
+    # Add closeout artifact file
+    closeout_file = artifacts_dir / "MN-200-closeout.html"
+    closeout_file.write_text("<html>Closeout</html>", encoding="utf-8")
+
+    # Invalidate parser memory cache so it reads from SQLite index
+    parser.invalidate_cache()
+    cards_with_review = parser.get_all_cards(refresh=True)
+    assert len(cards_with_review) == 1
+    assert cards_with_review[0]["review_count"] == 1
+    assert cards_with_review[0]["reviews"][0]["verdict"] == "PASS"
+    assert cards_with_review[0]["closeout"] is not None
+    assert cards_with_review[0]["closeout"]["file_name"] == "MN-200-closeout.html"
+
+

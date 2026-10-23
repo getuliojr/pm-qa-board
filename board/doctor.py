@@ -246,9 +246,7 @@ def run(target: str) -> dict[str, Any]:
                              f"all {len(roster.FILE_ROLES)} delegated roles have an agent with a known pinned model for {', '.join(labels.values())}"))
 
     # 11. mobile network status and optional cloudflared presence (Story 3)
-    import server
-
-    lan_ip = server.get_lan_ip()
+    lan_ip = wiring.get_lan_ip()
     bin_name = "cloudflared.exe" if sys.platform == "win32" else "cloudflared"
     custom_cf = projects.cockpit_home() / "bin" / bin_name
     cf_path = str(custom_cf) if custom_cf.is_file() else shutil.which("cloudflared")

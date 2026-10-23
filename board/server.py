@@ -56,18 +56,10 @@ def set_keep_alive(enable: bool = True) -> bool:
         return False
 
 
-def get_lan_ip() -> str:
-    """Detect local LAN/Wi-Fi IPv4 address using standard library socket."""
-    import socket
-
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return "127.0.0.1"
+try:
+    from wiring import get_lan_ip
+except ImportError:
+    from board.wiring import get_lan_ip
 
 
 atexit.register(lambda: set_keep_alive(False))
