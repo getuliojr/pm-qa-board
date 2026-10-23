@@ -321,3 +321,19 @@ def test_server_pool_reuses_parser_until_config_changes(proj):
     assert rebuilt is not first and rebuilt.prefix == "ZZ"
     tagged = server.STATE.parser_for({**project, "prefix": "ZZ", "extra_tags": [{"key": "jira", "label": "J"}]})
     assert tagged is not rebuilt
+
+
+# ---------------------------------------------------------------- Phase 4: frontend contract
+
+STATIC = Path(__file__).resolve().parent.parent / "board" / "static"
+
+
+def test_frontend_wires_skeletons_stale_guard_and_backfill_badge():
+    app_js = (STATIC / "app.js").read_text(encoding="utf-8")
+    index_html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "activeTab === 'analytics'" in app_js and "renderAnalyticsSkeleton()" in app_js
+    assert "Stale guard" in app_js and "analyticsRequestKey(state.analyticsWindow" in app_js
+    assert "Counting history… ${backfill.counted} of ${backfill.total} commits" in app_js
+    assert "state.analyticsCache = {};\n  state.analyticsFilter" not in app_js  # cache survives a project switch
+    for element_id in ("analyticsKpiStrip", "analyticsBackfillBadge", "chartThroughputContainer", "weeklyCohortsTableBody"):
+        assert f'id="{element_id}"' in index_html

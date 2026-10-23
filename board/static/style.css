@@ -1285,4 +1285,15 @@ html.dark .audit-filter-pill .pill-count {
   transform: translateY(-1px);
 }
 
-
+/* Analytics loading skeleton: KPI values turn into pulsing bars while a project/window loads */
+.kpi-skeleton > div { animation: kpi-skeleton-pulse 1.4s ease-in-out infinite; }
+.kpi-skeleton [id^="kpi"] {
+  color: transparent !important;
+  background: var(--bg-surface-tertiary);
+  border-radius: 0.375rem;
+  min-width: 3.5rem;
+  min-height: 1rem;
+  display: inline-block;
+}
+.kpi-skeleton [id^="kpi"] * { visibility: hidden; }
+@keyframes kpi-skeleton-pulse { 50% { opacity: 0.55; } }
