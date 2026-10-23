@@ -18,6 +18,12 @@ import threading
 from pathlib import Path
 from typing import Any
 
+# Bump when the shape of any cached row changes (card dicts, git rows, analytics payloads):
+# a database stamped with another version is wiped and rebuilt on open.
+SCHEMA_VERSION = 2
+
+_CACHE_TABLES = ("card_cache", "git_commits", "git_sync", "analytics_cache")
+
 
 class CardIndex:
     """Manages an incremental SQLite cache for card files."""
@@ -46,6 +52,11 @@ class CardIndex:
             conn = self._get_connection()
             try:
                 with conn:
+                    current = conn.execute("PRAGMA user_version").fetchone()[0]
+                    if current != SCHEMA_VERSION:
+                        for table in _CACHE_TABLES:
+                            conn.execute(f"DROP TABLE IF EXISTS {table}")
+                        conn.execute(f"PRAGMA user_version = {int(SCHEMA_VERSION)}")
                     conn.execute(
                         """
                         CREATE TABLE IF NOT EXISTS card_cache (
@@ -62,6 +73,36 @@ class CardIndex:
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_card_status ON card_cache(status)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_card_id ON card_cache(card_id)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_card_sprint ON card_cache(sprint)")
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS git_commits (
+                            sha TEXT PRIMARY KEY,
+                            date TEXT NOT NULL,
+                            subject TEXT NOT NULL,
+                            author TEXT NOT NULL,
+                            added INTEGER NOT NULL DEFAULT 0,
+                            deleted INTEGER NOT NULL DEFAULT 0,
+                            counted INTEGER NOT NULL DEFAULT 0,
+                            reachable INTEGER NOT NULL DEFAULT 1
+                        )
+                        """
+                    )
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_git_date ON git_commits(date)")
+                    conn.execute(
+                        "CREATE TABLE IF NOT EXISTS git_sync (id INTEGER PRIMARY KEY CHECK (id = 1), bound TEXT, head TEXT)"
+                    )
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS analytics_cache (
+                            window TEXT NOT NULL,
+                            scope TEXT NOT NULL,
+                            key_hash TEXT NOT NULL,
+                            created_at REAL NOT NULL,
+                            payload_json TEXT NOT NULL,
+                            PRIMARY KEY (window, scope)
+                        )
+                        """
+                    )
             finally:
                 conn.close()
 
@@ -179,3 +220,124 @@ class CardIndex:
                     conn.execute("DELETE FROM card_cache")
             finally:
                 conn.close()
+
+    # ------------------------------------------------------------------
+    # Git commit cache (one row per commit; commits are immutable)
+    # ------------------------------------------------------------------
+    def _run(self, fn):
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                with conn:
+                    return fn(conn)
+            finally:
+                conn.close()
+
+    def get_git_sync(self) -> tuple[str, str] | None:
+        """(bound, head) the commit table was last synced against, if any."""
+        row = self._run(lambda c: c.execute("SELECT bound, head FROM git_sync WHERE id = 1").fetchone())
+        return (row[0] or "", row[1] or "") if row else None
+
+    def sync_git_reachable(self, bound: str, head: str, commits: list[tuple[str, str, str, str]]) -> None:
+        """Record the commits reachable from ``head`` since ``bound``: [(sha, date, subject, author), ...].
+
+        Known SHAs keep their line counts; new ones start uncounted. Every other row is marked
+        unreachable (kept so a checkout back needs no re-read) and rows older than ``bound`` go.
+        """
+
+        def op(conn: sqlite3.Connection) -> None:
+            conn.execute("UPDATE git_commits SET reachable = 0")
+            conn.executemany(
+                """
+                INSERT INTO git_commits (sha, date, subject, author, reachable) VALUES (?, ?, ?, ?, 1)
+                ON CONFLICT(sha) DO UPDATE SET reachable = 1
+                """,
+                commits,
+            )
+            conn.execute("DELETE FROM git_commits WHERE date < ?", (bound,))
+            conn.execute(
+                "INSERT INTO git_sync (id, bound, head) VALUES (1, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET bound = excluded.bound, head = excluded.head",
+                (bound, head),
+            )
+
+        self._run(op)
+
+    def get_uncounted_shas(self, limit: int = 100) -> list[str]:
+        """Newest-first reachable SHAs whose line counts have not been read yet."""
+        rows = self._run(
+            lambda c: c.execute(
+                "SELECT sha FROM git_commits WHERE reachable = 1 AND counted = 0 ORDER BY date DESC, sha LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        )
+        return [r[0] for r in rows]
+
+    def set_commit_stats(self, stats: list[tuple[str, int, int]]) -> None:
+        """Mark commits counted: [(sha, added, deleted), ...]."""
+        if not stats:
+            return
+        self._run(
+            lambda c: c.executemany(
+                "UPDATE git_commits SET added = ?, deleted = ?, counted = 1 WHERE sha = ?",
+                [(a, d, sha) for sha, a, d in stats],
+            )
+        )
+
+    def get_git_commits(self, since: str) -> list[dict[str, Any]]:
+        """Reachable commits dated on/after ``since`` (YYYY-MM-DD), newest first."""
+        rows = self._run(
+            lambda c: c.execute(
+                "SELECT sha, date, subject, author, added, deleted FROM git_commits "
+                "WHERE reachable = 1 AND date >= ? ORDER BY date DESC, sha",
+                (since,),
+            ).fetchall()
+        )
+        return [
+            {"sha": r[0][:7], "date": r[1], "subject": r[2], "author": r[3], "added": r[4], "deleted": r[5]}
+            for r in rows
+        ]
+
+    def git_progress(self, since: str) -> tuple[int, int]:
+        """(counted, total) reachable commits dated on/after ``since``."""
+        row = self._run(
+            lambda c: c.execute(
+                "SELECT COALESCE(SUM(counted), 0), COUNT(*) FROM git_commits WHERE reachable = 1 AND date >= ?",
+                (since,),
+            ).fetchone()
+        )
+        return int(row[0]), int(row[1])
+
+    # ------------------------------------------------------------------
+    # Analytics payload cache (latest row per window + scope)
+    # ------------------------------------------------------------------
+    def get_analytics(
+        self, window: str, scope: str, key_hash: str, max_age: float, now: float
+    ) -> dict[str, Any] | None:
+        row = self._run(
+            lambda c: c.execute(
+                "SELECT key_hash, created_at, payload_json FROM analytics_cache WHERE window = ? AND scope = ?",
+                (window, scope),
+            ).fetchone()
+        )
+        if not row or row[0] != key_hash or (now - row[1]) >= max_age:
+            return None
+        try:
+            return json.loads(row[2])
+        except Exception:
+            return None
+
+    def put_analytics(self, window: str, scope: str, key_hash: str, now: float, payload_json: str) -> None:
+        self._run(
+            lambda c: c.execute(
+                """
+                INSERT INTO analytics_cache (window, scope, key_hash, created_at, payload_json)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(window, scope) DO UPDATE SET
+                    key_hash = excluded.key_hash,
+                    created_at = excluded.created_at,
+                    payload_json = excluded.payload_json
+                """,
+                (window, scope, key_hash, now, payload_json),
+            )
+        )

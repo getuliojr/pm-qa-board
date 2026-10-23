@@ -491,6 +491,10 @@ class CockpitState:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.workers: dict[str, HeavyGateWorker] = {}
+        # One parser per project slug, reused by switches, the watcher and portfolio analytics so
+        # its in-memory caches survive; rebuilt when the project's configuration changes.
+        self._pool: dict[str, tuple[str, PMParser]] = {}
+        self._pool_lock = threading.Lock()
         self.project: dict[str, Any] = {}
         self.parser: PMParser
         self.activate(self._initial_project())
@@ -505,8 +509,32 @@ class CockpitState:
             return active
         return projects.find_project_for_path(Path.cwd()) or projects.adhoc_project(Path.cwd())
 
+    @staticmethod
+    def _pool_signature(project: dict[str, Any]) -> str:
+        return json.dumps(
+            [project.get(k) for k in ("code_path", "docs_path", "prefix", "extra_tags")],
+            sort_keys=True,
+            default=str,
+        )
+
+    def parser_for(self, project: dict[str, Any]) -> PMParser:
+        """The pooled parser for ``project``, rebuilt when its code/docs path, prefix or tags changed."""
+        slug = project.get("slug")
+        if not slug:
+            return PMParser(project=project)
+        signature = self._pool_signature(project)
+        with self._pool_lock:
+            entry = self._pool.get(slug)
+            if entry is None or entry[0] != signature:
+                parser = PMParser(project=project)
+                parser.parser_provider = self.parser_for
+                entry = (signature, parser)
+                self._pool[slug] = entry
+            return entry[1]
+
     def activate(self, project: dict[str, Any]) -> None:
-        new_parser = PMParser(project=project)
+        new_parser = self.parser_for(project)
+        new_parser._cards_cache = None  # a reused parser must not serve a stale card list after a switch
         with self.lock:
             self.project = project
             self.parser = new_parser
@@ -657,7 +685,7 @@ class NotificationWatcher(threading.Thread):
                 if STATE.project.get("slug") == slug:
                     parser = STATE.parser
                 else:
-                    parser = PMParser(project=proj)
+                    parser = STATE.parser_for(proj)
                 cards = parser.get_all_cards(refresh=True)
             except Exception:
                 continue

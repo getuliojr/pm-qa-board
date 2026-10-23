@@ -15,11 +15,13 @@ Provides write-back for:
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -123,6 +125,10 @@ class PMParser:
         self._cards_cache: list[dict[str, Any]] | None = None
         self._cards_cache_time: float = 0.0
         self._analytics_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        # Hook for the server's parser pool: slug/config -> reusable PMParser (default: build fresh).
+        self.parser_provider: Any = None
+        self._analytics_memo: dict[str, tuple[str, float, dict[str, Any]]] = {}
+        self._git_backfill: dict[str, Any] = {"done": True, "counted": 0, "total": 0}
         self._plan_cache: dict[str, Any] | None = None
         self._plan_cache_mtime: float = 0.0
         self._reviews_cache: list[dict[str, Any]] = []
@@ -141,7 +147,11 @@ class PMParser:
 
                 slug = self.project.get("slug")
                 if not slug:
-                    slug = projects.slugify(self.docs_path.name or self.root_dir.name or "project")
+                    # Ad-hoc project: the docs folder name alone can collide (two projects with a
+                    # `docs` folder), so add a short hash of the resolved docs path.
+                    base = projects.slugify(self.docs_path.name or self.root_dir.name or "project")
+                    digest = hashlib.sha1(str(self.docs_path).lower().encode("utf-8")).hexdigest()[:8]
+                    slug = f"{base}-{digest}"
                 db_path = projects.cockpit_home() / "cache" / f"{slug}.db"
                 self._index = CardIndex(db_path)
             except Exception:
@@ -235,6 +245,7 @@ class PMParser:
         self._card_git_commit_map = None
         self._file_git_commits_cache = {}
         self._analytics_cache = {}
+        self._analytics_memo = {}
         self._plan_cache = None
         self._plan_cache_mtime = 0.0
         self._sprint_dod_cache = {}
@@ -3440,98 +3451,175 @@ class PMParser:
             return "User"
         return s[:24]
 
-    def _get_git_churn(self, since_date: str | None = None) -> list[dict[str, Any]]:
-        commits: list[dict[str, Any]] = []
-        cmd = [
-            "git",
-            "--no-pager",
-            "log",
-            "--numstat",
-            "--no-renames",
-            "-n", "50",
-            "--date=format:%Y-%m-%d",
-            "--pretty=format:COMMIT%x09%h%x09%ad%x09%s%x09%an",
-        ]
-        if since_date:
-            cmd.append(f"--since={since_date}")
+    # ------------------------------------------------------------------
+    # Git churn: per-commit SQLite cache (commits are immutable)
+    # ------------------------------------------------------------------
+    _GIT_PRETTY = "--pretty=format:COMMIT%x09%H%x09%ad%x09%s%x09%an"
+    _BACKFILL_THREADS: dict[str, Any] = {}
+    _BACKFILL_LOCK = threading.Lock()
+    _NUMSTAT_BATCH = 100
+    _NUMSTAT_TIMEOUT = 60.0
+    _INLINE_BUDGET = 40
 
+    def _git_bound(self) -> str:
+        """Oldest date any analytics window can ask for: max span of 90 days / quarter start."""
+        today = datetime.date.today()
+        q_start = datetime.date(today.year, ((today.month - 1) // 3) * 3 + 1, 1)
+        return min(q_start, today - datetime.timedelta(days=90)).isoformat()
+
+    def _read_git_head(self) -> str:
+        """Current HEAD sha read from `.git` files; `git rev-parse HEAD` for anything unexpected."""
+        git_dir = self.root_dir / ".git"
+        try:
+            if git_dir.is_dir():
+                head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+                if re.fullmatch(r"[0-9a-f]{40}", head):
+                    return head
+                if head.startswith("ref: "):
+                    ref = head[5:].strip()
+                    loose = git_dir / ref
+                    if loose.is_file():
+                        sha = loose.read_text(encoding="utf-8").strip()
+                        if re.fullmatch(r"[0-9a-f]{40}", sha):
+                            return sha
+                    packed = git_dir / "packed-refs"
+                    if packed.is_file():
+                        for line in packed.read_text(encoding="utf-8").splitlines():
+                            parts = line.split(" ", 1)
+                            if len(parts) == 2 and parts[1].strip() == ref and re.fullmatch(r"[0-9a-f]{40}", parts[0]):
+                                return parts[0]
+        except OSError:
+            pass
         try:
             res = subprocess.run(
-                cmd,
-                cwd=str(self.root_dir),
-                capture_output=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
-                timeout=4.0,
+                ["git", "rev-parse", "HEAD"], cwd=str(self.root_dir), capture_output=True,
+                encoding="utf-8", errors="replace", check=False, timeout=10.0,
             )
             if res.returncode == 0:
-                current_commit: dict[str, Any] | None = None
-                for raw_line in res.stdout.splitlines():
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    if line.startswith("COMMIT\t"):
-                        parts = line.split("\t")
-                        if len(parts) >= 3:
-                            current_commit = {
-                                "sha": parts[1] if len(parts) > 1 else "",
-                                "date": parts[2] if len(parts) > 2 else "",
-                                "subject": parts[3] if len(parts) > 3 else "",
-                                "author": parts[4] if len(parts) > 4 else "",
-                                "added": 0,
-                                "deleted": 0,
-                            }
-                            commits.append(current_commit)
-                    elif current_commit and "\t" in line:
-                        parts = line.split("\t")
-                        if len(parts) >= 2:
-                            added = int(parts[0]) if parts[0].isdigit() else 0
-                            deleted = int(parts[1]) if parts[1].isdigit() else 0
-                            current_commit["added"] += added
-                            current_commit["deleted"] += deleted
+                return res.stdout.strip()
         except Exception:
             pass
+        return ""
 
-        # Fast fallback log if numstat timed out or returned empty
-        if not commits:
-            try:
-                fallback_cmd = [
-                    "git",
-                    "--no-pager",
-                    "log",
-                    "-n", "100",
-                    "--date=format:%Y-%m-%d",
-                    "--pretty=format:COMMIT%x09%h%x09%ad%x09%s%x09%an",
-                ]
-                if since_date:
-                    fallback_cmd.append(f"--since={since_date}")
-                res = subprocess.run(
-                    fallback_cmd,
-                    cwd=str(self.root_dir),
-                    capture_output=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    check=False,
-                    timeout=2.0,
-                )
-                if res.returncode == 0:
-                    for raw_line in res.stdout.splitlines():
-                        line = raw_line.strip()
-                        if line.startswith("COMMIT\t"):
-                            parts = line.split("\t")
-                            if len(parts) >= 3:
-                                commits.append({
-                                    "sha": parts[1] if len(parts) > 1 else "",
-                                    "date": parts[2] if len(parts) > 2 else "",
-                                    "subject": parts[3] if len(parts) > 3 else "",
-                                    "author": parts[4] if len(parts) > 4 else "",
-                                    "added": 0,
-                                    "deleted": 0,
-                                })
-            except Exception:
-                pass
+    def _parse_git_log(self, stdout: str) -> list[dict[str, Any]]:
+        """Parse `COMMIT<TAB>sha<TAB>date<TAB>subject<TAB>author` blocks with optional numstat lines."""
+        commits: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+        for raw_line in stdout.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("COMMIT\t"):
+                parts = line.split("\t")
+                if len(parts) >= 3:
+                    current = {
+                        "sha": parts[1],
+                        "date": parts[2],
+                        "subject": parts[3] if len(parts) > 3 else "",
+                        "author": parts[4] if len(parts) > 4 else "",
+                        "added": 0,
+                        "deleted": 0,
+                    }
+                    commits.append(current)
+            elif current is not None and "\t" in line:
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    current["added"] += int(parts[0]) if parts[0].isdigit() else 0
+                    current["deleted"] += int(parts[1]) if parts[1].isdigit() else 0
+        return commits
 
+    def _git_log(self, extra: list[str], timeout: float, stdin: str | None = None, numstat: bool = False) -> str | None:
+        cmd = ["git", "--no-pager", "log", "--date=format:%Y-%m-%d", self._GIT_PRETTY, *extra]
+        if numstat:
+            cmd.insert(3, "--numstat")
+            cmd.insert(4, "--no-renames")
+        try:
+            res = subprocess.run(
+                cmd, cwd=str(self.root_dir), input=stdin, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", check=False, timeout=timeout,
+            )
+        except Exception:
+            return None
+        return res.stdout if res.returncode == 0 else None
+
+    def _fill_numstat(self, shas: list[str]) -> int:
+        """Read line counts for ``shas`` (one git call per batch) and store them. Returns commits stored."""
+        stored = 0
+        for i in range(0, len(shas), self._NUMSTAT_BATCH):
+            batch = shas[i : i + self._NUMSTAT_BATCH]
+            out = self._git_log(["--no-walk=unsorted", "--stdin"], self._NUMSTAT_TIMEOUT, "\n".join(batch) + "\n", numstat=True)
+            if out is None:
+                break
+            parsed = {c["sha"]: c for c in self._parse_git_log(out)}
+            # A commit git no longer knows (gc'd after a rebase) is stored as zero so it is not retried forever.
+            stats = [(sha, parsed[sha]["added"] if sha in parsed else 0, parsed[sha]["deleted"] if sha in parsed else 0) for sha in batch]
+            self._index.set_commit_stats(stats)
+            stored += len(stats)
+        return stored
+
+    def _sync_git_commits(self, bound: str) -> None:
+        """Refresh the reachable set when HEAD or the bound moved (cheap: no diffs are read)."""
+        head = self._read_git_head()
+        state = self._index.get_git_sync()
+        if state is not None and state == (bound, head):
+            return
+        out = self._git_log([f"--since={bound}", "HEAD"], 60.0)
+        if out is None:
+            return
+        rows = [(c["sha"], c["date"], c["subject"], c["author"]) for c in self._parse_git_log(out)]
+        self._index.sync_git_reachable(bound, head, rows)
+
+    def _start_backfill(self) -> None:
+        """One background thread per project fills the remaining line counts, newest commits first."""
+        key = str(self._index.db_path)
+        with self._BACKFILL_LOCK:
+            running = self._BACKFILL_THREADS.get(key)
+            if running is not None and running.is_alive():
+                return
+
+            def work() -> None:
+                try:
+                    while True:
+                        shas = self._index.get_uncounted_shas(self._NUMSTAT_BATCH)
+                        if not shas or self._fill_numstat(shas) == 0:
+                            break
+                except Exception:
+                    pass
+
+            thread = threading.Thread(target=work, name=f"git-backfill-{key}", daemon=True)
+            self._BACKFILL_THREADS[key] = thread
+            thread.start()
+
+    def _get_git_churn(self, since_date: str | None = None) -> list[dict[str, Any]]:
+        """Every reachable commit since ``since_date``, with its line counts.
+
+        Cached per commit in the SQLite index: only SHAs not seen before are read. A handful are read
+        inline (a new commit shows up at once); a long history fills in on a background thread and
+        ``self._git_backfill`` says how far along it is. Read-only parsers compute live, create no files.
+        """
+        self._git_backfill = {"done": True, "counted": 0, "total": 0}
+        if self._index is None:
+            out = self._git_log([f"--since={since_date}"] if since_date else [], 120.0, numstat=True)
+            commits = self._parse_git_log(out or "")
+            for c in commits:
+                c["sha"] = c["sha"][:7]
+            self._git_backfill = {"done": True, "counted": len(commits), "total": len(commits)}
+            return commits
+
+        bound = self._git_bound()
+        since = max(since_date or bound, bound)
+        try:
+            self._sync_git_commits(bound)
+            pending = self._index.get_uncounted_shas(self._INLINE_BUDGET)
+            if pending:
+                self._fill_numstat(pending)
+            counted, total = self._index.git_progress(since)
+            if counted < total:
+                self._start_backfill()
+            commits = self._index.get_git_commits(since)
+        except Exception:
+            return []
+        self._git_backfill = {"done": counted >= total, "counted": counted, "total": total}
         return commits
 
     def _parse_gate_runs_from_quality(self) -> list[dict[str, Any]]:
@@ -4214,6 +4302,7 @@ class PMParser:
 
         # Git churn
         commits = self._get_git_churn(since_date=since_date)
+        git_backfill = self._git_backfill
         if norm_window == "all":
             curr_commits = commits
         else:
@@ -4500,6 +4589,7 @@ class PMParser:
         return {
             "window": norm_window,
             "project": self.project.get("slug") or "current",
+            "git_backfill": dict(git_backfill),
             "kpis": {
                 "throughput": {
                     "value": tp_value,
@@ -4647,7 +4737,7 @@ class PMParser:
                 registry_projects = {}
 
         if not registry_projects:
-            single = self._compute_project_analytics(window)
+            single = self._cached_project_analytics(window)
             single["project"] = "all"
             return single
 
@@ -4660,8 +4750,8 @@ class PMParser:
                 if cur_slug and p_slug == cur_slug:
                     p_parser = self
                 else:
-                    p_parser = PMParser(project=p_conf)
-                p_ana = p_parser._compute_project_analytics(window)
+                    p_parser = self._parser_for(p_conf)
+                p_ana = p_parser._cached_project_analytics(window)
                 sub_analytics.append(p_ana)
                 projects_summary.append({
                     "slug": p_slug,
@@ -4678,7 +4768,7 @@ class PMParser:
                 pass
 
         if not sub_analytics:
-            single = self._compute_project_analytics(window)
+            single = self._cached_project_analytics(window)
             single["project"] = "all"
             return single
 
@@ -5011,6 +5101,11 @@ class PMParser:
         return {
             "window": window,
             "project": "all",
+            "git_backfill": {
+                "done": all(a.get("git_backfill", {}).get("done", True) for a in sub_analytics),
+                "counted": sum(a.get("git_backfill", {}).get("counted", 0) for a in sub_analytics),
+                "total": sum(a.get("git_backfill", {}).get("total", 0) for a in sub_analytics),
+            },
             "kpis": {
                 "throughput": {
                     "value": total_completed,
@@ -5143,6 +5238,94 @@ class PMParser:
             "projects_summary": projects_summary,
         }
 
+    _ANALYTICS_MAX_AGE = 600.0
+
+    def _parser_for(self, project: dict[str, Any]) -> "PMParser":
+        """The parser for another registered project: the server's pooled one when wired, else a fresh one."""
+        if self.parser_provider is not None:
+            return self.parser_provider(project)
+        return PMParser(project=project)
+
+    def _analytics_fingerprint(self) -> str:
+        """Hash of every file the rollups read (path, mtime, size): cards, reviews, QUALITY.md, PLAN.md."""
+        h = hashlib.sha256()
+        entries: list[str] = []
+
+        def add(path: Path) -> None:
+            try:
+                st = path.stat()
+            except OSError:
+                return
+            entries.append(f"{path}|{st.st_mtime_ns}|{st.st_size}")
+
+        for folder in (self.cards_dir, self.backlog_dir, self.reviews_dir):
+            try:
+                for entry in os.scandir(folder):
+                    if entry.is_file():
+                        add(Path(entry.path))
+            except OSError:
+                continue
+        add(self.quality_file)
+        add(self.plan_path)
+        for e in sorted(entries):
+            h.update(e.encode("utf-8", errors="replace"))
+            h.update(b"\n")
+        return h.hexdigest()
+
+    @staticmethod
+    def _today() -> datetime.date:
+        return datetime.date.today()
+
+    @staticmethod
+    def _app_version() -> str:
+        try:
+            return (Path(__file__).resolve().parent.parent / "VERSION").read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    def _analytics_key(self, window: str) -> str:
+        parts = [
+            window,
+            self.project.get("slug") or "",
+            self._today().isoformat(),
+            self._app_version(),
+            self._read_git_head(),
+            self._analytics_fingerprint(),
+            self.prefix,
+            json.dumps(declared_extra_tags(self.project), sort_keys=True),
+        ]
+        return hashlib.sha256("\x1f".join(parts).encode("utf-8", errors="replace")).hexdigest()
+
+    def _cached_project_analytics(self, window: str) -> dict[str, Any]:
+        """This project's payload from the SQLite cache when its key still matches and the row is fresh."""
+        if self._index is None:
+            return self._compute_project_analytics(window)
+        scope = self.project.get("slug") or "current"
+        now = time.time()
+        try:
+            key = self._analytics_key(window)
+            memo = self._analytics_memo.get(window)
+            if memo is not None and memo[0] == key and (now - memo[1]) < self._ANALYTICS_MAX_AGE:
+                return memo[2]
+            hit = self._index.get_analytics(window, scope, key, self._ANALYTICS_MAX_AGE, now)
+        except Exception:
+            return self._compute_project_analytics(window)
+        if hit is not None:
+            self._analytics_memo[window] = (key, now, hit)
+            return hit
+        # The key changed on disk, so drop in-memory card/review caches (a pooled parser keeps them
+        # for 30s) before recomputing, or stale cards would be stored under the new key.
+        self.invalidate_cache()
+        result = self._compute_project_analytics(window)
+        # A payload still counting history is never stored: it would freeze partial numbers.
+        if result.get("git_backfill", {}).get("done", True):
+            try:
+                self._index.put_analytics(window, scope, key, time.time(), json.dumps(result, ensure_ascii=False))
+                self._analytics_memo[window] = (key, time.time(), result)
+            except Exception:
+                pass
+        return result
+
     def get_analytics_summary(
         self, window: str = "6w", project_slug: str | None = None
     ) -> dict[str, Any]:
@@ -5153,7 +5336,9 @@ class PMParser:
 
         cache_key = f"{norm_window}:{project_slug or ''}"
         now = time.time()
-        if cache_key in self._analytics_cache:
+        # The SQLite payload cache does the freshness check; the 15s memory cache only serves
+        # parsers without an index (read-only), where it would otherwise recompute every call.
+        if self._index is None and cache_key in self._analytics_cache:
             c_time, c_data = self._analytics_cache[cache_key]
             if (now - c_time) < 15.0:
                 return c_data
@@ -5170,14 +5355,14 @@ class PMParser:
                     projects = None
             reg_projects = projects.load_registry().get("projects", {}) if projects else {}
             if project_slug in reg_projects:
-                target_parser = PMParser(project=reg_projects[project_slug])
-                result = target_parser.get_analytics_summary(window=norm_window)
+                result = self._parser_for(reg_projects[project_slug]).get_analytics_summary(window=norm_window)
             else:
-                result = self._compute_project_analytics(norm_window)
+                result = self._cached_project_analytics(norm_window)
         else:
-            result = self._compute_project_analytics(norm_window)
+            result = self._cached_project_analytics(norm_window)
 
-        self._analytics_cache[cache_key] = (now, result)
+        if self._index is None:
+            self._analytics_cache[cache_key] = (now, result)
         return result
 
     # --------------------------------------------------------------------------
