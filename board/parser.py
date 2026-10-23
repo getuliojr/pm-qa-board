@@ -5260,9 +5260,11 @@ class PMParser:
 
         for folder in (self.cards_dir, self.backlog_dir, self.reviews_dir):
             try:
+                # DirEntry.stat() is served from the directory listing on Windows: no per-file syscall.
                 for entry in os.scandir(folder):
                     if entry.is_file():
-                        add(Path(entry.path))
+                        st = entry.stat()
+                        entries.append(f"{entry.path}|{st.st_mtime_ns}|{st.st_size}")
             except OSError:
                 continue
         add(self.quality_file)
