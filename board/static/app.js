@@ -5629,8 +5629,9 @@ async function selectProject(slug) {
     nameEl.innerHTML = `<span class="inline-flex items-center gap-1.5"><i class="ph ph-spinner animate-spin text-emerald-500"></i> ${escapeHtml(targetName)}</span>`;
   }
   showLoadingFeedback(true);
+  state.pendingProjectSlug = slug;
   resetProjectScopedState();
-  renderLoadingSkeletons(true);
+  if (!(state.activeTab === 'analytics' && restoreCachedAnalytics())) renderLoadingSkeletons(true);
 
   try {
     const res = await fetch('/api/projects/select', {
@@ -5649,8 +5650,10 @@ async function selectProject(slug) {
 
     // Fetch view-scoped data for active tab
     await fetchCurrentViewData();
+    state.pendingProjectSlug = null;
     scheduleNextPoll(10000);
   } catch (err) {
+    state.pendingProjectSlug = null;
     if (err.name !== 'AbortError') {
       showToast(`Could not switch project: ${err.message}`, 'error');
     }
@@ -5665,6 +5668,7 @@ function resetProjectScopedState() {
   state.gitSync = {};
   state.selectedQaId = null;
   state.analytics = null;
+  clearTimeout(state._analyticsBackfillTimer);
   state.analyticsFilter = null;
   state.activeSprintId = 'ACTIVE';
   state.sprintDodData = null;
@@ -6788,8 +6792,17 @@ state._analyticsBackfillTimer = null;
 
 function analyticsRequestKey(windowStr) {
   const scope = state.analyticsScope || 'active';
-  const projParam = scope === 'all' ? 'all' : (state.currentProject?.slug || '');
+  const projParam = scope === 'all' ? 'all' : (state.pendingProjectSlug || state.currentProject?.slug || '');
   return { windowStr, projParam, cacheKey: `${windowStr}:${projParam}` };
+}
+
+// On a project switch: show that project's already-fetched analytics at once. False means a miss.
+function restoreCachedAnalytics() {
+  const { cacheKey } = analyticsRequestKey(state.analyticsWindow || '6w');
+  const cached = state.analyticsCache[cacheKey];
+  if (!cached) return false;
+  applyAnalyticsData(cached, cacheKey);
+  return true;
 }
 
 function renderAnalyticsSkeleton() {
@@ -6864,12 +6877,14 @@ async function loadAnalytics(windowStr = '6w', force = false, signal = undefined
     const url = `/api/analytics?window=${encodeURIComponent(windowStr)}&project=${encodeURIComponent(projParam)}`;
     const resp = await fetch(url, { signal });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
+    const fresh = await resp.json();
+    const changed = JSON.stringify(fresh) !== JSON.stringify(cached);
+    // Unchanged data keeps the cached object, so a poll neither re-renders nor closes open tooltips.
+    const data = changed ? fresh : cached;
     state.analyticsCache[cacheKey] = data;
     state.analyticsCacheAt[cacheKey] = Date.now();
     // Stale guard: a slower earlier request must not overwrite the view the user is now on.
     if (analyticsRequestKey(state.analyticsWindow || '6w').cacheKey !== cacheKey) return data;
-    const changed = JSON.stringify(data) !== JSON.stringify(cached);
     if (changed || state.analytics === null || data.git_backfill?.done === false) applyAnalyticsData(data, cacheKey);
     return data;
   } catch (err) {

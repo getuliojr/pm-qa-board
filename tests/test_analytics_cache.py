@@ -102,7 +102,19 @@ def test_adhoc_projects_with_same_docs_folder_name_get_distinct_dbs(tmp_path):
 
 
 def test_registered_project_db_is_named_by_slug(proj):
+    code, docs = proj
+    entry = {"slug": "app", "code_path": str(code), "docs_path": str(docs), "prefix": "APP"}
+    projects.save_registry({"active_project": "app", "projects": {"app": entry}})
     assert make_parser(proj)._index.db_path.name == "app.db"
+
+
+def test_unregistered_projects_sharing_a_slug_get_distinct_dbs(tmp_path):
+    dbs = []
+    for parent in ("a", "b"):
+        code = init_repo(tmp_path / parent / "app")
+        project = projects.adhoc_project(code)
+        dbs.append(PMParser(project=project)._index.db_path)
+    assert dbs[0] != dbs[1]
 
 
 def test_suite_never_uses_the_real_cockpit_home(tmp_path):
@@ -200,6 +212,39 @@ def test_branch_switch_counts_only_reachable_commits(proj, no_thread):
     assert len(p._get_git_churn(since_date=since)) == 1
     git(code, "checkout", "-q", "feature")
     assert len(p._get_git_churn(since_date=since)) == 3
+
+
+def test_history_rewrite_drops_replaced_commits(proj, no_thread):
+    code, _ = proj
+    since = (datetime.date.today() - datetime.timedelta(days=5)).isoformat()
+    commit(code, "b.txt")
+    p = make_parser(proj)
+    p._INLINE_BUDGET = 100
+    assert len(p._get_git_churn(since_date=since)) == 2
+    git(code, "commit", "-q", "--amend", "-m", "reworded")  # same count, new SHA
+    commits = p._get_git_churn(since_date=since)
+    assert len(commits) == 2 and "reworded" in [c["subject"] for c in commits]
+    git(code, "reset", "-q", "--hard", "HEAD~1")
+    assert len(p._get_git_churn(since_date=since)) == 1
+
+
+def test_git_failure_is_flagged_and_its_payload_not_cached(proj, counted, monkeypatch):
+    p = make_parser(proj)
+    monkeypatch.setattr(PMParser, "_sync_git_commits", lambda self, bound: (_ for _ in ()).throw(RuntimeError("boom")))
+    first = p._cached_project_analytics("6w")
+    assert first["git_backfill"].get("error") is True
+    p._cached_project_analytics("6w")
+    assert len(counted) == 2
+
+
+def test_inline_counting_is_skipped_while_the_background_thread_runs(proj, monkeypatch):
+    code, _ = proj
+    bulk_commits(code, 5)
+    p = make_parser(proj)
+    monkeypatch.setattr(PMParser, "_backfill_running", lambda self: True)
+    monkeypatch.setattr(PMParser, "_start_backfill", lambda self: None)
+    p._get_git_churn(since_date=(datetime.date.today() - datetime.timedelta(days=5)).isoformat())
+    assert p._git_backfill["counted"] == 0
 
 
 def test_read_only_computes_live_and_creates_no_files(proj):
@@ -337,3 +382,10 @@ def test_frontend_wires_skeletons_stale_guard_and_backfill_badge():
     assert "state.analyticsCache = {};\n  state.analyticsFilter" not in app_js  # cache survives a project switch
     for element_id in ("analyticsKpiStrip", "analyticsBackfillBadge", "chartThroughputContainer", "weeklyCohortsTableBody"):
         assert f'id="{element_id}"' in index_html
+
+
+def test_frontend_switch_restores_cached_analytics_without_a_skeleton():
+    app_js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "restoreCachedAnalytics()" in app_js
+    assert "state.pendingProjectSlug" in app_js
+    assert "const data = changed ? fresh : cached;" in app_js

@@ -313,7 +313,8 @@ class CardIndex:
     # ------------------------------------------------------------------
     def get_analytics(
         self, window: str, scope: str, key_hash: str, max_age: float, now: float
-    ) -> dict[str, Any] | None:
+    ) -> tuple[float, dict[str, Any]] | None:
+        """(created_at, payload) when the stored key matches and the row is younger than ``max_age``."""
         row = self._run(
             lambda c: c.execute(
                 "SELECT key_hash, created_at, payload_json FROM analytics_cache WHERE window = ? AND scope = ?",
@@ -323,7 +324,7 @@ class CardIndex:
         if not row or row[0] != key_hash or (now - row[1]) >= max_age:
             return None
         try:
-            return json.loads(row[2])
+            return row[1], json.loads(row[2])
         except Exception:
             return None
 

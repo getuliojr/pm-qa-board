@@ -128,7 +128,7 @@ class PMParser:
         # Hook for the server's parser pool: slug/config -> reusable PMParser (default: build fresh).
         self.parser_provider: Any = None
         self._analytics_memo: dict[str, tuple[str, float, dict[str, Any]]] = {}
-        self._git_backfill: dict[str, Any] = {"done": True, "counted": 0, "total": 0}
+        self._git_local = threading.local()  # per-thread: pooled parsers serve several requests at once
         self._plan_cache: dict[str, Any] | None = None
         self._plan_cache_mtime: float = 0.0
         self._reviews_cache: list[dict[str, Any]] = []
@@ -146,10 +146,11 @@ class PMParser:
                     from board.index import CardIndex
 
                 slug = self.project.get("slug")
-                if not slug:
-                    # Ad-hoc project: the docs folder name alone can collide (two projects with a
-                    # `docs` folder), so add a short hash of the resolved docs path.
-                    base = projects.slugify(self.docs_path.name or self.root_dir.name or "project")
+                registered = (projects.load_registry().get("projects") or {}).get(slug or "")
+                if not (registered and Path(registered.get("docs_path") or "").resolve() == self.docs_path):
+                    # Not a registered project (ad-hoc, or a slug another checkout registered): a bare
+                    # slug or docs folder name can collide, so add a hash of the resolved docs path.
+                    base = slug or projects.slugify(self.docs_path.name or self.root_dir.name or "project")
                     digest = hashlib.sha1(str(self.docs_path).lower().encode("utf-8")).hexdigest()[:8]
                     slug = f"{base}-{digest}"
                 db_path = projects.cockpit_home() / "cache" / f"{slug}.db"
@@ -3461,6 +3462,18 @@ class PMParser:
     _NUMSTAT_TIMEOUT = 60.0
     _INLINE_BUDGET = 40
 
+    @property
+    def _git_backfill(self) -> dict[str, Any]:
+        return getattr(self._git_local, "backfill", None) or {"done": True, "counted": 0, "total": 0}
+
+    @_git_backfill.setter
+    def _git_backfill(self, value: dict[str, Any]) -> None:
+        self._git_local.backfill = value
+
+    def _backfill_running(self) -> bool:
+        thread = self._BACKFILL_THREADS.get(str(self._index.db_path))
+        return thread is not None and thread.is_alive()
+
     def _git_bound(self) -> str:
         """Oldest date any analytics window can ask for: max span of 90 days / quarter start."""
         today = datetime.date.today()
@@ -3610,14 +3623,16 @@ class PMParser:
         since = max(since_date or bound, bound)
         try:
             self._sync_git_commits(bound)
-            pending = self._index.get_uncounted_shas(self._INLINE_BUDGET)
-            if pending:
-                self._fill_numstat(pending)
+            if not self._backfill_running():
+                pending = self._index.get_uncounted_shas(self._INLINE_BUDGET)
+                if pending:
+                    self._fill_numstat(pending)
             counted, total = self._index.git_progress(since)
             if counted < total:
                 self._start_backfill()
             commits = self._index.get_git_commits(since)
         except Exception:
+            self._git_backfill = {"done": True, "counted": 0, "total": 0, "error": True}
             return []
         self._git_backfill = {"done": counted >= total, "counted": counted, "total": total}
         return commits
@@ -4737,7 +4752,7 @@ class PMParser:
                 registry_projects = {}
 
         if not registry_projects:
-            single = self._cached_project_analytics(window)
+            single = dict(self._cached_project_analytics(window))
             single["project"] = "all"
             return single
 
@@ -4768,7 +4783,7 @@ class PMParser:
                 pass
 
         if not sub_analytics:
-            single = self._cached_project_analytics(window)
+            single = dict(self._cached_project_analytics(window))
             single["project"] = "all"
             return single
 
@@ -5313,14 +5328,16 @@ class PMParser:
         except Exception:
             return self._compute_project_analytics(window)
         if hit is not None:
-            self._analytics_memo[window] = (key, now, hit)
-            return hit
+            created_at, payload = hit
+            self._analytics_memo[window] = (key, created_at, payload)
+            return payload
         # The key changed on disk, so drop in-memory card/review caches (a pooled parser keeps them
         # for 30s) before recomputing, or stale cards would be stored under the new key.
         self.invalidate_cache()
         result = self._compute_project_analytics(window)
         # A payload still counting history is never stored: it would freeze partial numbers.
-        if result.get("git_backfill", {}).get("done", True):
+        backfill = result.get("git_backfill", {})
+        if backfill.get("done", True) and not backfill.get("error"):
             try:
                 self._index.put_analytics(window, scope, key, time.time(), json.dumps(result, ensure_ascii=False))
                 self._analytics_memo[window] = (key, time.time(), result)

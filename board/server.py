@@ -512,7 +512,7 @@ class CockpitState:
     @staticmethod
     def _pool_signature(project: dict[str, Any]) -> str:
         return json.dumps(
-            [project.get(k) for k in ("code_path", "docs_path", "prefix", "extra_tags")],
+            [project.get(k) for k in ("code_path", "docs_path", "prefix", "name", "extra_tags")],
             sort_keys=True,
             default=str,
         )
