@@ -5650,10 +5650,15 @@ async function selectProject(slug) {
 
     // Fetch view-scoped data for active tab
     await fetchCurrentViewData();
-    state.pendingProjectSlug = null;
+    if (state.pendingProjectSlug === slug) state.pendingProjectSlug = null;
     scheduleNextPoll(10000);
   } catch (err) {
-    state.pendingProjectSlug = null;
+    // Only this switch's marker: a newer switch may already have set its own.
+    if (state.pendingProjectSlug === slug) {
+      state.pendingProjectSlug = null;
+      // The target's cached charts may be on screen under the old project; show the real one again.
+      if (err.name !== 'AbortError' && state.activeTab === 'analytics') loadAnalytics(state.analyticsWindow || '6w', true);
+    }
     if (err.name !== 'AbortError') {
       showToast(`Could not switch project: ${err.message}`, 'error');
     }
