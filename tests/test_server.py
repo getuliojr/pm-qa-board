@@ -1171,7 +1171,7 @@ def test_story23_qa_grid_and_dedicated_drawer(server):
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
     # 1. Cachebuster bumped
-    assert re.search(r'app\.js\?v=2026\d+-(?:pqc23|pqc24)', index_html)
+    assert re.search(r'app\.js\?v=2026\d+-(?:pqc23|pqc24|pqc28|pqc29)', index_html)
 
     # 2. Responsive QA Card Grid in index.html and app.js
     assert 'id="qaCardsGrid"' in index_html
@@ -1230,7 +1230,7 @@ def test_story24_mobile_ergonomics_live_console_roadmap_filter(server):
     app_js = (static_dir / "app.js").read_text(encoding="utf-8")
 
     # 1. Cachebuster bumped
-    assert 'app.js?v=20261020-pqc24' in index_html
+    assert re.search(r'app\.js\?v=2026\d+-(?:pqc24|pqc28|pqc29)', index_html)
 
     # 2. QA Drawer Sticky Footer Polish: No Close button in sticky footer
     assert 'id="qaCardDrawer"' in index_html
@@ -1288,19 +1288,30 @@ def test_favicon_served_successfully(server):
         assert "<svg" in svg_text
 
 
+def test_server_api_analytics_endpoint(server, external_project):
+    base, srv = server
+    code, docs = external_project
+    (docs / "cards").mkdir(parents=True, exist_ok=True)
 
+    status, res = post(
+        f"{base}/api/projects/configure",
+        {"name": "Story App", "code_path": str(code), "docs_path": str(docs), "prefix": "APP"},
+    )
+    assert status == 200 and res["success"]
 
+    # Test GET /api/analytics default (7d)
+    status, body = get(f"{base}/api/analytics")
+    assert status == 200
+    payload = json.loads(body)
+    assert payload["window"] in ("7d", "6w")
+    assert "kpis" in payload
+    assert "charts" in payload
 
-
-
-
-
-
-
-
-
-
-
-
-
+    # Test GET /api/analytics with window=14d and project=all
+    status, body = get(f"{base}/api/analytics?window=14d&project=all")
+    assert status == 200
+    payload = json.loads(body)
+    assert payload["window"] == "14d"
+    assert payload["project"] == "all"
+    assert len(payload["charts"]["daily_throughput"]["dates"]) == 14
 

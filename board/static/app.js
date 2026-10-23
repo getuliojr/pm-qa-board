@@ -1151,6 +1151,8 @@ async function fetchCurrentViewData(signal = undefined) {
       return await fetchActivityData(signal);
     case 'sprint-dod':
       return await fetchActiveSprintData(state.activeSprintId, signal);
+    case 'analytics':
+      return await loadAnalytics(state.analyticsWindow || '6w', false, signal);
     default:
       return await fetchBoardData(signal);
   }
@@ -3140,6 +3142,7 @@ function switchTab(tabId) {
     'qa': 'QA & Heavy Gates',
     'sprints': 'Story Roadmap & Decisions',
     'activity': 'Agent Activity & Git',
+    'analytics': 'Analytics & Trends',
   };
   const titleEl = document.getElementById('viewTitle');
   if (titleEl && viewTitles[tabId]) {
@@ -4659,6 +4662,7 @@ document.addEventListener('DOMContentLoaded', () => {
       closeFailureModal();
       closeReviewModal();
       closeMobileSidebar();
+      closeTicketDrawer();
     }
   });
 });
@@ -5658,6 +5662,9 @@ function resetProjectScopedState() {
   state.activity = {};
   state.gitSync = {};
   state.selectedQaId = null;
+  state.analytics = null;
+  state.analyticsCache = {};
+  state.analyticsFilter = null;
   state.activeSprintId = 'ACTIVE';
   state.sprintDodData = null;
   state.heavyGateWorker = null;
@@ -6618,3 +6625,1750 @@ function copySkillUpgradePrompt() {
   copyToClipboard('check for PM & QA Board upgrades', document.getElementById('copySkillPromptBtn'));
 }
 
+// -----------------------------------------------------------------------------
+// Executive Analytics & Velocity Overhaul (PQC-28 / PQC-29)
+// -----------------------------------------------------------------------------
+
+state.analyticsWindow = state.analyticsWindow || '6w';
+state.analyticsScope = state.analyticsScope || 'active';
+state.analytics = null;
+state.analyticsCache = {};
+state.analyticsFilter = null;
+state.analyticsCompView = 'types';
+state.burnupMode = 'burnup'; // 'burnup' or 'netbug'
+state.ticketDrawerSearch = '';
+state.ticketDrawerType = 'all';
+state.selectedPipelineStage = null;
+state.expandedCohorts = new Set();
+state._ticketDrawerStories = [];
+
+function setAnalyticsWindow(windowStr) {
+  state.analyticsWindow = windowStr;
+  document.querySelectorAll('.analytics-window-btn').forEach((btn) => {
+    if (btn.getAttribute('data-window') === windowStr) {
+      btn.classList.add('active-window-pill');
+      btn.classList.remove('text-[var(--text-secondary)]');
+    } else {
+      btn.classList.remove('active-window-pill');
+      btn.classList.add('text-[var(--text-secondary)]');
+    }
+  });
+  loadAnalytics(windowStr, false);
+}
+
+function setAnalyticsScope(scopeStr) {
+  state.analyticsScope = scopeStr;
+  document.querySelectorAll('.analytics-scope-btn').forEach((btn) => {
+    if (btn.getAttribute('data-scope') === scopeStr) {
+      btn.classList.add('active-scope-pill');
+      btn.classList.remove('text-[var(--text-secondary)]');
+    } else {
+      btn.classList.remove('active-scope-pill');
+      btn.classList.add('text-[var(--text-secondary)]');
+    }
+  });
+  loadAnalytics(state.analyticsWindow || '6w', true);
+}
+
+function toggleCompositionView(viewStr) {
+  state.analyticsCompView = viewStr;
+  const btnTypes = document.getElementById('btnCompTypes');
+  const btnAgents = document.getElementById('btnCompAgents');
+  if (viewStr === 'types') {
+    if (btnTypes) {
+      btnTypes.classList.add('bg-[var(--bg-surface)]', 'shadow-xs', 'text-[var(--text-primary)]', 'font-semibold');
+      btnTypes.classList.remove('text-[var(--text-secondary)]');
+    }
+    if (btnAgents) {
+      btnAgents.classList.remove('bg-[var(--bg-surface)]', 'shadow-xs', 'text-[var(--text-primary)]', 'font-semibold');
+      btnAgents.classList.add('text-[var(--text-secondary)]');
+    }
+  } else {
+    if (btnAgents) {
+      btnAgents.classList.add('bg-[var(--bg-surface)]', 'shadow-xs', 'text-[var(--text-primary)]', 'font-semibold');
+      btnAgents.classList.remove('text-[var(--text-secondary)]');
+    }
+    if (btnTypes) {
+      btnTypes.classList.remove('bg-[var(--bg-surface)]', 'shadow-xs', 'text-[var(--text-primary)]', 'font-semibold');
+      btnTypes.classList.add('text-[var(--text-secondary)]');
+    }
+  }
+  if (state.analytics && state.analytics.charts) {
+    renderCompositionChart(state.analytics.charts.work_composition);
+  }
+}
+
+function toggleBurnupChartMode(mode) {
+  state.burnupMode = mode;
+  const btnBurnup = document.getElementById('btnBurnupToggle');
+  const btnNetBug = document.getElementById('btnNetBugToggle');
+  const titleEl = document.getElementById('burnupChartTitle');
+  const subEl = document.getElementById('burnupChartSubtitle');
+  const legendEl = document.getElementById('burnupChartLegend');
+
+  if (mode === 'netbug') {
+    if (btnNetBug) {
+      btnNetBug.classList.add('active-toggle-btn');
+      btnNetBug.classList.remove('text-[var(--text-secondary)]');
+    }
+    if (btnBurnup) {
+      btnBurnup.classList.remove('active-toggle-btn');
+      btnBurnup.classList.add('text-[var(--text-secondary)]');
+    }
+    if (titleEl) {
+      titleEl.innerHTML = `<i class="ph ph-bug text-rose-500"></i> Net Bug Flow (Defect Velocity)`;
+    }
+    if (subEl) {
+      subEl.textContent = 'Weekly new defects found vs bugs resolved & drag on delivery throughput';
+    }
+    if (legendEl) {
+      legendEl.innerHTML = `
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-rose-500"></span>Bugs Found</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>Bugs Fixed</span>
+        <span class="flex items-center gap-1 font-semibold text-purple-600 dark:text-purple-400"><span class="w-3 h-0.5 bg-purple-500"></span>Net Flow</span>
+      `;
+    }
+  } else {
+    if (btnBurnup) {
+      btnBurnup.classList.add('active-toggle-btn');
+      btnBurnup.classList.remove('text-[var(--text-secondary)]');
+    }
+    if (btnNetBug) {
+      btnNetBug.classList.remove('active-toggle-btn');
+      btnNetBug.classList.add('text-[var(--text-secondary)]');
+    }
+    if (titleEl) {
+      titleEl.innerHTML = `<i class="ph ph-chart-line text-purple-500"></i> Scope Burnup &amp; Delivery Trajectory`;
+    }
+    if (subEl) {
+      subEl.textContent = 'Cumulative total created scope vs completed stories across weekly cohorts';
+    }
+    if (legendEl) {
+      legendEl.innerHTML = `
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-sky-500"></span>Total Scope</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-purple-500"></span>Done</span>
+        <span class="flex items-center gap-1 text-[var(--text-tertiary)]"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500/40"></span>In-Flight WIP</span>
+      `;
+    }
+  }
+
+  if (state.analytics) {
+    const scopeBurnup = state.analytics.scope_burnup || (state.analytics.charts ? state.analytics.charts.scope_burnup || state.analytics.charts.burnup : null);
+    const netBugFlow = state.analytics.net_bug_flow || (state.analytics.charts ? state.analytics.charts.net_bug_flow : null);
+    renderBurnupChart(scopeBurnup, netBugFlow);
+  }
+}
+
+function showAnalyticsTooltip(e, htmlContent) {
+  let tip = document.getElementById('analyticsGlobalTooltip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'analyticsGlobalTooltip';
+    tip.className = 'analytics-tooltip';
+    document.body.appendChild(tip);
+  }
+  tip.innerHTML = htmlContent;
+  tip.style.display = 'block';
+  const x = Math.min(window.innerWidth - 180, Math.max(90, e.clientX));
+  const y = Math.max(50, e.clientY - 12);
+  tip.style.left = `${x}px`;
+  tip.style.top = `${y}px`;
+}
+
+function hideAnalyticsTooltip() {
+  const tip = document.getElementById('analyticsGlobalTooltip');
+  if (tip) tip.style.display = 'none';
+}
+
+async function loadAnalytics(windowStr = '6w', force = false, signal = undefined) {
+  showLoadingFeedback(true);
+  const scope = state.analyticsScope || 'active';
+  const curSlug = state.currentProject?.slug || '';
+  const projParam = scope === 'all' ? 'all' : curSlug;
+  const cacheKey = `${windowStr}:${projParam}`;
+
+  if (!force && state.analyticsCache[cacheKey]) {
+    state.analytics = state.analyticsCache[cacheKey];
+    renderAnalyticsView();
+    showLoadingFeedback(false);
+    return state.analytics;
+  }
+
+  try {
+    const url = `/api/analytics?window=${encodeURIComponent(windowStr)}&project=${encodeURIComponent(projParam)}`;
+    const resp = await fetch(url, { signal });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    state.analytics = data;
+    state.analyticsCache[cacheKey] = data;
+    renderAnalyticsView();
+    return data;
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('Failed to load analytics data:', err);
+    }
+  } finally {
+    showLoadingFeedback(false);
+    if (window.lucide) lucide.createIcons();
+  }
+}
+
+function renderAnalyticsView() {
+  if (!state.analytics) return;
+  const {
+    kpis,
+    charts,
+    pipeline_health,
+    weekly_cohorts,
+    cohorts,
+    scope_burnup,
+    net_bug_flow,
+    open_defects,
+    all_delivered_stories,
+    stories,
+    projects_summary
+  } = state.analytics;
+
+  const resolvedCohorts = weekly_cohorts || cohorts || [];
+  const resolvedBurnup = scope_burnup || (charts ? charts.scope_burnup || charts.burnup : null);
+  const resolvedNetBug = net_bug_flow || (charts ? charts.net_bug_flow : null);
+  const resolvedStories = all_delivered_stories || stories || [];
+
+  renderAnalyticsKpis(kpis, pipeline_health, open_defects);
+  renderAnalyticsReadinessBadge(kpis, pipeline_health, resolvedCohorts);
+  renderPortfolioSummary(projects_summary);
+
+  renderDailyThroughputChart(charts ? charts.daily_throughput : null, resolvedCohorts);
+  renderBurnupChart(resolvedBurnup, resolvedNetBug);
+  renderPipelineHealth(pipeline_health);
+  renderWeeklyCohorts(resolvedCohorts);
+
+  if (charts) {
+    renderCompositionChart(charts.work_composition);
+    renderQualityChart(charts.quality_friction);
+  }
+
+  renderAnalyticsStories(resolvedStories, state.analyticsFilter);
+  updateTicketDrawerData(resolvedStories);
+}
+
+function renderAnalyticsReadinessBadge(kpis, pipelineHealth, weeklyCohorts) {
+  const badge = document.getElementById('analyticsReadinessBadge');
+  const text = document.getElementById('analyticsReadinessText');
+  if (!badge || !text) return;
+
+  const agingCount = pipelineHealth?.summary?.aging_count || 0;
+  const lastCohort = weeklyCohorts && weeklyCohorts.length > 0 ? weeklyCohorts[weeklyCohorts.length - 1] : null;
+
+  if (agingCount > 0) {
+    badge.className = 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20';
+    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span><span>Track: Stagnation (${agingCount} stuck)</span>`;
+  } else if (lastCohort && lastCohort.momentum === 'bug_drag') {
+    badge.className = 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20';
+    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span><span>Track: High Bug Drag</span>`;
+  } else {
+    badge.className = 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
+    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span><span>Track: Advancing</span>`;
+  }
+}
+
+function renderAnalyticsKpis(kpis, pipelineHealth, openDefects) {
+  if (!kpis) return;
+
+  // 1. Throughput
+  const tpValEl = document.getElementById('kpiThroughputValue');
+  const tpTrendEl = document.getElementById('kpiThroughputTrend');
+  if (tpValEl) tpValEl.textContent = kpis.throughput?.value ?? 0;
+  if (tpTrendEl) {
+    const trend = kpis.throughput?.trend;
+    if (trend !== null && trend !== undefined) {
+      const isPos = String(trend).startsWith('+') && trend !== '+0';
+      const isNeg = String(trend).startsWith('-') && trend !== '-0';
+      const colorCls = isPos ? 'text-emerald-600 dark:text-emerald-400' : (isNeg ? 'text-rose-600 dark:text-rose-400' : 'text-[var(--text-secondary)]');
+      const arrow = isPos ? '▲ ' : (isNeg ? '▼ ' : '');
+      tpTrendEl.innerHTML = `<span class="${colorCls} font-bold">${arrow}${escapeHtml(trend)}</span> <span class="text-[var(--text-tertiary)]">vs prior period</span>`;
+    } else {
+      tpTrendEl.innerHTML = `<span class="text-[var(--text-tertiary)]">Across whole period</span>`;
+    }
+  }
+
+  // 2. Velocity & Capacity (+ Work Volume compat)
+  const velValEl = document.getElementById('kpiVelocityValue');
+  const velTrendEl = document.getElementById('kpiVelocityTrend');
+  const velCapEl = document.getElementById('kpiVelocityCapacity');
+  const wvValEl = document.getElementById('kpiWorkVolumeValue');
+  const wvChurnEl = document.getElementById('kpiWorkVolumeChurn');
+
+  if (velValEl) velValEl.textContent = kpis.velocity?.points ?? kpis.velocity?.value ?? 0;
+  if (velCapEl) {
+    const cap = kpis.velocity?.capacity_pct ?? kpis.velocity?.feature_capacity_pct ?? 0;
+    velCapEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">${cap}% Feature Capacity</span>`;
+  }
+  if (velTrendEl) {
+    const rate = kpis.velocity?.rate_per_week;
+    const trend = kpis.velocity?.trend;
+    let trendHtml = '';
+    if (rate !== undefined && rate !== null) {
+      trendHtml += `<strong class="text-[var(--text-primary)] font-mono">${rate}</strong> <span class="text-[var(--text-secondary)]">pts/wk</span>`;
+    }
+    if (trend) {
+      const isPos = String(trend).startsWith('+') && trend !== '+0';
+      const isNeg = String(trend).startsWith('-') && trend !== '-0';
+      const colorCls = isPos ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (isNeg ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-[var(--text-secondary)]');
+      const arrow = isPos ? '▲ ' : (isNeg ? '▼ ' : '');
+      trendHtml += ` <span class="text-[var(--text-tertiary)]">•</span> <span class="${colorCls}">${arrow}${escapeHtml(trend)} vs prior</span>`;
+    }
+    velTrendEl.innerHTML = trendHtml || `<span class="text-[var(--text-tertiary)]">— pts/wk</span>`;
+  }
+  if (wvValEl) wvValEl.textContent = kpis.work_volume?.commits ?? 0;
+  if (wvChurnEl) {
+    const added = kpis.work_volume?.lines_added || 0;
+    const deleted = kpis.work_volume?.lines_deleted || 0;
+    const formatK = (n) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+    wvChurnEl.innerHTML = `<span class="text-emerald-600 dark:text-emerald-400 font-semibold">+${formatK(added)}</span> / <span class="text-rose-600 dark:text-rose-400 font-semibold">-${formatK(deleted)}</span> lines churn`;
+  }
+
+  // 3. Active Turnaround & Cycle Time
+  const ctValEl = document.getElementById('kpiCycleTimeValue');
+  const ctTrendEl = document.getElementById('kpiCycleTimeTrend');
+  const turnaround = kpis.active_turnaround || kpis.cycle_time;
+  if (ctValEl) ctValEl.textContent = turnaround?.formatted || '—';
+  if (ctTrendEl) {
+    const trend = turnaround?.trend;
+    const label = turnaround?.label || 'Active build (in-progress ➔ QA)';
+    if (trend) {
+      const isFaster = String(trend).startsWith('-');
+      const colorCls = isFaster ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-amber-600 dark:text-amber-400 font-semibold';
+      ctTrendEl.innerHTML = `<span class="${colorCls}">${escapeHtml(trend)} vs prior</span> <span class="text-[var(--text-tertiary)]">• ${escapeHtml(label)}</span>`;
+    } else {
+      ctTrendEl.innerHTML = `<span class="text-[var(--text-tertiary)]">${escapeHtml(label)}</span>`;
+    }
+  }
+
+  // 4. QA Test Health (replaces code review 1st pass metric)
+  const qrValEl = document.getElementById('kpiQualityRateValue');
+  const qrUnitEl = document.getElementById('kpiQualityRateUnit');
+  const qrSubEl = document.getElementById('kpiQualityRateSubtitle');
+  const th = kpis.test_health;
+
+  if (qrValEl) {
+    if (th && th.total_tests > 0) {
+      qrValEl.textContent = `${th.passing_tests || th.total_tests}`;
+      if (qrUnitEl) qrUnitEl.textContent = `Passing (${th.pass_rate_pct ?? 100}%)`;
+    } else {
+      const rate = kpis.quality_rate?.first_pass_rate ?? 100;
+      qrValEl.textContent = `${rate}%`;
+      if (qrUnitEl) qrUnitEl.textContent = 'Passing';
+    }
+  }
+  if (qrSubEl) {
+    if (th && th.total_tests > 0) {
+      const added = th.new_tests_in_window ?? 0;
+      const addedStr = added >= 0 ? `+${added}` : `${added}`;
+      qrSubEl.innerHTML = `<span class="text-emerald-600 dark:text-emerald-400 font-semibold">${addedStr} new tests this period</span> <span class="text-[var(--text-tertiary)]">• ${th.failed_tests || 0} failures</span>`;
+    } else {
+      const tCount = kpis.quality_rate?.test_count || 0;
+      qrSubEl.innerHTML = `<span><strong class="text-[var(--text-primary)]">${tCount}</strong> tests passing</span>`;
+    }
+  }
+
+  // 5. Pipeline Health / Stagnation
+  const stagBadge = document.getElementById('kpiStagnationAlertBadge');
+  const stagCounts = document.getElementById('kpiStagnationCounts');
+  const agingCount = pipelineHealth?.summary?.aging_count ?? pipelineHealth?.total_aging ?? pipelineHealth?.aging_count ?? 0;
+  const reopenedCount = pipelineHealth?.summary?.reopened_count ?? pipelineHealth?.reopened_count ?? 0;
+  const totalWip = pipelineHealth?.summary?.total_wip ?? pipelineHealth?.total_wip ?? 0;
+
+  if (stagBadge) {
+    if (agingCount > 0) {
+      stagBadge.className = 'momentum-badge stagnated';
+      stagBadge.innerHTML = `🔴 ${agingCount} Aging &gt;7d`;
+    } else if (reopenedCount > 0) {
+      stagBadge.className = 'momentum-badge bug_drag';
+      stagBadge.innerHTML = `🟡 ${reopenedCount} Reopened`;
+    } else {
+      stagBadge.className = 'momentum-badge advancing';
+      stagBadge.innerHTML = `🟢 Advancing`;
+    }
+  }
+  if (stagCounts) {
+    const agingSpan = agingCount > 0
+      ? `<span class="text-rose-600 dark:text-rose-400 font-bold">${agingCount} aging &gt; 7d</span>`
+      : `<span class="text-[var(--text-tertiary)]">0 aging &gt; 7d</span>`;
+    const reopenedSpan = reopenedCount > 0
+      ? `<span class="text-amber-600 dark:text-amber-400 font-semibold">${reopenedCount} reopened</span>`
+      : `<span class="text-[var(--text-tertiary)]">0 reopened</span>`;
+    stagCounts.innerHTML = `${totalWip} active WIP • ${agingSpan} • ${reopenedSpan}`;
+  }
+}
+
+function renderPortfolioSummary(projectsSummary) {
+  const bar = document.getElementById('analyticsPortfolioBar');
+  const list = document.getElementById('analyticsPortfolioList');
+  if (!bar || !list) return;
+
+  const isPortfolio = state.analyticsScope === 'all';
+  if (!isPortfolio || !projectsSummary || projectsSummary.length <= 1) {
+    bar.classList.add('hidden');
+    return;
+  }
+
+  bar.classList.remove('hidden');
+  list.innerHTML = projectsSummary.map((p) => {
+    return `
+      <div class="p-3 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] flex items-center justify-between">
+        <div>
+          <div class="font-bold text-xs text-[var(--text-primary)] flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+            ${escapeHtml(p.name || p.slug)}
+          </div>
+          <div class="text-[11px] text-[var(--text-tertiary)] font-mono mt-0.5">
+            ${p.commits} commits • +${(p.churn_added >= 1000 ? (p.churn_added / 1000).toFixed(1) + 'k' : p.churn_added)} / -${(p.churn_deleted >= 1000 ? (p.churn_deleted / 1000).toFixed(1) + 'k' : p.churn_deleted)} lines
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">${p.completed} completed</div>
+          <div class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">${p.active_count || 0} active</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// -----------------------------------------------------------------------------
+// Chart 1: Daily Throughput & Commits / Weekly Cohorts Stacked Bars
+// -----------------------------------------------------------------------------
+function renderDailyThroughputChart(data, weeklyCohorts) {
+  const container = document.getElementById('chartThroughputContainer');
+  if (!container) return;
+
+  let cohorts = weeklyCohorts && weeklyCohorts.length > 0 ? weeklyCohorts : null;
+  if (cohorts) {
+    // Table receives reverse-chronological (newest first).
+    // Ensure chronological order (oldest first, newest last) for the left-to-right timeline chart.
+    const copy = [...cohorts];
+    if (copy.length >= 2) {
+      const d0 = copy[0].start_date || copy[0].week_key || '';
+      const dN = copy[copy.length - 1].start_date || copy[copy.length - 1].week_key || '';
+      if (d0 > dN) {
+        copy.reverse();
+      }
+    }
+    cohorts = copy;
+  }
+  const dailySeries = data && data.series && data.series.length > 0 ? data.series : null;
+
+  if (!cohorts && dailySeries) {
+    // Group daily series into weekly cohorts so view is strictly weekly
+    const groups = [];
+    const step = 7;
+    for (let i = 0; i < dailySeries.length; i += step) {
+      const chunk = dailySeries.slice(i, i + step);
+      const feat = chunk.reduce((a, b) => a + (b.feature || 0), 0);
+      const fix = chunk.reduce((a, b) => a + (b.fix || 0), 0);
+      const chore = chunk.reduce((a, b) => a + (b.chore || b.debt || 0), 0);
+      const other = chunk.reduce((a, b) => a + (b.other || 0), 0);
+      const totStories = chunk.reduce((a, b) => a + (b.total_completed || 0), 0);
+      const totPts = totStories * 2;
+      const startD = chunk[0].date;
+      const endD = chunk[chunk.length - 1].date;
+      const wIdx = Math.floor(i / step) + 1;
+      groups.push({
+        label: `W${wIdx} (${startD.slice(5)} - ${endD.slice(5)})`,
+        week_key: `W${wIdx}`,
+        total_stories: totStories,
+        total_points: totPts,
+        capacity_pct: totStories > 0 ? Math.round((feat / totStories) * 100) : 0,
+        work_composition: { feature: feat, fix: fix, improvement: 0, chore: chore, other: other },
+      });
+    }
+    cohorts = groups;
+  }
+
+  if (!cohorts || cohorts.length === 0) {
+    container.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No throughput data for this window.</div>`;
+    return;
+  }
+
+  const vbW = 620;
+  const vbH = 240;
+  const padLeft = 40;
+  const padRight = 40;
+  const padTop = 25;
+  const padBottom = 35;
+  const chartW = vbW - padLeft - padRight;
+  const chartH = vbH - padTop - padBottom;
+
+  if (cohorts) {
+    // Render Weekly Delivery Cohorts with Dual-Axis Points Velocity Polyline
+    const n = cohorts.length;
+    const maxStories = Math.max(4, ...cohorts.map((c) => c.total_stories ?? c.stories_count ?? 0));
+    const maxPoints = Math.max(5, ...cohorts.map((c) => c.total_points ?? c.velocity_points ?? 0));
+
+    const colW = chartW / n;
+    const barW = Math.max(12, Math.min(36, colW * 0.55));
+
+    // Grid lines (3 horizontal)
+    let gridHtml = '';
+    for (let step = 0; step <= 2; step++) {
+      const yVal = padTop + (chartH / 2) * step;
+      const storiesTick = Math.round(maxStories * (1 - step / 2));
+      const pointsTick = Math.round(maxPoints * (1 - step / 2));
+      gridHtml += `
+        <line x1="${padLeft}" y1="${yVal}" x2="${padLeft + chartW}" y2="${yVal}" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="3,3" />
+        <text x="${padLeft - 8}" y="${yVal + 3}" text-anchor="end" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${storiesTick}</text>
+        <text x="${padLeft + chartW + 8}" y="${yVal + 3}" text-anchor="start" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${pointsTick}p</text>
+      `;
+    }
+
+    let barsHtml = '';
+    const velocityPoints = [];
+
+    cohorts.forEach((c, idx) => {
+      const cx = padLeft + (idx + 0.5) * colW;
+      const bx = cx - barW / 2;
+      const wc = c.work_composition || c.work_mix || { feature: 0, fix: 0, improvement: 0, chore: 0, other: 0 };
+      const cStories = c.total_stories ?? c.stories_count ?? 0;
+      const cPoints = c.total_points ?? c.velocity_points ?? 0;
+      const cCap = c.capacity_pct ?? c.feature_capacity_pct ?? 0;
+      const weekKey = c.week_key || c.id || '';
+
+      const featH = ((wc.feature || 0) / maxStories) * chartH;
+      const fixH = ((wc.fix || 0) / maxStories) * chartH;
+      const impH = ((wc.improvement || 0) / maxStories) * chartH;
+      const choreH = ((wc.chore || 0) / maxStories) * chartH;
+      const otherH = ((wc.other || 0) / maxStories) * chartH;
+
+      let curY = padTop + chartH;
+
+      // Feature
+      if (featH > 0) {
+        curY -= featH;
+        barsHtml += `<rect class="chart-bar-hover" x="${bx}" y="${curY}" width="${barW}" height="${featH}" fill="#10b981" rx="2" />`;
+      }
+      // Fix
+      if (fixH > 0) {
+        curY -= fixH;
+        barsHtml += `<rect class="chart-bar-hover" x="${bx}" y="${curY}" width="${barW}" height="${fixH}" fill="#f43f5e" rx="2" />`;
+      }
+      // Improvement
+      if (impH > 0) {
+        curY -= impH;
+        barsHtml += `<rect class="chart-bar-hover" x="${bx}" y="${curY}" width="${barW}" height="${impH}" fill="#0ea5e9" rx="2" />`;
+      }
+      // Chore
+      if (choreH > 0) {
+        curY -= choreH;
+        barsHtml += `<rect class="chart-bar-hover" x="${bx}" y="${curY}" width="${barW}" height="${choreH}" fill="#6366f1" rx="2" />`;
+      }
+      // Other
+      if (otherH > 0) {
+        curY -= otherH;
+        barsHtml += `<rect class="chart-bar-hover" x="${bx}" y="${curY}" width="${barW}" height="${otherH}" fill="#8b5cf6" rx="2" />`;
+      }
+
+      // X Label: Calendar Week + short date (e.g. W42 10/19)
+      const weekPart = c.chart_label || (c.week_number ? `W${c.week_number}` : (c.label || weekKey).split(' ')[0]);
+      const datePart = c.start_date ? c.start_date.slice(5).replace('-', '/') : '';
+      const displayLabel = datePart ? `${weekPart} ${datePart}` : weekPart;
+      barsHtml += `<text x="${cx}" y="${padTop + chartH + 18}" text-anchor="middle" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${escapeHtml(displayLabel)}</text>`;
+
+      // Velocity point
+      const cy = padTop + chartH - (cPoints / maxPoints) * chartH;
+      velocityPoints.push({ x: cx, y: cy, points: cPoints, weekKey: weekKey });
+
+      // Hitbox
+      const tipData = escapeHtml(JSON.stringify({
+        week: c.label || weekKey,
+        stories: cStories,
+        points: cPoints,
+        capacity: cCap,
+        momentum: c.momentum_label || c.momentum || 'Advancing',
+        feat: wc.feature || 0,
+        fix: wc.fix || 0,
+        imp: wc.improvement || 0,
+        chore: wc.chore || 0,
+        net_bug_flow: c.net_bug_flow,
+      }));
+      barsHtml += `<rect x="${padLeft + idx * colW}" y="${padTop}" width="${colW}" height="${chartH}" fill="transparent" class="cursor-pointer" data-weekly-tip='${tipData}' data-week="${escapeHtml(weekKey)}" />`;
+    });
+
+    // Velocity Polyline
+    const linePts = velocityPoints.map((p) => `${p.x},${p.y}`).join(' ');
+    const velocityLineHtml = `
+      <polyline points="${linePts}" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+      ${velocityPoints.map((p) => `
+        <circle cx="${p.x}" cy="${p.y}" r="3.5" fill="#f59e0b" stroke="var(--bg-surface)" stroke-width="1.5" />
+      `).join('')}
+    `;
+
+    container.innerHTML = `
+      <svg viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none" class="w-full h-[240px] select-none" id="svgWeeklyThroughput">
+        ${gridHtml}
+        ${barsHtml}
+        ${velocityLineHtml}
+      </svg>
+    `;
+
+    container.querySelectorAll('[data-weekly-tip]').forEach((el) => {
+      el.addEventListener('mousemove', (e) => {
+        try {
+          const d = JSON.parse(el.getAttribute('data-weekly-tip'));
+          const netBug = d.net_bug_flow;
+          const netBugStr = netBug ? `${netBug.net > 0 ? '+' + netBug.net : netBug.net} (${netBug.found} found / ${netBug.fixed} fixed)` : '—';
+          const html = `
+            <div class="font-bold text-xs text-[var(--text-primary)] mb-1">${escapeHtml(d.week)}</div>
+            <div class="space-y-0.5 text-[11px]">
+              <div class="flex items-center justify-between gap-3"><span class="text-emerald-500 font-semibold">Delivered:</span> <strong>${d.stories} stories</strong></div>
+              <div class="flex items-center justify-between gap-3"><span class="text-amber-500 font-semibold">Velocity:</span> <strong>${d.points} pts (${d.capacity}% cap)</strong></div>
+              <div class="text-[10px] text-[var(--text-tertiary)] pt-0.5">Feat: ${d.feat} • Fix: ${d.fix} • Imp: ${d.imp} • Chore: ${d.chore}</div>
+              <div class="flex items-center justify-between gap-3 mt-1 pt-1 border-t border-[var(--border-subtle)]"><span class="text-rose-500 font-semibold">Net Bug Flow:</span> <strong>${netBugStr}</strong></div>
+              <div class="text-[10px] text-[var(--text-tertiary)]">Momentum: <strong class="text-[var(--text-primary)]">${escapeHtml(d.momentum)}</strong></div>
+            </div>
+            <div class="text-[9px] text-[var(--text-quaternary)] mt-1.5 italic">Click to expand week cohort</div>
+          `;
+          showAnalyticsTooltip(e, html);
+        } catch (_) {}
+      });
+      el.addEventListener('mouseleave', hideAnalyticsTooltip);
+      el.addEventListener('click', () => {
+        const wk = el.getAttribute('data-week');
+        if (wk) toggleCohortAccordion(wk);
+      });
+    });
+    return;
+  }
+
+  // Daily Series Fallback
+  const series = dailySeries;
+  const maxCompleted = Math.max(4, ...series.map((s) => s.total_completed));
+  const maxCommits = Math.max(5, ...series.map((s) => s.commits));
+  const n = series.length;
+  const colW = chartW / n;
+  const barW = Math.max(8, Math.min(26, colW * 0.55));
+
+  let gridHtml = '';
+  for (let step = 0; step <= 2; step++) {
+    const yVal = padTop + (chartH / 2) * step;
+    const storiesTick = Math.round(maxCompleted * (1 - step / 2));
+    const commitsTick = Math.round(maxCommits * (1 - step / 2));
+    gridHtml += `
+      <line x1="${padLeft}" y1="${yVal}" x2="${padLeft + chartW}" y2="${yVal}" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="3,3" />
+      <text x="${padLeft - 8}" y="${yVal + 3}" text-anchor="end" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${storiesTick}</text>
+      <text x="${padLeft + chartW + 8}" y="${yVal + 3}" text-anchor="start" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${commitsTick}</text>
+    `;
+  }
+
+  let barsHtml = '';
+  const commitPoints = [];
+
+  series.forEach((s, idx) => {
+    const cx = padLeft + (idx + 0.5) * colW;
+    const bx = cx - barW / 2;
+    const featH = (s.feature / maxCompleted) * chartH;
+    const fixH = (s.fix / maxCompleted) * chartH;
+    const choreH = ((s.chore || s.debt || 0) / maxCompleted) * chartH;
+    const otherH = (s.other / maxCompleted) * chartH;
+
+    let curY = padTop + chartH;
+    if (featH > 0) { curY -= featH; barsHtml += `<rect class="chart-bar-hover" x="${bx}" y="${curY}" width="${barW}" height="${featH}" fill="#10b981" rx="2" data-date="${s.date}" />`; }
+    if (fixH > 0) { curY -= fixH; barsHtml += `<rect class="chart-bar-hover" x="${bx}" y="${curY}" width="${barW}" height="${fixH}" fill="#f43f5e" rx="2" data-date="${s.date}" />`; }
+    if (choreH > 0) { curY -= choreH; barsHtml += `<rect class="chart-bar-hover" x="${bx}" y="${curY}" width="${barW}" height="${choreH}" fill="#6366f1" rx="2" data-date="${s.date}" />`; }
+    if (otherH > 0) { curY -= otherH; barsHtml += `<rect class="chart-bar-hover" x="${bx}" y="${curY}" width="${barW}" height="${otherH}" fill="#8b5cf6" rx="2" data-date="${s.date}" />`; }
+
+    const tipData = escapeHtml(JSON.stringify({
+      date: s.label || s.date,
+      completed: s.total_completed,
+      feature: s.feature,
+      fix: s.fix,
+      chore: s.chore || 0,
+      commits: s.commits,
+      churn_added: s.lines_added,
+      churn_deleted: s.lines_deleted,
+    }));
+    barsHtml += `<rect x="${padLeft + idx * colW}" y="${padTop}" width="${colW}" height="${chartH}" fill="transparent" class="cursor-pointer" data-tip='${tipData}' data-date="${s.date}" />`;
+
+    const showLabel = n <= 14 || idx % 2 === 0;
+    if (showLabel) {
+      barsHtml += `<text x="${cx}" y="${padTop + chartH + 18}" text-anchor="middle" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${escapeHtml(s.label || s.date.slice(5))}</text>`;
+    }
+
+    const cy = padTop + chartH - (s.commits / maxCommits) * chartH;
+    commitPoints.push({ x: cx, y: cy, commits: s.commits, date: s.date });
+  });
+
+  const ptsString = commitPoints.map((p) => `${p.x},${p.y}`).join(' ');
+  const lineHtml = `
+    <polyline points="${ptsString}" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+    ${commitPoints.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="#f59e0b" stroke="var(--bg-surface)" stroke-width="1.5" />`).join('')}
+  `;
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none" class="w-full h-[240px] select-none" id="svgDailyThroughput">
+      ${gridHtml}
+      ${barsHtml}
+      ${lineHtml}
+    </svg>
+  `;
+
+  container.querySelectorAll('[data-tip]').forEach((el) => {
+    el.addEventListener('mousemove', (e) => {
+      try {
+        const d = JSON.parse(el.getAttribute('data-tip'));
+        const html = `
+          <div class="font-bold text-xs text-[var(--text-primary)] mb-1">${escapeHtml(d.date)}</div>
+          <div class="space-y-0.5 text-[11px]">
+            <div class="flex items-center justify-between gap-3"><span class="text-emerald-500 font-semibold">Completed:</span> <strong>${d.completed}</strong></div>
+            <div class="text-[10px] text-[var(--text-tertiary)] pl-2">Feature: ${d.feature} • Fix: ${d.fix} • Chore: ${d.chore}</div>
+            <div class="flex items-center justify-between gap-3 mt-1 pt-1 border-t border-[var(--border-subtle)]"><span class="text-amber-500 font-semibold">Git Commits:</span> <strong>${d.commits}</strong></div>
+            <div class="text-[10px] text-[var(--text-tertiary)] pl-2">+${d.churn_added} / -${d.churn_deleted} lines</div>
+          </div>
+          <div class="text-[9px] text-[var(--text-quaternary)] mt-1.5 italic">Click bar to drill down stories</div>
+        `;
+        showAnalyticsTooltip(e, html);
+      } catch (_) {}
+    });
+    el.addEventListener('mouseleave', hideAnalyticsTooltip);
+    el.addEventListener('click', () => {
+      const dt = el.getAttribute('data-date');
+      if (dt) filterAnalyticsStoriesByDate(dt);
+    });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Chart 2: Cumulative Scope Burnup & Net Bug Flow
+// -----------------------------------------------------------------------------
+function renderBurnupChart(scopeBurnupData, netBugFlowData) {
+  const container = document.getElementById('chartBurnupContainer');
+  if (!container) return;
+
+  const mode = state.burnupMode || 'burnup';
+
+  if (mode === 'netbug') {
+    // Render Net Bug Flow (Bugs Found vs Bugs Fixed)
+    const netSeries = (netBugFlowData && netBugFlowData.series)
+      ? netBugFlowData.series
+      : (state.analytics?.net_bug_flow?.series || state.analytics?.charts?.net_bug_flow?.series || []);
+    if (netSeries.length === 0) {
+      container.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No bug flow recorded in this window.</div>`;
+      return;
+    }
+
+    const vbW = 620;
+    const vbH = 240;
+    const padLeft = 40;
+    const padRight = 30;
+    const padTop = 25;
+    const padBottom = 35;
+    const chartW = vbW - padLeft - padRight;
+    const chartH = vbH - padTop - padBottom;
+
+    const maxBugs = Math.max(3, ...netSeries.map((s) => Math.max(s.bugs_found || 0, s.bugs_fixed || 0)));
+    const n = netSeries.length;
+    const colW = chartW / n;
+    const barW = Math.max(6, Math.min(18, colW * 0.28));
+
+    let gridHtml = '';
+    for (let step = 0; step <= 2; step++) {
+      const yVal = padTop + (chartH / 2) * step;
+      const bugTick = Math.round(maxBugs * (1 - step / 2));
+      gridHtml += `
+        <line x1="${padLeft}" y1="${yVal}" x2="${padLeft + chartW}" y2="${yVal}" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="3,3" />
+        <text x="${padLeft - 8}" y="${yVal + 3}" text-anchor="end" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${bugTick}</text>
+      `;
+    }
+
+    let barsHtml = '';
+
+    netSeries.forEach((s, idx) => {
+      const cx = padLeft + (idx + 0.5) * colW;
+      const bFoundX = cx - barW - 1;
+      const bFixedX = cx + 1;
+
+      const foundH = (s.bugs_found / maxBugs) * chartH;
+      const fixedH = (s.bugs_fixed / maxBugs) * chartH;
+
+      const yFound = padTop + chartH - foundH;
+      const yFixed = padTop + chartH - fixedH;
+
+      if (foundH > 0) {
+        barsHtml += `<rect x="${bFoundX}" y="${yFound}" width="${barW}" height="${foundH}" fill="#ef4444" rx="2" />`;
+      }
+      if (fixedH > 0) {
+        barsHtml += `<rect x="${bFixedX}" y="${yFixed}" width="${barW}" height="${fixedH}" fill="#10b981" rx="2" />`;
+      }
+
+      const topY = Math.min(yFound, yFixed) - 6;
+      const netVal = s.net !== undefined ? s.net : (s.bugs_found - s.bugs_fixed);
+      const netColor = netVal > 0 ? '#ef4444' : (netVal < 0 ? '#10b981' : 'var(--text-tertiary)');
+      const netPrefix = netVal > 0 ? '+' : '';
+      barsHtml += `<text x="${cx}" y="${Math.max(padTop - 5, topY)}" text-anchor="middle" font-size="8.5" font-weight="bold" fill="${netColor}" font-family="var(--font-mono)">${netPrefix}${netVal}</text>`;
+
+      barsHtml += `<text x="${cx}" y="${padTop + chartH + 18}" text-anchor="middle" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${escapeHtml(s.label || s.week_key)}</text>`;
+
+      const tipData = escapeHtml(JSON.stringify({
+        week: s.label || s.week_key,
+        found: s.bugs_found,
+        fixed: s.bugs_fixed,
+        net: s.net,
+      }));
+      barsHtml += `<rect x="${padLeft + idx * colW}" y="${padTop}" width="${colW}" height="${chartH}" fill="transparent" class="cursor-pointer" data-bug-tip='${tipData}' />`;
+    });
+
+    container.innerHTML = `
+      <svg viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none" class="w-full h-[240px] select-none" id="svgNetBugFlow">
+        ${gridHtml}
+        ${barsHtml}
+      </svg>
+    `;
+
+    container.querySelectorAll('[data-bug-tip]').forEach((el) => {
+      el.addEventListener('mousemove', (e) => {
+        try {
+          const d = JSON.parse(el.getAttribute('data-bug-tip'));
+          const netSign = d.net > 0 ? `+${d.net} (Defect Drag)` : (d.net < 0 ? `${d.net} (Net Burned)` : '0 (Balanced)');
+          const html = `
+            <div class="font-bold text-xs text-[var(--text-primary)] mb-1">${escapeHtml(d.week)}</div>
+            <div class="space-y-0.5 text-[11px]">
+              <div class="flex items-center justify-between gap-3"><span class="text-rose-500 font-semibold">Bugs Found:</span> <strong>${d.found}</strong></div>
+              <div class="flex items-center justify-between gap-3"><span class="text-emerald-500 font-semibold">Bugs Fixed:</span> <strong>${d.fixed}</strong></div>
+              <div class="flex items-center justify-between gap-3 mt-1 pt-1 border-t border-[var(--border-subtle)]"><span class="text-purple-500 font-semibold">Net Bug Flow:</span> <strong>${netSign}</strong></div>
+            </div>
+          `;
+          showAnalyticsTooltip(e, html);
+        } catch (_) {}
+      });
+      el.addEventListener('mouseleave', hideAnalyticsTooltip);
+    });
+    return;
+  }
+
+  // Scope Burnup Mode
+  const burnupData = scopeBurnupData || state.analytics?.scope_burnup || (state.analytics?.charts ? state.analytics.charts.scope_burnup || state.analytics.charts.burnup : null);
+  if (!burnupData || !burnupData.series || burnupData.series.length === 0) {
+    container.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No burnup data for this window.</div>`;
+    return;
+  }
+
+  const series = burnupData.series;
+  const vbW = 620;
+  const vbH = 240;
+  const padLeft = 40;
+  const padRight = 30;
+  const padTop = 25;
+  const padBottom = 35;
+  const chartW = vbW - padLeft - padRight;
+  const chartH = vbH - padTop - padBottom;
+
+  const maxVal = Math.max(5, ...series.map((s) => Math.max(s.cumulative_created || s.cumulative_scope || 0, s.cumulative_completed || s.cumulative_done || 0)));
+  const n = series.length;
+  const colW = chartW / Math.max(1, n - 1);
+
+  let gridHtml = '';
+  for (let step = 0; step <= 2; step++) {
+    const yVal = padTop + (chartH / 2) * step;
+    const tickVal = Math.round(maxVal * (1 - step / 2));
+    gridHtml += `
+      <line x1="${padLeft}" y1="${yVal}" x2="${padLeft + chartW}" y2="${yVal}" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="3,3" />
+      <text x="${padLeft - 8}" y="${yVal + 3}" text-anchor="end" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${tickVal}</text>
+    `;
+  }
+
+  const compPts = [];
+  const scopePts = [];
+
+  series.forEach((s, idx) => {
+    const x = padLeft + idx * colW;
+    const doneVal = s.cumulative_completed !== undefined ? s.cumulative_completed : (s.cumulative_done || 0);
+    const scopeVal = s.cumulative_created !== undefined ? s.cumulative_created : (s.cumulative_scope || 0);
+    const yComp = padTop + chartH - (doneVal / maxVal) * chartH;
+    const yScope = padTop + chartH - (scopeVal / maxVal) * chartH;
+    compPts.push({ x, y: yComp, s, doneVal, scopeVal });
+    scopePts.push({ x, y: yScope, s });
+  });
+
+  const areaPts = [
+    `${compPts[0].x},${padTop + chartH}`,
+    ...compPts.map((p) => `${p.x},${p.y}`),
+    `${compPts[compPts.length - 1].x},${padTop + chartH}`,
+  ].join(' ');
+
+  const compLine = compPts.map((p) => `${p.x},${p.y}`).join(' ');
+  const scopeLine = scopePts.map((p) => `${p.x},${p.y}`).join(' ');
+
+  let labelsHtml = '';
+  series.forEach((s, idx) => {
+    const showLabel = n <= 14 || idx % 2 === 0;
+    if (showLabel) {
+      const x = padLeft + idx * colW;
+      labelsHtml += `<text x="${x}" y="${padTop + chartH + 18}" text-anchor="middle" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${escapeHtml(s.label || (s.date ? s.date.slice(5) : ''))}</text>`;
+    }
+  });
+
+  let hitsHtml = '';
+  compPts.forEach((p) => {
+    const s = p.s;
+    const tip = escapeHtml(JSON.stringify({
+      date: s.label || s.date,
+      completed: p.doneVal,
+      created: p.scopeVal,
+      in_flight: s.in_flight_wip !== undefined ? s.in_flight_wip : (s.in_flight || Math.max(0, p.scopeVal - p.doneVal)),
+    }));
+    hitsHtml += `
+      <circle cx="${p.x}" cy="${p.y}" r="4" fill="#a855f7" stroke="var(--bg-surface)" stroke-width="1.5" class="cursor-pointer" data-burn-tip='${tip}' data-date="${s.date || ''}" />
+    `;
+  });
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none" class="w-full h-[240px] select-none" id="svgBurnup">
+      <defs>
+        <linearGradient id="burnupAreaGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#a855f7" stop-opacity="0.32" />
+          <stop offset="100%" stop-color="#a855f7" stop-opacity="0.02" />
+        </linearGradient>
+      </defs>
+      ${gridHtml}
+      <polygon points="${areaPts}" fill="url(#burnupAreaGrad)" />
+      <polyline points="${scopeLine}" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-dasharray="4,4" />
+      <polyline points="${compLine}" fill="none" stroke="#a855f7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+      ${labelsHtml}
+      ${hitsHtml}
+    </svg>
+  `;
+
+  container.querySelectorAll('[data-burn-tip]').forEach((el) => {
+    el.addEventListener('mousemove', (e) => {
+      try {
+        const d = JSON.parse(el.getAttribute('data-burn-tip'));
+        const html = `
+          <div class="font-bold text-xs text-[var(--text-primary)] mb-1">${escapeHtml(d.date)}</div>
+          <div class="space-y-0.5 text-[11px]">
+            <div class="flex items-center justify-between gap-3"><span class="text-purple-500 font-semibold">Cumulative Done:</span> <strong>${d.completed}</strong></div>
+            <div class="flex items-center justify-between gap-3"><span class="text-sky-500 font-semibold">Total Scope:</span> <strong>${d.created}</strong></div>
+            <div class="flex items-center justify-between gap-3 mt-1 pt-1 border-t border-[var(--border-subtle)]"><span class="text-amber-500 font-semibold">In-Flight WIP:</span> <strong>${d.in_flight}</strong></div>
+          </div>
+          <div class="text-[9px] text-[var(--text-quaternary)] mt-1.5 italic">Click to view stories up to this date</div>
+        `;
+        showAnalyticsTooltip(e, html);
+      } catch (_) {}
+    });
+    el.addEventListener('mouseleave', hideAnalyticsTooltip);
+    el.addEventListener('click', () => {
+      const dt = el.getAttribute('data-date');
+      if (dt) filterAnalyticsStoriesByDate(dt);
+    });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Pipeline Health & WIP Stagnation Monitor
+// -----------------------------------------------------------------------------
+function renderPipelineHealth(pipelineHealth) {
+  const tbody = document.getElementById('pipelineHealthTableBody');
+  const summaryBadge = document.getElementById('stagnationSummaryBadge');
+  if (!pipelineHealth) return;
+
+  if (summaryBadge && pipelineHealth) {
+    const aging = pipelineHealth.summary?.aging_count ?? pipelineHealth.total_aging ?? pipelineHealth.aging_count ?? 0;
+    const wip = pipelineHealth.summary?.total_wip ?? pipelineHealth.total_wip ?? 0;
+    summaryBadge.innerHTML = `<span class="${aging > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : ''}">${aging} aging</span> • ${wip} active WIP`;
+  }
+
+  if (tbody) {
+    const stages = pipelineHealth.stages || [];
+    if (stages.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-[var(--text-tertiary)] italic">No active WIP cards in pipeline.</td></tr>`;
+    } else {
+      tbody.innerHTML = stages.map((st) => {
+        const isSelected = state.selectedPipelineStage === st.id;
+        const icon = st.id === 'ready' ? 'ph-stack text-sky-500'
+          : (st.id === 'development' || st.id === 'in_progress' ? 'ph-code text-amber-500'
+          : (st.id === 'qa' ? 'ph-shield-check text-purple-500' : 'ph-prohibit text-rose-500'));
+        const agingBadge = st.aging_count > 0
+          ? `<span class="px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 font-bold font-mono">🔴 ${st.aging_count}</span>`
+          : `<span class="text-[var(--text-tertiary)] font-mono">0</span>`;
+        const statusBadge = st.aging_count > 0
+          ? `<span class="momentum-badge stagnated">Stagnated</span>`
+          : `<span class="momentum-badge advancing">Healthy</span>`;
+
+        return `
+          <tr class="hover:bg-[var(--bg-glass-hover)] transition cursor-pointer ${isSelected ? 'bg-purple-500/10 font-semibold' : ''}" onclick="togglePipelineStageFilter('${escapeHtml(st.id)}')">
+            <td class="py-2.5 px-2 flex items-center gap-2">
+              <i class="ph ${icon} text-sm"></i>
+              <span class="text-[var(--text-primary)]">${escapeHtml(st.name)}</span>
+            </td>
+            <td class="py-2.5 px-2 text-right font-mono font-semibold tabular-nums text-[var(--text-primary)]">${st.count}</td>
+            <td class="py-2.5 px-2 text-right font-mono tabular-nums text-[var(--text-secondary)]">${st.points || 0}p</td>
+            <td class="py-2.5 px-2 text-right">${agingBadge}</td>
+            <td class="py-2.5 px-2 text-right">${statusBadge}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  renderStuckTickets(pipelineHealth.aging_tickets || pipelineHealth.stuck_tickets || []);
+}
+
+function togglePipelineStageFilter(stageId) {
+  state.selectedPipelineStage = state.selectedPipelineStage === stageId ? null : stageId;
+  if (state.analytics && state.analytics.pipeline_health) {
+    renderPipelineHealth(state.analytics.pipeline_health);
+  }
+}
+
+function renderStuckTickets(agingTickets) {
+  const listEl = document.getElementById('stuckTicketsList');
+  const countEl = document.getElementById('stuckTicketsCount');
+  if (!listEl) return;
+
+  let filtered = agingTickets || [];
+  if (state.selectedPipelineStage) {
+    filtered = filtered.filter((t) => t.stage_id === state.selectedPipelineStage);
+  }
+
+  if (countEl) countEl.textContent = `${filtered.length} tickets`;
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `
+      <div class="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 text-center text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+        <i class="ph ph-check-circle mr-1"></i> No tickets exceeding 7 days in stage. Pipeline moving with healthy flow!
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map((t) => {
+    const ageDays = t.age_days ?? t.days_in_stage ?? 0;
+    const daysOver = t.days_over_threshold ?? Math.max(0, (ageDays - 7)).toFixed(1);
+    const stageBadgeBg = t.is_blocked
+      ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+      : (t.stage_id === 'qa' ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20');
+
+    return `
+      <div class="stuck-ticket-card p-3 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] hover:border-amber-500/40 transition cursor-pointer" onclick="openStoryFromAnalytics('${escapeHtml(t.id)}')">
+        <div class="flex items-center justify-between gap-2 mb-1.5">
+          <div class="flex items-center gap-1.5 flex-wrap min-w-0">
+            <span class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline">${escapeHtml(t.id)}</span>
+            <span class="px-1.5 py-0.2 text-[10px] font-semibold rounded border ${stageBadgeBg}">${escapeHtml(t.stage)}</span>
+            ${t.is_reopened ? `<span class="px-1.5 py-0.2 text-[10px] font-semibold rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">Reopened</span>` : ''}
+            ${t.is_blocked ? `<span class="px-1.5 py-0.2 text-[10px] font-semibold rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">Blocked</span>` : ''}
+          </div>
+          <span class="text-[11px] font-mono font-bold text-amber-600 dark:text-amber-400 shrink-0">${t.points || 1} pts</span>
+        </div>
+        <h5 class="text-xs font-semibold text-[var(--text-primary)] truncate mb-2">${escapeHtml(t.title || t.id)}</h5>
+        <div class="flex items-center justify-between text-[11px] text-[var(--text-secondary)] pt-1 border-t border-[var(--border-subtle)]">
+          <span class="text-rose-600 dark:text-rose-400 font-bold font-mono">
+            <i class="ph ph-hourglass mr-0.5"></i> ${ageDays}d in stage
+            <span class="text-rose-500/80 font-normal text-[10px]">(+${daysOver}d over SLA)</span>
+          </span>
+          ${t.lead ? `<span class="text-[10px] text-[var(--text-tertiary)] truncate max-w-[120px]">${escapeHtml(t.lead)}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// -----------------------------------------------------------------------------
+// Weekly Delivery Cohorts Matrix (Story 29 Core Table)
+// -----------------------------------------------------------------------------
+function renderWeeklyCohorts(weeklyCohorts) {
+  const tbody = document.getElementById('weeklyCohortsTableBody');
+  const totalBadge = document.getElementById('cohortsTotalBadge');
+  if (!tbody) return;
+
+  const cohorts = weeklyCohorts || [];
+  if (totalBadge) totalBadge.textContent = `${cohorts.length} Cohorts`;
+
+  if (cohorts.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-[var(--text-tertiary)] italic">No weekly delivery cohorts data found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = cohorts.map((c) => {
+    const weekKey = c.week_key || c.id || '';
+    const isExpanded = state.expandedCohorts.has(weekKey);
+    const wc = c.work_composition || c.work_mix || { feature: 0, fix: 0, improvement: 0, chore: 0, other: 0 };
+    const totalStories = c.total_stories ?? c.stories_count ?? 0;
+    const totalPoints = c.total_points ?? c.velocity_points ?? 0;
+    const capPct = c.capacity_pct ?? c.feature_capacity_pct ?? 0;
+    const tot = totalStories || 1;
+
+    const pctFeat = Math.round(((wc.feature || 0) / tot) * 100);
+    const pctFix = Math.round(((wc.fix || 0) / tot) * 100);
+    const pctImp = Math.round(((wc.improvement || 0) / tot) * 100);
+    const pctChore = Math.round(((wc.chore || 0) / tot) * 100);
+    const pctOther = Math.max(0, 100 - pctFeat - pctFix - pctImp - pctChore);
+
+    const momentumCls = c.momentum === 'stagnated' ? 'stagnated' : (c.momentum === 'bug_drag' ? 'bug_drag' : 'advancing');
+    const momentumIcon = c.momentum === 'stagnated' ? '🔴' : (c.momentum === 'bug_drag' ? '🟡' : '🟢');
+
+    const netBugs = c.net_bug_flow || { found: 0, fixed: 0, net: 0 };
+    const netCls = netBugs.net > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : (netBugs.net < 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-[var(--text-tertiary)] font-normal');
+    const netPrefix = netBugs.net > 0 ? '+' : '';
+
+    const qaRate = c.qa_rate?.first_pass_rate ?? c.qa_pass_rate ?? 100;
+    const qaCls = qaRate >= 90 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 font-semibold';
+    const turnaroundStr = c.active_turnaround?.formatted || c.cycle_time?.formatted || '—';
+
+    const storiesList = c.stories || [];
+
+    return `
+      <tr class="cohort-table-row">
+        <td class="py-3 px-3">
+          <div class="font-bold text-[var(--text-primary)] font-mono">${escapeHtml(c.label || weekKey)}</div>
+          <div class="text-[10px] text-[var(--text-tertiary)] font-mono">${escapeHtml(c.start_date || '')} → ${escapeHtml(c.end_date || '')}</div>
+        </td>
+        <td class="py-3 px-3 text-center">
+          <span class="momentum-badge ${momentumCls}">${momentumIcon} ${escapeHtml(c.momentum_label || c.momentum || 'Advancing')}</span>
+        </td>
+        <td class="py-3 px-3 text-right font-mono tabular-nums">
+          <div class="font-bold text-sm text-[var(--text-primary)]">${totalStories} <span class="text-[10px] font-normal text-[var(--text-tertiary)]">stories</span></div>
+          <div class="text-[11px] font-semibold text-amber-600 dark:text-amber-400">${totalPoints} pts <span class="text-[10px] text-[var(--text-tertiary)] font-normal">(${capPct}% cap)</span></div>
+        </td>
+        <td class="py-3 px-3">
+          <div class="w-28 sm:w-36 h-2 rounded-full bg-[var(--border-subtle)] overflow-hidden flex shadow-xs" title="Feat: ${wc.feature || 0}, Imp: ${wc.improvement || 0}, Fix: ${wc.fix || 0}, Chore: ${wc.chore || 0}">
+            ${pctFeat > 0 ? `<div style="width: ${pctFeat}%" class="bg-emerald-500 h-full"></div>` : ''}
+            ${pctImp > 0 ? `<div style="width: ${pctImp}%" class="bg-sky-500 h-full"></div>` : ''}
+            ${pctFix > 0 ? `<div style="width: ${pctFix}%" class="bg-rose-500 h-full"></div>` : ''}
+            ${pctChore > 0 ? `<div style="width: ${pctChore}%" class="bg-indigo-500 h-full"></div>` : ''}
+            ${pctOther > 0 ? `<div style="width: ${pctOther}%" class="bg-purple-500 h-full"></div>` : ''}
+          </div>
+          <div class="text-[9px] text-[var(--text-tertiary)] mt-1 font-mono">F:${wc.feature || 0} • I:${wc.improvement || 0} • B:${wc.fix || 0} • C:${wc.chore || 0}</div>
+        </td>
+        <td class="py-3 px-3 text-center font-mono text-xs">
+          <span class="${netCls}">${netPrefix}${netBugs.net}</span>
+          <div class="text-[9px] text-[var(--text-tertiary)]">${netBugs.found}F / ${netBugs.fixed}X</div>
+        </td>
+        <td class="py-3 px-3 text-right font-mono text-xs">
+          <div class="text-[var(--text-primary)] font-semibold">${escapeHtml(turnaroundStr)}</div>
+          <div class="${qaCls} text-[10px]">${qaRate}% pass</div>
+        </td>
+        <td class="py-3 px-3 text-center">
+          <button type="button" onclick="toggleCohortAccordion('${escapeHtml(weekKey)}')" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-tertiary)] border border-[var(--border-subtle)] text-[11px] font-semibold text-[var(--text-primary)] transition cursor-pointer shadow-xs" title="Toggle cohort stories">
+            <span>View ${totalStories} Stories</span>
+            <i id="cohort-chevron-${escapeHtml(weekKey)}" class="ph ph-caret-down cohort-chevron ${isExpanded ? 'rotated' : ''}"></i>
+          </button>
+        </td>
+      </tr>
+      <tr id="cohort-detail-${escapeHtml(weekKey)}" class="${isExpanded ? '' : 'hidden'} bg-[var(--bg-surface-secondary)]/30">
+        <td colspan="7" class="p-3 sm:p-4">
+          <div class="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-xs">
+            <div class="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-2 flex items-center justify-between">
+              <span>Delivered Stories in ${escapeHtml(c.label || weekKey)}</span>
+              <span class="font-mono text-[10px] text-[var(--text-tertiary)] font-normal">${storiesList.length} total deliverables</span>
+            </div>
+            ${storiesList.length === 0 ? `<div class="text-xs text-[var(--text-tertiary)] italic py-2">No individual stories found for this cohort.</div>` : `
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                ${storiesList.map((s) => {
+                  const pts = s.points !== undefined ? `${s.points}p` : '—';
+                  const typeBg = s.type === 'fix' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25'
+                    : (s.type === 'improvement' ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/25'
+                    : (s.type === 'chore' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/25' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25'));
+                  return `
+                    <div class="p-2.5 rounded-lg bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] hover:border-[var(--card-hover-border)] transition flex flex-col justify-between cursor-pointer group" onclick="openStoryFromAnalytics('${escapeHtml(s.id)}')">
+                      <div>
+                        <div class="flex items-center justify-between gap-1 mb-1">
+                          <span class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline">${escapeHtml(s.id)}</span>
+                          <div class="flex items-center gap-1">
+                            <span class="px-1.5 py-0.2 text-[9px] font-semibold rounded border ${typeBg}">${escapeHtml(s.type || 'feat')}</span>
+                            <span class="px-1 py-0.2 text-[9px] font-mono font-bold rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">${pts}</span>
+                          </div>
+                        </div>
+                        <h6 class="text-xs font-medium text-[var(--text-primary)] truncate group-hover:text-purple-600 dark:group-hover:text-purple-400 transition">${escapeHtml(s.title || s.id)}</h6>
+                      </div>
+                      <div class="flex items-center justify-between text-[10px] text-[var(--text-tertiary)] pt-1.5 mt-1 border-t border-[var(--border-subtle)] font-mono">
+                        <span>${escapeHtml(s.duration || '—')}</span>
+                        ${s.lead ? `<span class="truncate max-w-[100px]">${escapeHtml(s.lead)}</span>` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function toggleCohortAccordion(weekKey) {
+  const row = document.getElementById(`cohort-detail-${weekKey}`);
+  const chev = document.getElementById(`cohort-chevron-${weekKey}`);
+  if (!row) return;
+
+  const isHidden = row.classList.contains('hidden');
+  if (isHidden) {
+    row.classList.remove('hidden');
+    state.expandedCohorts.add(weekKey);
+    if (chev) chev.classList.add('rotated');
+  } else {
+    row.classList.add('hidden');
+    state.expandedCohorts.delete(weekKey);
+    if (chev) chev.classList.remove('rotated');
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Slide-Over All Delivered Tickets Drawer
+// -----------------------------------------------------------------------------
+function openTicketDrawer(query, type) {
+  const drawer = document.getElementById('ticketDrawer');
+  const backdrop = document.getElementById('ticketDrawerBackdrop');
+  if (!drawer || !backdrop) return;
+
+  backdrop.classList.remove('opacity-0', 'pointer-events-none');
+  backdrop.classList.add('opacity-100');
+  drawer.classList.remove('translate-x-full', 'pointer-events-none');
+
+  const input = document.getElementById('ticketDrawerSearch');
+  if (input) {
+    if (query !== undefined) {
+      input.value = query;
+      const clearBtn = document.getElementById('ticketDrawerClearSearch');
+      if (clearBtn) {
+        if (query) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+      }
+    }
+    setTimeout(() => { input.focus(); }, 100);
+  }
+  if (type !== undefined) {
+    setTicketDrawerTypeFilter(type);
+  } else {
+    filterTicketDrawer();
+  }
+}
+
+function toggleAllCohortsAccordion() {
+  const cohorts = state.analytics?.weekly_cohorts || state.analytics?.cohorts || [];
+  if (!cohorts || cohorts.length === 0) return;
+  const allExpanded = cohorts.every((c) => state.expandedCohorts.has(c.week_key || c.id || ''));
+  cohorts.forEach((c) => {
+    const wk = c.week_key || c.id || '';
+    const row = document.getElementById(`cohort-detail-${wk}`);
+    const chev = document.getElementById(`cohort-chevron-${wk}`);
+    if (allExpanded) {
+      state.expandedCohorts.delete(wk);
+      if (row) row.classList.add('hidden');
+      if (chev) chev.classList.remove('rotated');
+    } else {
+      state.expandedCohorts.add(wk);
+      if (row) row.classList.remove('hidden');
+      if (chev) chev.classList.add('rotated');
+    }
+  });
+}
+
+function closeTicketDrawer() {
+  const drawer = document.getElementById('ticketDrawer');
+  const backdrop = document.getElementById('ticketDrawerBackdrop');
+  if (!drawer || !backdrop) return;
+
+  backdrop.classList.remove('opacity-100');
+  backdrop.classList.add('opacity-0', 'pointer-events-none');
+  drawer.classList.add('translate-x-full', 'pointer-events-none');
+}
+
+function setTicketDrawerTypeFilter(type) {
+  state.ticketDrawerType = type;
+  document.querySelectorAll('.ticket-filter-pill').forEach((pill) => {
+    if (pill.getAttribute('data-type') === type) {
+      pill.classList.add('active-ticket-pill', 'bg-[var(--bg-surface)]', 'text-[var(--text-primary)]', 'shadow-xs', 'border-[var(--border-subtle)]');
+      pill.classList.remove('text-[var(--text-secondary)]', 'border-transparent');
+    } else {
+      pill.classList.remove('active-ticket-pill', 'bg-[var(--bg-surface)]', 'text-[var(--text-primary)]', 'shadow-xs', 'border-[var(--border-subtle)]');
+      pill.classList.add('text-[var(--text-secondary)]', 'border-transparent');
+    }
+  });
+  filterTicketDrawer();
+}
+
+function clearTicketDrawerSearch() {
+  const input = document.getElementById('ticketDrawerSearch');
+  if (input) input.value = '';
+  const clearBtn = document.getElementById('ticketDrawerClearSearch');
+  if (clearBtn) clearBtn.classList.add('hidden');
+  filterTicketDrawer();
+}
+
+function updateTicketDrawerData(stories) {
+  state._ticketDrawerStories = stories || [];
+  updateTicketDrawerCounts(state._ticketDrawerStories);
+  filterTicketDrawer();
+}
+
+function updateTicketDrawerCounts(stories) {
+  const counts = { all: stories.length, feature: 0, improvement: 0, fix: 0, chore: 0 };
+  stories.forEach((s) => {
+    const t = String(s.type || '').toLowerCase();
+    if (t === 'feature') counts.feature++;
+    else if (t === 'improvement') counts.improvement++;
+    else if (t === 'fix' || t === 'bug') counts.fix++;
+    else if (t === 'chore' || t === 'debt') counts.chore++;
+  });
+  const elAll = document.getElementById('filterCountAll');
+  const elFeat = document.getElementById('filterCountFeature');
+  const elImp = document.getElementById('filterCountImprovement');
+  const elFix = document.getElementById('filterCountFix');
+  const elChore = document.getElementById('filterCountChore');
+  if (elAll) elAll.textContent = counts.all;
+  if (elFeat) elFeat.textContent = counts.feature;
+  if (elImp) elImp.textContent = counts.improvement;
+  if (elFix) elFix.textContent = counts.fix;
+  if (elChore) elChore.textContent = counts.chore;
+}
+
+function filterTicketDrawer() {
+  const listEl = document.getElementById('ticketDrawerList');
+  const countEl = document.getElementById('ticketDrawerResultsCount');
+  const input = document.getElementById('ticketDrawerSearch');
+  const clearBtn = document.getElementById('ticketDrawerClearSearch');
+  if (!listEl) return;
+
+  const q = (input ? input.value : '').trim().toLowerCase();
+  if (clearBtn) {
+    if (q) clearBtn.classList.remove('hidden');
+    else clearBtn.classList.add('hidden');
+  }
+
+  const stories = (state._ticketDrawerStories && state._ticketDrawerStories.length > 0)
+    ? state._ticketDrawerStories
+    : (state.analytics?.all_delivered_stories || state.analytics?.stories || []);
+  const typeFilter = state.ticketDrawerType || 'all';
+
+  const filtered = stories.filter((s) => {
+    const sType = String(s.type || '').toLowerCase();
+    if (typeFilter !== 'all') {
+      if (typeFilter === 'fix' && sType !== 'fix' && sType !== 'bug') return false;
+      else if (typeFilter === 'chore' && sType !== 'chore' && sType !== 'debt') return false;
+      else if (typeFilter !== 'fix' && typeFilter !== 'chore' && sType !== typeFilter) return false;
+    }
+    if (!q) return true;
+    const matchId = String(s.id || '').toLowerCase().includes(q);
+    const matchTitle = String(s.title || '').toLowerCase().includes(q);
+    const matchLead = String(s.lead || '').toLowerCase().includes(q);
+    const matchType = sType.includes(q);
+    return matchId || matchTitle || matchLead || matchType;
+  });
+
+  if (countEl) {
+    countEl.textContent = `${filtered.length} of ${stories.length} stories found`;
+  }
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-8 text-center">No delivered stories found matching "${escapeHtml(q)}".</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map((s) => {
+    const pts = s.points !== undefined ? `${s.points} pts` : '—';
+    const typeBg = s.type === 'fix' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25'
+      : (s.type === 'improvement' ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/25'
+      : (s.type === 'chore' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/25' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25'));
+
+    return `
+      <div class="p-3 sm:p-3.5 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] hover:border-[var(--card-hover-border)] transition flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 group cursor-pointer" onclick="openStoryFromAnalytics('${escapeHtml(s.id)}')">
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-1.5 mb-1">
+            <span class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline">${escapeHtml(s.id)}</span>
+            <span class="px-1.5 py-0.2 text-[10px] font-semibold rounded border ${typeBg}">${escapeHtml(s.type || 'feature')}</span>
+            <span class="px-1.5 py-0.2 text-[10px] font-mono font-semibold rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">${pts}</span>
+            ${s.duration && s.duration !== '—' ? `<span class="text-[10px] font-mono text-[var(--text-tertiary)] flex items-center gap-0.5"><i class="ph ph-timer"></i>${escapeHtml(s.duration)}</span>` : ''}
+            ${s.completed_date ? `<span class="text-[10px] text-[var(--text-tertiary)] font-mono">${escapeHtml(s.completed_date)}</span>` : ''}
+          </div>
+          <h4 class="text-xs sm:text-sm font-semibold text-[var(--text-primary)] truncate group-hover:text-purple-600 dark:group-hover:text-purple-400 transition">${escapeHtml(s.title || s.id)}</h4>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0" onclick="event.stopPropagation()">
+          ${s.closeout ? `
+            <a href="${s.closeout.url || '#'}" target="_blank" class="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-500/30 transition shadow-xs" title="Open Story Close-Out Artifact">
+              <i class="ph ph-file-check"></i>
+              <span>Close-Out</span>
+            </a>
+          ` : ''}
+          <button type="button" onclick="openStoryFromAnalytics('${escapeHtml(s.id)}')" class="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-subtle)] transition shadow-xs">
+            <i class="ph ph-arrow-square-out"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// -----------------------------------------------------------------------------
+// Chart 3: Work Composition & Agent Distribution
+// -----------------------------------------------------------------------------
+function renderCompositionChart(data) {
+  const container = document.getElementById('chartCompositionContainer');
+  if (!container) return;
+  if (!data) {
+    container.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No composition data.</div>`;
+    return;
+  }
+
+  const view = state.analyticsCompView || 'types';
+  const items = view === 'types' ? (data.by_type || []) : (data.by_agent || []);
+  const agentBreakdown = data.agent_work_breakdown || [];
+
+  if (items.length === 0 && agentBreakdown.length === 0) {
+    container.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No items recorded in this window.</div>`;
+    return;
+  }
+
+  const palette = ['#10b981', '#6366f1', '#f43f5e', '#a855f7', '#0ea5e9', '#f59e0b', '#ec4899', '#64748b'];
+  const totalCount = items.reduce((acc, it) => acc + (it.count || 0), 0) || 1;
+
+  const cx = 80;
+  const cy = 80;
+  const radius = 55;
+  const strokeW = 20;
+  const circ = 2 * Math.PI * radius;
+
+  let offset = 0;
+  let donutSvgParts = '';
+
+  items.forEach((it, idx) => {
+    const pct = (it.count / totalCount);
+    const strokeDash = pct * circ;
+    const strokeGap = circ - strokeDash;
+    const color = palette[idx % palette.length];
+    const itemLabel = escapeHtml(it.type || it.agent || 'Other');
+    const tipData = escapeHtml(JSON.stringify({ label: itemLabel, count: it.count, pct: it.pct || Math.round(pct * 100) }));
+
+    donutSvgParts += `
+      <circle class="chart-slice-hover" cx="${cx}" cy="${cy}" r="${radius}" fill="transparent"
+        stroke="${color}" stroke-width="${strokeW}"
+        stroke-dasharray="${strokeDash} ${strokeGap}"
+        stroke-dashoffset="${-offset}"
+        data-comp-tip='${tipData}'
+        data-filter-type="${view}"
+        data-filter-val="${itemLabel}"
+      />
+    `;
+    offset += strokeDash;
+  });
+
+  const centerNum = view === 'agents' && agentBreakdown.length > 0
+    ? agentBreakdown.reduce((acc, ag) => acc + (ag.total_points || 0), 0)
+    : totalCount;
+  const centerLabel = view === 'agents' && agentBreakdown.length > 0 ? 'Points' : (view === 'types' ? 'Stories' : 'Actions');
+
+  const donutHtml = `
+    <div class="relative w-[160px] h-[160px] shrink-0 flex items-center justify-center">
+      <svg viewBox="0 0 160 160" class="w-full h-full transform -rotate-90">
+        <circle cx="${cx}" cy="${cy}" r="${radius}" fill="transparent" stroke="var(--border-subtle)" stroke-width="${strokeW}" />
+        ${donutSvgParts}
+      </svg>
+      <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
+        <span class="text-xl font-bold text-[var(--text-primary)] tabular-nums leading-none">${centerNum}</span>
+        <span class="text-[9px] uppercase tracking-wider text-[var(--text-tertiary)] mt-0.5">${centerLabel}</span>
+      </div>
+    </div>
+  `;
+
+  let listHtml = '';
+  if (view === 'agents' && agentBreakdown.length > 0) {
+    listHtml = `
+      <div class="flex-1 space-y-2 max-h-[200px] overflow-y-auto pr-1">
+        ${agentBreakdown.map((ag, idx) => {
+          const color = palette[idx % palette.length];
+          const name = escapeHtml(ag.agent);
+          const pts = ag.total_points ?? 0;
+          return `
+            <div class="cursor-pointer group hover:bg-[var(--bg-surface-secondary)] p-2 rounded-xl border border-[var(--border-subtle)] hover:border-[var(--card-hover-border)] transition" onclick="filterAnalyticsStoriesByAgent('${name}')" title="Click to view stories delivered by ${name}">
+              <div class="flex items-center justify-between text-xs mb-1">
+                <span class="font-bold text-[var(--text-primary)] flex items-center gap-1.5 truncate">
+                  <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${color}"></span>
+                  <span class="truncate">${name}</span>
+                </span>
+                <div class="flex items-center gap-1 shrink-0 font-mono text-[11px]">
+                  <span class="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20">${pts} pts</span>
+                  <span class="text-[var(--text-tertiary)]">(${ag.total_stories} stories)</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 flex-wrap text-[10px]">
+                ${ag.feature > 0 ? `<span class="px-1.5 py-0.2 rounded font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">${ag.feature} Feat</span>` : ''}
+                ${ag.improvement > 0 ? `<span class="px-1.5 py-0.2 rounded font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">${ag.improvement} Imp</span>` : ''}
+                ${ag.fix > 0 ? `<span class="px-1.5 py-0.2 rounded font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">${ag.fix} Fix</span>` : ''}
+                ${ag.chore > 0 ? `<span class="px-1.5 py-0.2 rounded font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">${ag.chore} Chore</span>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  } else {
+    listHtml = `
+      <div class="flex-1 space-y-2.5 max-h-[190px] overflow-y-auto pr-1">
+        ${items.map((it, idx) => {
+          const color = palette[idx % palette.length];
+          const label = escapeHtml(it.type || it.agent || 'Other');
+          const pct = it.pct !== undefined ? it.pct : Math.round((it.count / totalCount) * 100);
+          return `
+            <div class="cursor-pointer group hover:bg-[var(--bg-surface-secondary)] p-1.5 rounded-lg transition" onclick="${view === 'types' ? `filterAnalyticsStoriesByType('${label}')` : `filterAnalyticsStoriesByAgent('${label}')`}">
+              <div class="flex items-center justify-between text-xs mb-1">
+                <span class="font-medium text-[var(--text-primary)] flex items-center gap-1.5">
+                  <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background-color: ${color}"></span>
+                  <span class="truncate">${label}</span>
+                </span>
+                <span class="font-mono text-[var(--text-secondary)] text-[11px] tabular-nums">${it.count} <span class="text-[var(--text-quaternary)]">(${pct}%)</span></span>
+              </div>
+              <div class="w-full h-1.5 rounded-full bg-[var(--border-subtle)] overflow-hidden">
+                <div class="h-full rounded-full transition-all duration-300" style="width: ${pct}%; background-color: ${color}"></div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <div class="flex flex-col sm:flex-row items-center gap-5 w-full">
+      ${donutHtml}
+      ${listHtml}
+    </div>
+  `;
+
+  container.querySelectorAll('[data-comp-tip]').forEach((el) => {
+    el.addEventListener('mousemove', (e) => {
+      try {
+        const d = JSON.parse(el.getAttribute('data-comp-tip'));
+        const html = `
+          <div class="font-bold text-xs text-[var(--text-primary)]">${escapeHtml(d.label)}</div>
+          <div class="text-[11px] text-[var(--text-secondary)] mt-0.5"><strong>${d.count}</strong> items (${d.pct}%)</div>
+          <div class="text-[9px] text-[var(--text-quaternary)] mt-1 italic">Click slice to filter stories</div>
+        `;
+        showAnalyticsTooltip(e, html);
+      } catch (_) {}
+    });
+    el.addEventListener('mouseleave', hideAnalyticsTooltip);
+    el.addEventListener('click', () => {
+      const fType = el.getAttribute('data-filter-type');
+      const fVal = el.getAttribute('data-filter-val');
+      if (fType === 'types') filterAnalyticsStoriesByType(fVal);
+      else filterAnalyticsStoriesByAgent(fVal);
+    });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Chart 4: Quality & Review Friction
+// -----------------------------------------------------------------------------
+function renderQualityChart(data) {
+  const container = document.getElementById('chartQualityContainer');
+  if (!container) return;
+  if (!data) {
+    container.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No quality data available.</div>`;
+    return;
+  }
+
+  const rounds = data.rounds || [];
+  const testGrowth = data.test_suite_growth || [];
+
+  let testSvgHtml = '';
+  if (testGrowth.length > 0) {
+    const vbW = 480;
+    const vbH = 130;
+    const padL = 35;
+    const padR = 25;
+    const padT = 15;
+    const padB = 25;
+    const w = vbW - padL - padR;
+    const h = vbH - padT - padB;
+
+    const minT = Math.min(...testGrowth.map((t) => t.tests));
+    const maxT = Math.max(1, ...testGrowth.map((t) => t.tests));
+    const tSpan = Math.max(1, maxT - minT);
+
+    const pts = testGrowth.map((t, idx) => {
+      const x = padL + (idx / Math.max(1, testGrowth.length - 1)) * w;
+      const y = padT + h - ((t.tests - minT) / tSpan) * h;
+      return { x, y, t };
+    });
+
+    const ptsStr = pts.map((p) => `${p.x},${p.y}`).join(' ');
+    const areaStr = `${padL},${padT + h} ${ptsStr} ${padL + w},${padT + h}`;
+
+    testSvgHtml = `
+      <div class="flex-1 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-xs mb-1">
+          <span class="font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
+            <i class="ph ph-shield-check text-purple-500"></i>
+            Automated Test Suite Growth &amp; Pass Trajectory
+          </span>
+          <span class="font-mono text-purple-600 dark:text-purple-400 font-bold">${maxT} tests passing (100%)</span>
+        </div>
+        <svg viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none" class="w-full h-[100px] select-none">
+          <defs>
+            <linearGradient id="testGrowthGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.35"/>
+              <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.02"/>
+            </linearGradient>
+          </defs>
+          <line x1="${padL}" y1="${padT}" x2="${padL + w}" y2="${padT}" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="2,2" />
+          <line x1="${padL}" y1="${padT + h}" x2="${padL + w}" y2="${padT + h}" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="2,2" />
+          <text x="${padL - 6}" y="${padT + 4}" text-anchor="end" font-size="8" fill="var(--text-tertiary)" font-family="var(--font-mono)">${maxT}</text>
+          <text x="${padL - 6}" y="${padT + h + 3}" text-anchor="end" font-size="8" fill="var(--text-tertiary)" font-family="var(--font-mono)">${minT}</text>
+          <polygon points="${areaStr}" fill="url(#testGrowthGrad)" />
+          <polyline points="${ptsStr}" fill="none" stroke="#8b5cf6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+          ${pts.map((p) => {
+            const tipData = escapeHtml(JSON.stringify({
+              story: p.t.story || 'Gate Run',
+              tests: p.t.tests,
+              sha: p.t.sha || ''
+            }));
+            return `
+              <circle cx="${p.x}" cy="${p.y}" r="3.5" fill="#8b5cf6" stroke="var(--bg-surface)" stroke-width="2" class="cursor-pointer" data-qa-tip='${tipData}' />
+            `;
+          }).join('')}
+        </svg>
+        <div class="text-[10px] text-[var(--text-tertiary)] flex items-center justify-between font-mono pt-1 border-t border-[var(--border-subtle)]">
+          <span>Start: <strong>${minT} tests</strong></span>
+          <span class="text-emerald-600 dark:text-emerald-400 font-semibold">+${maxT - minT} new tests created</span>
+          <span>Latest: <strong>${maxT} passing (100%)</strong></span>
+        </div>
+      </div>
+    `;
+  } else {
+    testSvgHtml = `<div class="flex-1 text-xs text-[var(--text-tertiary)] italic flex items-center justify-center p-4">No test growth history recorded yet in QUALITY.md.</div>`;
+  }
+
+  container.innerHTML = testSvgHtml;
+
+  container.querySelectorAll('[data-qa-tip]').forEach((el) => {
+    el.addEventListener('mousemove', (e) => {
+      try {
+        const d = JSON.parse(el.getAttribute('data-qa-tip'));
+        const html = `
+          <div class="font-bold text-xs text-[var(--text-primary)]">${escapeHtml(d.story)}</div>
+          <div class="text-[11px] text-purple-600 dark:text-purple-400 font-bold mt-0.5">${d.tests} passing tests (100%)</div>
+          ${d.sha ? `<div class="text-[10px] text-[var(--text-tertiary)] font-mono mt-0.5">Commit: ${escapeHtml(d.sha)}</div>` : ''}
+        `;
+        showAnalyticsTooltip(e, html);
+      } catch (_) {}
+    });
+    el.addEventListener('mouseleave', hideAnalyticsTooltip);
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Drill-Down Stories List & Filtering
+// -----------------------------------------------------------------------------
+function filterAnalyticsStoriesByDate(dateStr) {
+  state.analyticsFilter = { type: 'date', value: dateStr };
+  openTicketDrawer(dateStr, 'all');
+}
+
+function filterAnalyticsStoriesByType(typeStr) {
+  state.analyticsFilter = { type: 'type', value: typeStr.toLowerCase() };
+  openTicketDrawer('', typeStr.toLowerCase());
+}
+
+function filterAnalyticsStoriesByAgent(agentStr) {
+  state.analyticsFilter = { type: 'agent', value: agentStr };
+  openTicketDrawer(agentStr, 'all');
+}
+
+function resetAnalyticsStoryFilter() {
+  state.analyticsFilter = null;
+  if (state.analytics) {
+    renderAnalyticsStories(state.analytics.stories || state.analytics.all_delivered_stories, null);
+  }
+}
+
+function renderAnalyticsStories(allStories, filter) {
+  const listEl = document.getElementById('analyticsStoryList');
+  const countEl = document.getElementById('analyticsDetailCount');
+  const titleEl = document.getElementById('analyticsDetailTitle');
+  const resetBtn = document.getElementById('analyticsResetFilterBtn');
+  if (!listEl) return;
+
+  if (!allStories || allStories.length === 0) {
+    listEl.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No stories recorded in this period.</div>`;
+    if (countEl) countEl.textContent = '0 stories';
+    if (resetBtn) resetBtn.classList.add('hidden');
+    return;
+  }
+
+  let filtered = allStories;
+  if (filter) {
+    if (resetBtn) resetBtn.classList.remove('hidden');
+    if (filter.type === 'date') {
+      if (titleEl) titleEl.textContent = `Stories Delivered on ${filter.value}`;
+      filtered = allStories.filter((s) => s.completed_date === filter.value || s.created_date === filter.value);
+    } else if (filter.type === 'type') {
+      if (titleEl) titleEl.textContent = `Stories of Type: ${filter.value.toUpperCase()}`;
+      filtered = allStories.filter((s) => String(s.type || '').toLowerCase() === filter.value);
+    } else if (filter.type === 'agent') {
+      if (titleEl) titleEl.textContent = `Stories Authored by: ${filter.value}`;
+      filtered = allStories.filter((s) => String(s.lead || '').includes(filter.value));
+    }
+  } else {
+    if (titleEl) titleEl.textContent = 'Delivered Stories in Window';
+    if (resetBtn) resetBtn.classList.add('hidden');
+  }
+
+  if (countEl) countEl.textContent = `${filtered.length} stories`;
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div class="text-xs text-[var(--text-tertiary)] italic p-6 text-center">No stories matching this filter criteria.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map((s) => {
+    const isCompleted = s.status === 'completed';
+    const statusBg = isCompleted
+      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25'
+      : (s.status === 'qa' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/25');
+    const typeBg = s.type === 'fix' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25'
+      : (s.type === 'improvement' ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/25'
+      : (s.type === 'chore' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/25' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25'));
+
+    return `
+      <div class="p-3 sm:p-4 rounded-xl bg-[var(--bg-surface-secondary)] border border-[var(--border-subtle)] hover:border-[var(--card-hover-border)] transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 group">
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2 mb-1">
+            <span class="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 cursor-pointer hover:underline" onclick="openStoryFromAnalytics('${escapeHtml(s.id)}')">${escapeHtml(s.id)}</span>
+            <span class="px-2 py-0.2 text-[10px] font-semibold rounded border ${typeBg}">${escapeHtml(s.type || 'feature')}</span>
+            <span class="px-2 py-0.2 text-[10px] font-semibold rounded border ${statusBg}">${escapeHtml(s.status)}</span>
+            ${s.duration && s.duration !== '—' ? `<span class="text-[11px] font-mono text-[var(--text-tertiary)] flex items-center gap-1"><i class="ph ph-timer"></i> ${escapeHtml(s.duration)}</span>` : ''}
+            ${s.lead ? `<span class="text-[11px] text-[var(--text-secondary)] bg-[var(--bg-surface)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">${escapeHtml(s.lead)}</span>` : ''}
+          </div>
+          <h4 class="text-xs sm:text-sm font-semibold text-[var(--text-primary)] truncate cursor-pointer hover:text-emerald-500 transition" onclick="openStoryFromAnalytics('${escapeHtml(s.id)}')">${escapeHtml(s.title || s.id)}</h4>
+        </div>
+        <div class="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          ${s.closeout ? `
+            <a href="${s.closeout.url || '#'}" target="_blank" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-500/30 transition shadow-xs" title="Open Story Close-Out Artifact">
+              <i class="ph ph-file-check"></i>
+              <span>Close-Out</span>
+            </a>
+          ` : ''}
+          <button type="button" onclick="openStoryFromAnalytics('${escapeHtml(s.id)}')" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-tertiary)] text-[var(--text-primary)] border border-[var(--border-subtle)] transition shadow-xs">
+            <i class="ph ph-arrow-square-out"></i>
+            <span>Card Details</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openStoryFromAnalytics(cardId) {
+  if (!cardId) return;
+  const card = (state.cards || []).find((c) => (c.mn_id || c.id) === cardId);
+  if (card) {
+    if (card.status === 'qa') {
+      switchTab('qa');
+      openQaDrawer(card);
+      selectQaCard(card.mn_id || card.id, { forceScrollTop: true });
+    } else {
+      switchTab('pipeline');
+      openCardModal(card);
+    }
+  } else {
+    openCardModalById(cardId);
+  }
+}

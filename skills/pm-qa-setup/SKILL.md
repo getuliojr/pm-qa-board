@@ -2,7 +2,7 @@
 name: pm-qa-setup
 description: Use when the user asks to set up, install, onboard, register, upgrade or check PM & QA Board in a project (or on this machine), or to clean up old skills. Inspects what the project and this machine already have, sets up desktop shortcuts and skills, says in plain words where each thing belongs, asks a few plain questions, and changes only what the user approves; never overwrites a user's rules or skills. Ends with a read-only doctor check.
 metadata:
-  version: 0.9.1
+  version: 0.10.0
   source: pm-qa-cockpit
 ---
 

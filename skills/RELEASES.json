@@ -14,6 +14,23 @@
       "1579c89c0ebbc72c4275ddeab7e92161736fb46625d013394c303832b978e81a"
     ]
   },
+  "0.10.0": {
+    "pm-orchestrate": [
+      "b905e4e11bbbca6f40858b73ea60a5d3c6fddddc0565b031c0511ff6154e9318"
+    ],
+    "pm-qa-cockpit": [
+      "7dadb283c24333d5d8403bdb0ac71c01160202a5ba7069d5506cf462a29615d2"
+    ],
+    "pm-qa-setup": [
+      "1db85167d4cfb09b271b731cb04d01bcad349eb3e8b8c89a67bfbb3ffadc38e3"
+    ],
+    "pm-review": [
+      "18a0b15c305a9b7da9d4774f5808b4ffbb3bf6a5573572e3f5a21fc13a09bf25"
+    ],
+    "pm-sync": [
+      "dbcc516703d73f13dec3a411a060dc748ce9cda3bbffab25ea6ec49f5076c3ef"
+    ]
+  },
   "0.2.0": {
     "pm-orchestrate": [
       "e93255cf27d1195a3b092961774fa62c6d6bccf35783fd52b7c21a83b83c8ade"
