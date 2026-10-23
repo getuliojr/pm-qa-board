@@ -7167,9 +7167,11 @@ function renderDailyThroughputChart(data, weeklyCohorts) {
         barsHtml += `<rect class="chart-bar-hover" x="${bx}" y="${curY}" width="${barW}" height="${otherH}" fill="#8b5cf6" rx="2" />`;
       }
 
-      // X Label
-      const shortLabel = (c.label || weekKey).split(' ')[0];
-      barsHtml += `<text x="${cx}" y="${padTop + chartH + 18}" text-anchor="middle" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${escapeHtml(shortLabel)}</text>`;
+      // X Label: Calendar Week + short date (e.g. W42 10/19)
+      const weekPart = c.chart_label || (c.week_number ? `W${c.week_number}` : (c.label || weekKey).split(' ')[0]);
+      const datePart = c.start_date ? c.start_date.slice(5).replace('-', '/') : '';
+      const displayLabel = datePart ? `${weekPart} ${datePart}` : weekPart;
+      barsHtml += `<text x="${cx}" y="${padTop + chartH + 18}" text-anchor="middle" font-size="9" fill="var(--text-tertiary)" font-family="var(--font-mono)">${escapeHtml(displayLabel)}</text>`;
 
       // Velocity point
       const cy = padTop + chartH - (cPoints / maxPoints) * chartH;

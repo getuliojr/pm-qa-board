@@ -3380,17 +3380,16 @@ class PMParser:
                         line = line.strip()
                         if not line.startswith("|") or line.startswith("| ---") or line.startswith("| Story") or line.startswith("| Sprint"):
                             continue
-                        parts = [p.strip() for p in line.strip("|").split("|")]
-                        if len(parts) >= 4:
-                            story_raw = parts[0].strip("*").strip()
-                            tree_raw = parts[1].strip("`").strip()
-                            res_raw = parts[3].strip()
-
-                            m_p = re.search(r"(\d+)\s+passed", res_raw, re.IGNORECASE)
-                            if m_p:
-                                passed_cnt = int(m_p.group(1))
-                                m_sha = re.search(r"`?([0-9a-fA-F]{7,40})`?", tree_raw)
-                                sha_val = m_sha.group(1)[:7] if m_sha else tree_raw[:7]
+                        m_p = re.search(r"\b(\d+)\s+passed\b", line, re.IGNORECASE)
+                        if not m_p:
+                            m_p = re.search(r"pytest\s+(\d+)", line, re.IGNORECASE)
+                        if m_p:
+                            passed_cnt = int(m_p.group(1))
+                            if 0 < passed_cnt < 50000:
+                                parts = [p.strip() for p in line.strip("|").split("|")]
+                                story_raw = parts[0].strip("*").strip() if parts else ""
+                                m_sha = re.search(r"`([0-9a-fA-F]{7,40})`", line)
+                                sha_val = m_sha.group(1)[:7] if m_sha else ""
                                 growth.append({
                                     "story": story_raw,
                                     "tests": passed_cnt,
@@ -3410,17 +3409,27 @@ class PMParser:
                     for line in h_text.splitlines():
                         if not line.startswith("|") or "---" in line or "Started" in line:
                             continue
-                        parts = [p.strip() for p in line.strip("|").split("|")]
-                        if len(parts) >= 4:
-                            date_str = parts[0][:10]
-                            run_sha = parts[2].strip("`")
-                            py_res = parts[3]
-                            m_pass = re.search(r"(?:pytest\s+)?(\d+)\s*(?:passed)?", py_res, re.IGNORECASE)
-                            if m_pass and int(m_pass.group(1)) > 50:
+                        m_p = re.search(r"\b(\d+)\s+passed\b", line, re.IGNORECASE)
+                        if not m_p:
+                            m_p = re.search(r"pytest\s+(\d+)", line, re.IGNORECASE)
+                        if m_p:
+                            passed_cnt = int(m_p.group(1))
+                            # Reject commit SHAs (must be a realistic test count < 50,000)
+                            if 0 < passed_cnt < 50000:
+                                parts = [p.strip() for p in line.strip("|").split("|")]
+                                date_str = parts[0][:10] if parts else ""
+                                shas = re.findall(r"`([0-9a-fA-F]{7,40})`", line)
+                                run_sha = ""
+                                for s in shas:
+                                    if len(s) == 7:
+                                        run_sha = s
+                                        break
+                                if not run_sha and shas:
+                                    run_sha = shas[-1][:7]
                                 growth.append({
                                     "story": date_str,
-                                    "tests": int(m_pass.group(1)),
-                                    "sha": run_sha[:7],
+                                    "tests": passed_cnt,
+                                    "sha": run_sha,
                                 })
                 except Exception:
                     pass
@@ -3433,7 +3442,7 @@ class PMParser:
                 try:
                     lj_data = json.loads(latest_json.read_text(encoding="utf-8"))
                     p_cnt = lj_data.get("pytest_passed")
-                    if p_cnt:
+                    if p_cnt and 0 < int(p_cnt) < 50000:
                         growth.append({
                             "story": "Latest Gate",
                             "tests": int(p_cnt),
@@ -3741,8 +3750,11 @@ class PMParser:
             w_start_str = w_start.isoformat()
             w_end_str = w_end.isoformat()
             iso_year, iso_week, _ = w_start.isocalendar()
-            label = f"{w_start.strftime('%b %d')} - {w_end.strftime('%b %d')}"
-            full_label = f"W{iso_week} · {label}"
+            date_range = f"{w_start.strftime('%b %d')} - {w_end.strftime('%b %d')}"
+            full_label = f"W{iso_week} · {date_range}"
+            label = full_label
+            short_label = f"W{iso_week} ({w_start.strftime('%m/%d')})"
+            chart_label = f"W{iso_week}"
             cohort_id = f"{iso_year}-W{iso_week:02d}"
 
             completed_in_week = [
@@ -3779,18 +3791,23 @@ class PMParser:
             r1_pass = sum(1 for c in completed_in_week if (c.get("review_count") or 1) <= 1)
             qa_pass_pct = round((r1_pass / len(completed_in_week)) * 100, 1) if completed_in_week else 100.0
 
-            # Momentum status heuristic (Settled Decision 6)
-            non_feat_pts = sum(c.get("points", 1) for c in completed_in_week if str(c.get("type", "")).lower() in ("fix", "bug", "chore", "debt", "refactor", "docs"))
-            has_drag = (net_bugs < 0) or (qa_pass_pct < 70.0) or (points_total > 0 and (non_feat_pts / points_total) > 0.5)
+            # Momentum status heuristic (Decoupled from internal code review iterations per GM-Q2)
+            # Real bug drag occurs when net open bugs increase (found > fixed) OR bug fix cards dominate delivery
+            fix_pts = sum(c.get("points", 1) for c in completed_in_week if str(c.get("type", "")).lower() in ("fix", "bug"))
+            has_bug_drag = (bugs_found > bugs_fixed) or (
+                len(completed_in_week) > 0 and (fix_cnt / len(completed_in_week)) >= 0.35
+            ) or (
+                points_total > 0 and (fix_pts / points_total) >= 0.35
+            )
 
-            if (feat_cnt + imp_cnt) == 0:
+            if len(completed_in_week) == 0:
                 momentum = "stagnated"
                 momentum_label = "Stagnated 🔴"
                 momentum_badge = "🔴 Stagnated"
-            elif has_drag:
+            elif has_bug_drag:
                 momentum = "bug_drag"
-                momentum_label = "High Bug Drag 🟡"
-                momentum_badge = "🟡 High Bug Drag"
+                momentum_label = "Bug Drag 🟡"
+                momentum_badge = "🟡 Bug Drag"
             else:
                 momentum = "advancing"
                 momentum_label = "Advancing 🟢"
@@ -3831,8 +3848,11 @@ class PMParser:
             cohort_dict = {
                 "id": cohort_id,
                 "week_key": cohort_id,
-                "label": label,
+                "label": full_label,
                 "full_label": full_label,
+                "short_label": short_label,
+                "chart_label": chart_label,
+                "date_range": date_range,
                 "week_number": iso_week,
                 "year": iso_year,
                 "start_date": w_start_str,
@@ -4586,6 +4606,9 @@ class PMParser:
                         "id": cid,
                         "label": ch.get("label", ""),
                         "full_label": ch.get("full_label", ""),
+                        "short_label": ch.get("short_label", ""),
+                        "chart_label": ch.get("chart_label", ""),
+                        "date_range": ch.get("date_range", ""),
                         "week_number": ch.get("week_number", 0),
                         "year": ch.get("year", 0),
                         "start_date": ch.get("start_date", ""),
@@ -4630,21 +4653,29 @@ class PMParser:
             qa_pct = round((cm["r1_pass"] / cm["stories_count"]) * 100, 1) if cm["stories_count"] > 0 else 100.0
             cm["qa_pass_rate"] = qa_pct
 
-            # Momentum status heuristic
-            non_f_pts = cm["velocity_points"] - cm["feature_points"]
-            has_drag = (net_b < 0) or (qa_pct < 70.0) or (cm["velocity_points"] > 0 and (non_f_pts / cm["velocity_points"]) > 0.5)
-            if (cm["work_mix"]["feature"] + cm["work_mix"]["improvement"]) == 0:
+            # Momentum status heuristic (Decoupled from code review rounds per GM-Q2)
+            has_bug_drag = (net_b < 0) or (
+                cm["stories_count"] > 0 and (cm["work_mix"]["fix"] / cm["stories_count"]) >= 0.35
+            )
+            if cm["stories_count"] == 0:
                 cm["momentum"] = "stagnated"
                 cm["momentum_label"] = "Stagnated 🔴"
                 cm["momentum_badge"] = "🔴 Stagnated"
-            elif has_drag:
+            elif has_bug_drag:
                 cm["momentum"] = "bug_drag"
-                cm["momentum_label"] = "High Bug Drag 🟡"
-                cm["momentum_badge"] = "🟡 High Bug Drag"
+                cm["momentum_label"] = "Bug Drag 🟡"
+                cm["momentum_badge"] = "🟡 Bug Drag"
             else:
                 cm["momentum"] = "advancing"
                 cm["momentum_label"] = "Advancing 🟢"
                 cm["momentum_badge"] = "🟢 Advancing"
+
+            cm["week_key"] = cid
+            cm["total_stories"] = cm["stories_count"]
+            cm["total_points"] = cm["velocity_points"]
+            cm["capacity_pct"] = cm["feature_capacity_pct"]
+            cm["work_composition"] = cm["work_mix"]
+            cm["active_turnaround"] = cm["cycle_time"]
 
             del cm["durations"]
             del cm["r1_pass"]

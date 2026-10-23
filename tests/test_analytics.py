@@ -501,3 +501,65 @@ created: "2026-09-01"
     assert len(opus_entry["stories"]) >= 1
 
 
+def test_analytics_qa_test_health_and_momentum_status_fixes(external_project):
+    code, docs = external_project
+    cards_dir = docs / "cards"
+    cards_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Test Gate runs parsing rejects git commit SHAs (like 3043581)
+    heavy_dir = docs / "gate-heavy-results"
+    heavy_dir.mkdir(parents=True, exist_ok=True)
+    (heavy_dir / "INDEX.md").write_text("""# Heavy gate runs
+| Started | Run id | Sprint | SHA | pytest | Wall time | Summary |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-29 20:04 | `20260929-200458-46b7-7ba9ce8` | -- | `7ba9ce8` | PASS (pytest 1039, full vitest) | 27:49 | consumed |
+| 2026-10-04 10:28 | `20261004-102842-3473-3043581` | -- | `3043581` | FAIL (1222 passed, 91.23%) | 31:15 | consumed |
+| 2026-10-15 16:56 | `20261015-165654-7a7e-f16c004` | -- | `f16c004` | PASS (pytest 1851 passed 89.99%) | 59:14 | consumed |
+""", encoding="utf-8")
+
+    parser = PMParser(code_path=code, docs_path=docs, prefix="APP")
+    growth = parser._parse_gate_runs_from_quality()
+    assert len(growth) == 3
+    assert growth[0]["tests"] == 1039
+    assert growth[1]["tests"] == 1222  # Must be 1222, NOT the commit sha 3043581!
+    assert growth[2]["tests"] == 1851
+
+    # 2. Test Momentum status: 13 stories (1 feat, 12 improvements, 0 bugs) is Advancing, not Bug Drag
+    for i in range(1, 13):
+        (cards_dir / f"APP-{i}.md").write_text(f"""---
+id: APP-{i}
+story: "{i}"
+type: improvement
+points: 2
+status: completed
+created: "2026-10-20"
+---
+# Story {i}
+## Changelog
+- 2026-10-21 10:00: Completed.
+""", encoding="utf-8")
+
+    (cards_dir / "APP-13.md").write_text("""---
+id: APP-13
+story: "13"
+type: feature
+points: 3
+status: completed
+created: "2026-10-20"
+---
+# Feature 13
+## Changelog
+- 2026-10-21 11:00: Completed.
+""", encoding="utf-8")
+
+    summary = parser.get_analytics_summary("6w")
+    cohorts = summary["weekly_cohorts"]
+    assert len(cohorts) > 0
+    active_cohort = next((c for c in cohorts if c["total_stories"] >= 13), None)
+    assert active_cohort is not None
+    assert active_cohort["momentum"] == "advancing"
+    assert "Advancing" in active_cohort["momentum_label"]
+    assert "W" in active_cohort["label"]  # Has week number
+
+
+
