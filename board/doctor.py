@@ -76,7 +76,7 @@ def run(target: str) -> dict[str, Any]:
 
     with contextlib.redirect_stderr(io.StringIO()):
         try:
-            parser = PMParser(project=project)
+            parser = PMParser(project=project, read_only=True)
             files = [f for d in (parser.cards_dir, parser.backlog_dir) if d.is_dir()
                      for f in sorted(d.glob("*.md")) if f.name != "template.md"]
             cards = parser.get_all_cards(refresh=True)
