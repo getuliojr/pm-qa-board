@@ -389,3 +389,53 @@ def test_frontend_switch_restores_cached_analytics_without_a_skeleton():
     assert "restoreCachedAnalytics()" in app_js
     assert "state.pendingProjectSlug" in app_js
     assert "const data = changed ? fresh : cached;" in app_js
+
+
+# ---------------------------------------------------------------- Phase 5: index optimization & repo defense
+
+
+def test_git_commits_optimized_indexes_exist_and_eliminate_temp_sorts(tmp_path):
+    from index import CardIndex
+
+    db_path = tmp_path / "index_test.db"
+    idx = CardIndex(db_path)
+    conn = idx._get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'git_commits'")
+        index_names = {row[0] for row in cur.fetchall()}
+        assert "idx_git_date" in index_names
+        assert "idx_git_reachable_date" in index_names
+        assert "idx_git_uncounted" in index_names
+
+        # Verify query plan for get_uncounted_shas uses idx_git_uncounted covering index
+        # and creates NO temporary B-tree
+        cur.execute(
+            "EXPLAIN QUERY PLAN SELECT sha FROM git_commits "
+            "WHERE reachable = 1 AND counted = 0 ORDER BY date DESC, sha LIMIT 10"
+        )
+        uncounted_plan = cur.fetchall()
+        uncounted_text = " ".join(r[3] for r in uncounted_plan)
+        assert "idx_git_uncounted" in uncounted_text
+        assert "TEMP B-TREE" not in uncounted_text
+
+        # Verify query plan for get_git_commits uses idx_git_reachable_date
+        # and creates NO temporary B-tree
+        cur.execute(
+            "EXPLAIN QUERY PLAN SELECT sha, date, subject, author, added, deleted FROM git_commits "
+            "WHERE reachable = 1 AND date >= '2026-01-01' ORDER BY date DESC, sha"
+        )
+        commits_plan = cur.fetchall()
+        commits_text = " ".join(r[3] for r in commits_plan)
+        assert "idx_git_reachable_date" in commits_text
+        assert "TEMP B-TREE" not in commits_text
+    finally:
+        conn.close()
+
+
+def test_gitignore_ignores_sqlite_databases_and_cache_directories():
+    repo_root = Path(__file__).resolve().parent.parent
+    gitignore_text = (repo_root / ".gitignore").read_text(encoding="utf-8")
+    for pattern in ("*.db", "*.sqlite", "*.sqlite3", "cache/"):
+        assert pattern in gitignore_text, f"{pattern} missing from .gitignore"
+

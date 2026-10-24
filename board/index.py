@@ -89,6 +89,13 @@ class CardIndex:
                     )
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_git_date ON git_commits(date)")
                     conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_git_reachable_date ON git_commits(reachable, date DESC, sha)"
+                    )
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_git_uncounted ON git_commits(counted, date DESC, sha) "
+                        "WHERE reachable = 1 AND counted = 0"
+                    )
+                    conn.execute(
                         "CREATE TABLE IF NOT EXISTS git_sync (id INTEGER PRIMARY KEY CHECK (id = 1), bound TEXT, head TEXT)"
                     )
                     conn.execute(
