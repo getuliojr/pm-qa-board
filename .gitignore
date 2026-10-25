@@ -4,6 +4,12 @@ __pycache__/
 .pytest_cache/
 gate-heavy-results/current_run.log
 
+# Local SQLite databases & cache
+*.db
+*.sqlite
+*.sqlite3
+cache/
+
 # PM data never lives in this public tool repo: it goes to a private docs repo
 # (e.g. pm-qa-docs/pm-qa-cockpit) registered as this project's external docs_path.
 /docs/

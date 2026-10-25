@@ -686,7 +686,9 @@ function showLoadingFeedback(isLoading) {
 function renderLoadingSkeletons(force = false) {
   const activeTab = state.activeTab || 'pipeline';
 
-  if (activeTab === 'pipeline') {
+  if (activeTab === 'analytics') {
+    renderAnalyticsSkeleton();
+  } else if (activeTab === 'pipeline') {
     const cols = ['backlog', 'sprint-backlog', 'in-progress', 'qa', 'completed'];
     cols.forEach((colId) => {
       const el = document.getElementById(`cards-${colId}`);
@@ -5627,8 +5629,9 @@ async function selectProject(slug) {
     nameEl.innerHTML = `<span class="inline-flex items-center gap-1.5"><i class="ph ph-spinner animate-spin text-emerald-500"></i> ${escapeHtml(targetName)}</span>`;
   }
   showLoadingFeedback(true);
+  state.pendingProjectSlug = slug;
   resetProjectScopedState();
-  renderLoadingSkeletons(true);
+  if (!(state.activeTab === 'analytics' && restoreCachedAnalytics())) renderLoadingSkeletons(true);
 
   try {
     const res = await fetch('/api/projects/select', {
@@ -5647,8 +5650,15 @@ async function selectProject(slug) {
 
     // Fetch view-scoped data for active tab
     await fetchCurrentViewData();
+    if (state.pendingProjectSlug === slug) state.pendingProjectSlug = null;
     scheduleNextPoll(10000);
   } catch (err) {
+    // Only this switch's marker: a newer switch may already have set its own.
+    if (state.pendingProjectSlug === slug) {
+      state.pendingProjectSlug = null;
+      // The target's cached charts may be on screen under the old project; show the real one again.
+      if (err.name !== 'AbortError' && state.activeTab === 'analytics') loadAnalytics(state.analyticsWindow || '6w', true);
+    }
     if (err.name !== 'AbortError') {
       showToast(`Could not switch project: ${err.message}`, 'error');
     }
@@ -5663,7 +5673,7 @@ function resetProjectScopedState() {
   state.gitSync = {};
   state.selectedQaId = null;
   state.analytics = null;
-  state.analyticsCache = {};
+  clearTimeout(state._analyticsBackfillTimer);
   state.analyticsFilter = null;
   state.activeSprintId = 'ACTIVE';
   state.sprintDodData = null;
@@ -6780,35 +6790,114 @@ function hideAnalyticsTooltip() {
   if (tip) tip.style.display = 'none';
 }
 
-async function loadAnalytics(windowStr = '6w', force = false, signal = undefined) {
-  showLoadingFeedback(true);
-  const scope = state.analyticsScope || 'active';
-  const curSlug = state.currentProject?.slug || '';
-  const projParam = scope === 'all' ? 'all' : curSlug;
-  const cacheKey = `${windowStr}:${projParam}`;
+const ANALYTICS_REVALIDATE_MS = 5000;
+const ANALYTICS_BACKFILL_POLL_MS = 3000;
+state.analyticsCacheAt = {};
+state._analyticsBackfillTimer = null;
 
-  if (!force && state.analyticsCache[cacheKey]) {
-    state.analytics = state.analyticsCache[cacheKey];
-    renderAnalyticsView();
-    showLoadingFeedback(false);
-    return state.analytics;
+function analyticsRequestKey(windowStr) {
+  const scope = state.analyticsScope || 'active';
+  const projParam = scope === 'all' ? 'all' : (state.pendingProjectSlug || state.currentProject?.slug || '');
+  return { windowStr, projParam, cacheKey: `${windowStr}:${projParam}` };
+}
+
+// On a project switch: show that project's already-fetched analytics at once. False means a miss.
+function restoreCachedAnalytics() {
+  const { cacheKey } = analyticsRequestKey(state.analyticsWindow || '6w');
+  const cached = state.analyticsCache[cacheKey];
+  if (!cached) return false;
+  applyAnalyticsData(cached, cacheKey);
+  return true;
+}
+
+function renderAnalyticsSkeleton() {
+  const bar = (w, h = 'h-3') => `<div class="${h} bg-[var(--bg-surface-tertiary)] rounded ${w}"></div>`;
+  const strip = document.getElementById('analyticsKpiStrip');
+  if (strip) strip.classList.add('kpi-skeleton');
+  const chart = (id, rows) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = `<div class="w-full animate-pulse space-y-3 p-2">${rows}</div>`;
+  };
+  const bars = `<div class="flex items-end gap-2 h-40">${[40, 65, 50, 80, 55, 90, 70].map((h) => `<div class="flex-1 bg-[var(--bg-surface-tertiary)] rounded-t" style="height:${h}%"></div>`).join('')}</div>${bar('w-1/3')}`;
+  chart('chartThroughputContainer', bars);
+  chart('chartBurnupContainer', bars);
+  chart('chartCompositionContainer', bar('w-full', 'h-24'));
+  chart('chartQualityContainer', bar('w-2/3'));
+  const row = (cells) => `<tr class="animate-pulse">${cells.map((w) => `<td class="py-3 px-3"><div class="h-3 bg-[var(--bg-surface-tertiary)] rounded ${w}"></div></td>`).join('')}</tr>`;
+  const health = document.getElementById('pipelineHealthTableBody');
+  if (health) health.innerHTML = [0, 1, 2].map(() => row(['w-20', 'w-8', 'w-8', 'w-8', 'w-12'])).join('');
+  const cohorts = document.getElementById('weeklyCohortsTableBody');
+  if (cohorts) cohorts.innerHTML = [0, 1, 2, 3].map(() => row(['w-32', 'w-16', 'w-12', 'w-24', 'w-8', 'w-16', 'w-8'])).join('');
+  updateAnalyticsBackfillBadge(null);
+}
+
+function updateAnalyticsBackfillBadge(backfill) {
+  const badge = document.getElementById('analyticsBackfillBadge');
+  const text = document.getElementById('analyticsBackfillText');
+  if (!badge) return;
+  if (backfill && backfill.done === false) {
+    if (text) text.textContent = `Counting history… ${backfill.counted} of ${backfill.total} commits`;
+    badge.style.display = 'inline-flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function applyAnalyticsData(data, cacheKey) {
+  state.analytics = data;
+  const strip = document.getElementById('analyticsKpiStrip');
+  if (strip) strip.classList.remove('kpi-skeleton');
+  renderAnalyticsView();
+  updateAnalyticsBackfillBadge(data.git_backfill);
+  clearTimeout(state._analyticsBackfillTimer);
+  if (data.git_backfill && data.git_backfill.done === false) {
+    // Partial numbers are shown labelled; ask again until the server has counted every commit.
+    state._analyticsBackfillTimer = setTimeout(() => {
+      const cur = analyticsRequestKey(state.analyticsWindow || '6w');
+      if (state.activeTab === 'analytics' && cur.cacheKey === cacheKey) {
+        loadAnalytics(state.analyticsWindow || '6w', true, undefined, true);
+      }
+    }, ANALYTICS_BACKFILL_POLL_MS);
+  }
+}
+
+async function loadAnalytics(windowStr = '6w', force = false, signal = undefined, silent = false) {
+  const { projParam, cacheKey } = analyticsRequestKey(windowStr);
+  const cached = state.analyticsCache[cacheKey];
+  const age = Date.now() - (state.analyticsCacheAt[cacheKey] || 0);
+
+  if (cached) {
+    // Browser-cache hit renders at once; older entries are re-checked quietly in the background.
+    if (state.analytics !== cached) applyAnalyticsData(cached, cacheKey);
+    if (!force && age < ANALYTICS_REVALIDATE_MS) return cached;
+    silent = true;
+  } else {
+    // Miss: drop the previous view's charts right away and show skeletons until data arrives.
+    state.analytics = null;
+    renderAnalyticsSkeleton();
   }
 
+  if (!silent) showLoadingFeedback(true);
   try {
     const url = `/api/analytics?window=${encodeURIComponent(windowStr)}&project=${encodeURIComponent(projParam)}`;
     const resp = await fetch(url, { signal });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    state.analytics = data;
+    const fresh = await resp.json();
+    const changed = JSON.stringify(fresh) !== JSON.stringify(cached);
+    // Unchanged data keeps the cached object, so a poll neither re-renders nor closes open tooltips.
+    const data = changed ? fresh : cached;
     state.analyticsCache[cacheKey] = data;
-    renderAnalyticsView();
+    state.analyticsCacheAt[cacheKey] = Date.now();
+    // Stale guard: a slower earlier request must not overwrite the view the user is now on.
+    if (analyticsRequestKey(state.analyticsWindow || '6w').cacheKey !== cacheKey) return data;
+    if (changed || state.analytics === null || data.git_backfill?.done === false) applyAnalyticsData(data, cacheKey);
     return data;
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error('Failed to load analytics data:', err);
     }
   } finally {
-    showLoadingFeedback(false);
+    if (!silent) showLoadingFeedback(false);
     if (window.lucide) lucide.createIcons();
   }
 }

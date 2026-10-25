@@ -345,10 +345,12 @@ def test_heavy_worker_proxy_compatibility(server):
 
 def test_doctor_check_11_mobile_readiness(server, legacy_project, monkeypatch):
     import doctor
+    import wiring
     _, srv = server
 
     # With LAN IP detected
     monkeypatch.setattr(srv, "get_lan_ip", lambda: "192.168.1.100")
+    monkeypatch.setattr(wiring, "get_lan_ip", lambda: "192.168.1.100")
     report = doctor.run(str(legacy_project))
     check11 = [c for c in report["checks"] if c["n"] == 11][0]
     assert check11["status"] == "pass"
@@ -356,6 +358,7 @@ def test_doctor_check_11_mobile_readiness(server, legacy_project, monkeypatch):
 
     # With loopback only
     monkeypatch.setattr(srv, "get_lan_ip", lambda: "127.0.0.1")
+    monkeypatch.setattr(wiring, "get_lan_ip", lambda: "127.0.0.1")
     report_loopback = doctor.run(str(legacy_project))
     check11_lb = [c for c in report_loopback["checks"] if c["n"] == 11][0]
     assert check11_lb["status"] == "warn"
@@ -408,6 +411,7 @@ def test_post_allowed_with_tunnel_and_forwarded_host(server, legacy_project, mon
 
 def test_doctor_check_11_custom_cloudflared_in_cockpit_home(server, legacy_project, monkeypatch, tmp_path):
     import doctor
+    import wiring
     _, srv = server
     fake_home = tmp_path / "cockpit-home"
     monkeypatch.setenv("PM_QA_COCKPIT_HOME", str(fake_home))
@@ -418,6 +422,7 @@ def test_doctor_check_11_custom_cloudflared_in_cockpit_home(server, legacy_proje
     fake_cf.write_text("fake binary")
 
     monkeypatch.setattr(srv, "get_lan_ip", lambda: "192.168.1.150")
+    monkeypatch.setattr(wiring, "get_lan_ip", lambda: "192.168.1.150")
     report = doctor.run(str(legacy_project))
     check11 = [c for c in report["checks"] if c["n"] == 11][0]
     assert check11["status"] == "pass"

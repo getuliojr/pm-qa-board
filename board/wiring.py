@@ -296,3 +296,17 @@ def apply_launcher_edit(code: Path, rel_file: str, edit: dict[str, Any]) -> None
     eol = lines[i][len(lines[i].rstrip("\r\n")):]
     lines[i] = edit["new"] + eol
     f.write_bytes(bom + "".join(lines).encode("utf-8"))
+
+
+def get_lan_ip() -> str:
+    """Detect local LAN/Wi-Fi IPv4 address using standard library socket."""
+    import socket
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"

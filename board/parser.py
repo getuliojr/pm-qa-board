@@ -15,11 +15,13 @@ Provides write-back for:
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -68,6 +70,7 @@ class PMParser:
         docs_path: Path | str | None = None,
         prefix: str = "MN",
         project: dict[str, Any] | None = None,
+        read_only: bool = False,
     ) -> None:
         """Resolve a project's code repo and PM docs root.
 
@@ -122,6 +125,38 @@ class PMParser:
         self._cards_cache: list[dict[str, Any]] | None = None
         self._cards_cache_time: float = 0.0
         self._analytics_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        # Hook for the server's parser pool: slug/config -> reusable PMParser (default: build fresh).
+        self.parser_provider: Any = None
+        self._analytics_memo: dict[str, tuple[str, float, dict[str, Any]]] = {}
+        self._git_local = threading.local()  # per-thread: pooled parsers serve several requests at once
+        self._plan_cache: dict[str, Any] | None = None
+        self._plan_cache_mtime: float = 0.0
+        self._reviews_cache: list[dict[str, Any]] = []
+        self._reviews_cache_time: float = 0.0
+
+        # SQLite-backed incremental index
+        self._index = None
+        if not read_only:
+            try:
+                try:
+                    import projects
+                    from index import CardIndex
+                except ImportError:
+                    from board import projects
+                    from board.index import CardIndex
+
+                slug = self.project.get("slug")
+                registered = (projects.load_registry().get("projects") or {}).get(slug or "")
+                if not (registered and Path(registered.get("docs_path") or "").resolve() == self.docs_path):
+                    # Not a registered project (ad-hoc, or a slug another checkout registered): a bare
+                    # slug or docs folder name can collide, so add a hash of the resolved docs path.
+                    base = slug or projects.slugify(self.docs_path.name or self.root_dir.name or "project")
+                    digest = hashlib.sha1(str(self.docs_path).lower().encode("utf-8")).hexdigest()[:8]
+                    slug = f"{base}-{digest}"
+                db_path = projects.cockpit_home() / "cache" / f"{slug}.db"
+                self._index = CardIndex(db_path)
+            except Exception:
+                self._index = None
 
     def _card_extra_tags(self, frontmatter: dict[str, Any]) -> list[dict[str, Any]]:
         """Declared extra tags present on a card, with per-card resolved (http/https only) links."""
@@ -211,6 +246,12 @@ class PMParser:
         self._card_git_commit_map = None
         self._file_git_commits_cache = {}
         self._analytics_cache = {}
+        self._analytics_memo = {}
+        self._plan_cache = None
+        self._plan_cache_mtime = 0.0
+        self._sprint_dod_cache = {}
+        self._reviews_cache = []
+        self._reviews_cache_time = 0.0
 
     @staticmethod
     def format_duration(seconds: int) -> str:
@@ -428,7 +469,7 @@ class PMParser:
     # --------------------------------------------------------------------------
     # Card Parsing
     # --------------------------------------------------------------------------
-    def parse_card_file(self, file_path: Path) -> dict[str, Any] | None:
+    def parse_card_file(self, file_path: Path, _preloaded_reviews: dict[str, list[dict[str, Any]]] | None = None) -> dict[str, Any] | None:
         try:
             content = file_path.read_text(encoding="utf-8", errors="replace")
         except Exception as e:
@@ -811,11 +852,21 @@ class PMParser:
 
         created_at = f"{created_date} {created_time}".strip() if (created_date and created_time) else (created_date or "")
 
-        reviews = self.get_reviews_for_card(mn_id)
-        if not reviews:
+        # Quick Win 2: use pre-loaded reviews when available (batch path from get_all_cards),
+        # fall back to per-card lookup for standalone calls.
+        if _preloaded_reviews is not None:
+            card_key = mn_id.lower()
             s_val = str(frontmatter.get("sprint", "")).strip()
-            if s_val:
-                reviews = self.get_reviews_for_sprint(s_val)
+            sprint_key = re.sub(r"^(?:Sprint|Story|Phase)\s+", "", s_val, flags=re.IGNORECASE).strip().lower()
+            reviews = _preloaded_reviews.get(card_key, [])
+            if not reviews and sprint_key:
+                reviews = _preloaded_reviews.get(sprint_key, [])
+        else:
+            reviews = self.get_reviews_for_card(mn_id)
+            if not reviews:
+                s_val = str(frontmatter.get("sprint", "")).strip()
+                if s_val:
+                    reviews = self.get_reviews_for_sprint(s_val)
 
         # Compute qa_entered_at (timestamp when card entered QA)
         qa_entered_at = None
@@ -892,6 +943,7 @@ class PMParser:
             "severity": sev_val,
             "blocked": bool(frontmatter.get("blocked") is True or str(frontmatter.get("blocked", "")).lower() == "true"),
             "extra_tags": self._card_extra_tags(frontmatter),
+            "_frontmatter": frontmatter,
             "status": status,
             "warnings": warnings_list,
             "missing_plan_dod": missing_plan_dod,
@@ -1132,17 +1184,236 @@ class PMParser:
         all_revs = self.get_all_reviews()
         return [r for r in all_revs if r["card_id"].lower() == clean_card or r["sprint"].lower() == sprint_candidate]
 
+    def _append_active_grills(self, cards: list[dict[str, Any]]) -> None:
+        """Surface active design grills from PLAN.md in the In-Progress column on the board."""
+        if not self.plan_path.exists():
+            return
+        plan_content = ""
+        try:
+            plan_content = self.plan_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return
+        if not plan_content:
+            return
+
+        grill_matches = re.finditer(
+            r"^\s*#{3,4}\s+Grill in progress\s*[—–\-]\s*(?:(?:Sprint|Story)\s+)?([a-zA-Z0-9_.-]+)",
+            plan_content,
+            re.IGNORECASE | re.MULTILINE,
+        )
+        seen_sprints = {
+            c.get("sprint", "").lower()
+            for c in cards
+            if c.get("sprint") and c.get("status") in ("sprint-backlog", "in-progress", "qa", "completed")
+        }
+        seen_ids = {
+            c.get("id", "").lower()
+            for c in cards
+            if c.get("id")
+        }
+
+        # Roadmap data for scope / story title
+        roadmap_items = self.parse_plan().get("roadmap", [])
+
+        for gm in grill_matches:
+            g_sprint = gm.group(1).strip()
+            clean_g_sprint = re.sub(r"^(?:Sprint|Story|Phase)\s+", "", g_sprint, flags=re.IGNORECASE).strip()
+            if not clean_g_sprint:
+                continue
+            if clean_g_sprint.lower() in seen_sprints or f"grill-{clean_g_sprint}".lower() in seen_ids:
+                continue
+
+            roadmap_item = next(
+                (
+                    r
+                    for r in roadmap_items
+                    if str(r.get("sprint", "")).lower() == clean_g_sprint.lower()
+                    or str(r.get("story", "")).lower() == clean_g_sprint.lower()
+                ),
+                None,
+            )
+            scope_text = roadmap_item["scope"] if roadmap_item and roadmap_item.get("scope") else "Design Grill"
+            title = f"Story {clean_g_sprint} — {scope_text}"
+
+            plan_dod = self._extract_sprint_dod(clean_g_sprint)
+            dod_total = len(plan_dod)
+            dod_checked = sum(1 for d in plan_dod if d.get("checked"))
+            progress_pct = round((dod_checked / dod_total * 100)) if dod_total > 0 else 0
+
+            plan_stat = self.plan_path.stat() if (self.plan_path and self.plan_path.exists()) else None
+            plan_dt = datetime.datetime.fromtimestamp(plan_stat.st_mtime) if plan_stat else datetime.datetime.now()
+            plan_date = plan_dt.strftime("%Y-%m-%d")
+            plan_time = plan_dt.strftime("%H:%M")
+            plan_created_at = f"{plan_date} {plan_time}".strip()
+
+            cards.append({
+                "mn_id": f"GRILL-{clean_g_sprint}",
+                "id": f"GRILL-{clean_g_sprint}",
+                "title": title,
+                "sprint": clean_g_sprint,
+                "story": clean_g_sprint,
+                "schema": "story",
+                "type": "grill",
+                "points": 3,
+                "points_custom": False,
+                "severity": None,
+                "is_grill": True,
+                "status": "in-progress",
+                "warnings": [],
+                "missing_plan_dod": False,
+                "warning_missing_plan_dod": False,
+                "validated": False,
+                "created_date": plan_date,
+                "created_time": plan_time,
+                "created_at": plan_created_at,
+                "start_time": plan_created_at,
+                "qa_entered_at": None,
+                "description": "Interactive design session in progress in PLAN.md",
+                "dod": plan_dod,
+                "dod_total": dod_total,
+                "dod_checked": dod_checked,
+                "progress_pct": progress_pct,
+                "qa_text": "",
+                "qa_instructions": "",
+                "qa_items": [],
+                "changelog": [
+                    {
+                        "agent": "Lead (Grill)",
+                        "what": "Interactive design session in progress in PLAN.md",
+                        "date": plan_date,
+                        "time": plan_time,
+                        "datetime": plan_created_at,
+                    }
+                ],
+                "reviews": [],
+                "review_count": 0,
+                "file_name": "PLAN.md",
+                "file_path": self.rel_path(self.plan_path),
+                "closeout": None,
+                "updated_at": plan_dt.isoformat(),
+            })
+
+    def _get_cards_from_index(self, refresh: bool = False) -> list[dict[str, Any]] | None:
+        """Fast incremental card loader using SQLite CardIndex."""
+        if self._index is None:
+            return None
+        try:
+            file_order: list[Path] = []
+            found_map: dict[str, tuple[Path, float, int]] = {}
+            for directory in (self.cards_dir, self.backlog_dir):
+                if directory.exists():
+                    for f in sorted(directory.glob("*.md")):
+                        if f.name == "template.md":
+                            continue
+                        try:
+                            st = f.stat()
+                            key = self.rel_path(f)
+                            found_map[key] = (f, st.st_mtime, st.st_size)
+                            file_order.append(f)
+                        except OSError:
+                            pass
+
+            cached_stats = self._index.get_all_file_stats()
+            to_parse = [f for key, (f, mtime, size) in found_map.items() if key not in cached_stats or cached_stats[key] != (mtime, size)]
+            deleted = [key for key in cached_stats if key not in found_map]
+
+            if deleted:
+                self._index.remove_cards(deleted)
+
+            if to_parse:
+                all_revs = self.get_all_reviews()
+                reviews_by_card: dict[str, list[dict[str, Any]]] = {}
+                for r in all_revs:
+                    cid = r["card_id"].lower()
+                    sp = r["sprint"].lower()
+                    reviews_by_card.setdefault(cid, []).append(r)
+                    if sp != cid:
+                        reviews_by_card.setdefault(sp, []).append(r)
+
+                batch_upsert = []
+                unparsed_keys = []
+                for f in to_parse:
+                    key = self.rel_path(f)
+                    card = self.parse_card_file(f, _preloaded_reviews=reviews_by_card)
+                    if card:
+                        _, mtime, size = found_map[key]
+                        batch_upsert.append((key, mtime, size, card))
+                    else:
+                        unparsed_keys.append(key)
+                if unparsed_keys:
+                    self._index.remove_cards(unparsed_keys)
+                if batch_upsert:
+                    self._index.upsert_cards_batch(batch_upsert)
+
+            # Pre-load reviews for dynamic attachment so new reviews appear immediately on cached cards
+            all_revs = self.get_all_reviews(refresh=refresh)
+            reviews_by_card: dict[str, list[dict[str, Any]]] = {}
+            for r in all_revs:
+                cid = r["card_id"].lower()
+                sp = r["sprint"].lower()
+                reviews_by_card.setdefault(cid, []).append(r)
+                if sp != cid:
+                    reviews_by_card.setdefault(sp, []).append(r)
+
+            cached_cards = self._index.get_all_cards()
+            cards: list[dict[str, Any]] = []
+            for f in file_order:
+                key = self.rel_path(f)
+                c = cached_cards.get(key)
+                if c:
+                    if "_frontmatter" in c:
+                        c["extra_tags"] = self._card_extra_tags(c["_frontmatter"])
+
+                    # Dynamically attach reviews and closeout artifact
+                    card_id = c.get("mn_id") or c.get("id") or ""
+                    c_key = card_id.lower()
+                    s_val = str(c.get("sprint") or "").strip()
+                    sp_key = re.sub(r"^(?:Sprint|Story|Phase)\s+", "", s_val, flags=re.IGNORECASE).strip().lower()
+                    revs = reviews_by_card.get(c_key, [])
+                    if not revs and sp_key:
+                        revs = reviews_by_card.get(sp_key, [])
+                    c["reviews"] = revs
+                    c["review_count"] = len(revs)
+                    c["closeout"] = self.get_closeout_artifact(card_id)
+
+                    if c.get("status") == "in-progress":
+                        c.update(self.compute_card_duration(c))
+                    cards.append(c)
+
+            self._append_active_grills(cards)
+            return cards
+        except Exception:
+            return None
+
     def get_all_cards(self, refresh: bool = False) -> list[dict[str, Any]]:
         now = time.time()
-        if not refresh and getattr(self, "_cards_cache", None) is not None and (now - getattr(self, "_cards_cache_time", 0)) < 10.0:
+        if not refresh and getattr(self, "_cards_cache", None) is not None and (now - getattr(self, "_cards_cache_time", 0)) < 30.0:
             return self._cards_cache
+
+        # Fast path with SQLite index
+        if self._index is not None:
+            indexed_cards = self._get_cards_from_index(refresh=refresh)
+            if indexed_cards is not None:
+                self._cards_cache = indexed_cards
+                self._cards_cache_time = now
+                return indexed_cards
+
+        # Fallback path if index is unavailable
+        all_revs = self.get_all_reviews()
+        reviews_by_card: dict[str, list[dict[str, Any]]] = {}
+        for r in all_revs:
+            cid = r["card_id"].lower()
+            sp = r["sprint"].lower()
+            reviews_by_card.setdefault(cid, []).append(r)
+            if sp != cid:
+                reviews_by_card.setdefault(sp, []).append(r)
 
         cards: list[dict[str, Any]] = []
         if self.cards_dir.exists():
             for f in sorted(self.cards_dir.glob("*.md")):
                 if f.name == "template.md":
                     continue
-                card = self.parse_card_file(f)
+                card = self.parse_card_file(f, _preloaded_reviews=reviews_by_card)
                 if card:
                     cards.append(card)
 
@@ -1150,116 +1421,11 @@ class PMParser:
             for f in sorted(self.backlog_dir.glob("*.md")):
                 if f.name == "template.md":
                     continue
-                card = self.parse_card_file(f)
+                card = self.parse_card_file(f, _preloaded_reviews=reviews_by_card)
                 if card:
                     cards.append(card)
 
-        # Surface active design grills from PLAN.md in the In-Progress column on the board
-        if self.plan_path.exists():
-            plan_content = ""
-            try:
-                plan_content = self.plan_path.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
-
-            if plan_content:
-                grill_matches = re.finditer(
-                    r"^\s*#{3,4}\s+Grill in progress\s*[—–\-]\s*(?:(?:Sprint|Story)\s+)?([a-zA-Z0-9_.-]+)",
-                    plan_content,
-                    re.IGNORECASE | re.MULTILINE,
-                )
-                seen_sprints = {
-                    c.get("sprint", "").lower()
-                    for c in cards
-                    if c.get("sprint") and c.get("status") in ("sprint-backlog", "in-progress", "qa", "completed")
-                }
-                seen_ids = {
-                    c.get("id", "").lower()
-                    for c in cards
-                    if c.get("id")
-                }
-
-                # Roadmap data for scope / story title
-                roadmap_items = self.parse_plan().get("roadmap", [])
-
-                for gm in grill_matches:
-                    g_sprint = gm.group(1).strip()
-                    clean_g_sprint = re.sub(r"^(?:Sprint|Story|Phase)\s+", "", g_sprint, flags=re.IGNORECASE).strip()
-                    if not clean_g_sprint:
-                        continue
-                    if clean_g_sprint.lower() in seen_sprints or f"grill-{clean_g_sprint}".lower() in seen_ids:
-                        continue
-
-                    roadmap_item = next(
-                        (
-                            r
-                            for r in roadmap_items
-                            if str(r.get("sprint", "")).lower() == clean_g_sprint.lower()
-                            or str(r.get("story", "")).lower() == clean_g_sprint.lower()
-                        ),
-                        None,
-                    )
-                    scope_text = roadmap_item["scope"] if roadmap_item and roadmap_item.get("scope") else "Design Grill"
-                    title = f"Story {clean_g_sprint} — {scope_text}"
-
-                    plan_dod = self._extract_sprint_dod(clean_g_sprint)
-                    dod_total = len(plan_dod)
-                    dod_checked = sum(1 for d in plan_dod if d.get("checked"))
-                    progress_pct = round((dod_checked / dod_total * 100)) if dod_total > 0 else 0
-
-                    plan_stat = self.plan_path.stat() if (self.plan_path and self.plan_path.exists()) else None
-                    plan_dt = datetime.datetime.fromtimestamp(plan_stat.st_mtime) if plan_stat else datetime.datetime.now()
-                    plan_date = plan_dt.strftime("%Y-%m-%d")
-                    plan_time = plan_dt.strftime("%H:%M")
-                    plan_created_at = f"{plan_date} {plan_time}".strip()
-
-                    cards.append({
-                        "mn_id": f"GRILL-{clean_g_sprint}",
-                        "id": f"GRILL-{clean_g_sprint}",
-                        "title": title,
-                        "sprint": clean_g_sprint,
-                        "story": clean_g_sprint,
-                        "schema": "story",
-                        "type": "grill",
-                        "points": 3,
-                        "points_custom": False,
-                        "severity": None,
-                        "is_grill": True,
-                        "status": "in-progress",
-                        "warnings": [],
-                        "missing_plan_dod": False,
-                        "warning_missing_plan_dod": False,
-                        "validated": False,
-                        "created_date": plan_date,
-                        "created_time": plan_time,
-                        "created_at": plan_created_at,
-                        "start_time": plan_created_at,
-                        "qa_entered_at": None,
-                        "description": "Interactive design session in progress in PLAN.md",
-                        "dod": plan_dod,
-                        "dod_total": dod_total,
-                        "dod_checked": dod_checked,
-                        "progress_pct": progress_pct,
-                        "qa_text": "",
-                        "qa_instructions": "",
-                        "qa_items": [],
-                        "changelog": [
-                            {
-                                "agent": "Lead (Grill)",
-                                "what": "Interactive design session in progress in PLAN.md",
-                                "date": plan_date,
-                                "time": plan_time,
-                                "datetime": plan_created_at,
-                            }
-                        ],
-                        "reviews": [],
-                        "review_count": 0,
-                        "file_name": "PLAN.md",
-                        "file_path": self.rel_path(self.plan_path),
-                        "closeout": None,
-                        "updated_at": plan_dt.isoformat(),
-                    })
-
+        self._append_active_grills(cards)
         self._cards_cache = cards
         self._cards_cache_time = now
         return cards
@@ -1276,6 +1442,14 @@ class PMParser:
     def parse_plan(self) -> dict[str, Any]:
         if not self.plan_path.exists():
             return {"roadmap": [], "sprints": {}}
+
+        # Quick Win 1: mtime-based cache for PLAN.md parsing
+        try:
+            current_mtime = self.plan_path.stat().st_mtime
+        except OSError:
+            return {"roadmap": [], "sprints": {}}
+        if self._plan_cache is not None and current_mtime == self._plan_cache_mtime:
+            return self._plan_cache
 
         try:
             content = self.plan_path.read_text(encoding="utf-8", errors="replace")
@@ -1367,7 +1541,10 @@ class PMParser:
                     if not line.startswith("#### "):
                         current_sprint = None
 
-        return {"roadmap": roadmap, "sprints": sprint_sections}
+        result = {"roadmap": roadmap, "sprints": sprint_sections}
+        self._plan_cache = result
+        self._plan_cache_mtime = current_mtime
+        return result
 
     def get_sprint_doc(self, sprint_name: str) -> dict[str, Any] | None:
         """
@@ -3275,98 +3452,189 @@ class PMParser:
             return "User"
         return s[:24]
 
-    def _get_git_churn(self, since_date: str | None = None) -> list[dict[str, Any]]:
-        commits: list[dict[str, Any]] = []
-        cmd = [
-            "git",
-            "--no-pager",
-            "log",
-            "--numstat",
-            "--no-renames",
-            "-n", "50",
-            "--date=format:%Y-%m-%d",
-            "--pretty=format:COMMIT%x09%h%x09%ad%x09%s%x09%an",
-        ]
-        if since_date:
-            cmd.append(f"--since={since_date}")
+    # ------------------------------------------------------------------
+    # Git churn: per-commit SQLite cache (commits are immutable)
+    # ------------------------------------------------------------------
+    _GIT_PRETTY = "--pretty=format:COMMIT%x09%H%x09%ad%x09%s%x09%an"
+    _BACKFILL_THREADS: dict[str, Any] = {}
+    _BACKFILL_LOCK = threading.Lock()
+    _NUMSTAT_BATCH = 100
+    _NUMSTAT_TIMEOUT = 60.0
+    _INLINE_BUDGET = 40
 
+    @property
+    def _git_backfill(self) -> dict[str, Any]:
+        return getattr(self._git_local, "backfill", None) or {"done": True, "counted": 0, "total": 0}
+
+    @_git_backfill.setter
+    def _git_backfill(self, value: dict[str, Any]) -> None:
+        self._git_local.backfill = value
+
+    def _backfill_running(self) -> bool:
+        thread = self._BACKFILL_THREADS.get(str(self._index.db_path))
+        return thread is not None and thread.is_alive()
+
+    def _git_bound(self) -> str:
+        """Oldest date any analytics window can ask for: max span of 90 days / quarter start."""
+        today = datetime.date.today()
+        q_start = datetime.date(today.year, ((today.month - 1) // 3) * 3 + 1, 1)
+        return min(q_start, today - datetime.timedelta(days=90)).isoformat()
+
+    def _read_git_head(self) -> str:
+        """Current HEAD sha read from `.git` files; `git rev-parse HEAD` for anything unexpected."""
+        git_dir = self.root_dir / ".git"
+        try:
+            if git_dir.is_dir():
+                head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+                if re.fullmatch(r"[0-9a-f]{40}", head):
+                    return head
+                if head.startswith("ref: "):
+                    ref = head[5:].strip()
+                    loose = git_dir / ref
+                    if loose.is_file():
+                        sha = loose.read_text(encoding="utf-8").strip()
+                        if re.fullmatch(r"[0-9a-f]{40}", sha):
+                            return sha
+                    packed = git_dir / "packed-refs"
+                    if packed.is_file():
+                        for line in packed.read_text(encoding="utf-8").splitlines():
+                            parts = line.split(" ", 1)
+                            if len(parts) == 2 and parts[1].strip() == ref and re.fullmatch(r"[0-9a-f]{40}", parts[0]):
+                                return parts[0]
+        except OSError:
+            pass
         try:
             res = subprocess.run(
-                cmd,
-                cwd=str(self.root_dir),
-                capture_output=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
-                timeout=4.0,
+                ["git", "rev-parse", "HEAD"], cwd=str(self.root_dir), capture_output=True,
+                encoding="utf-8", errors="replace", check=False, timeout=10.0,
             )
             if res.returncode == 0:
-                current_commit: dict[str, Any] | None = None
-                for raw_line in res.stdout.splitlines():
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    if line.startswith("COMMIT\t"):
-                        parts = line.split("\t")
-                        if len(parts) >= 3:
-                            current_commit = {
-                                "sha": parts[1] if len(parts) > 1 else "",
-                                "date": parts[2] if len(parts) > 2 else "",
-                                "subject": parts[3] if len(parts) > 3 else "",
-                                "author": parts[4] if len(parts) > 4 else "",
-                                "added": 0,
-                                "deleted": 0,
-                            }
-                            commits.append(current_commit)
-                    elif current_commit and "\t" in line:
-                        parts = line.split("\t")
-                        if len(parts) >= 2:
-                            added = int(parts[0]) if parts[0].isdigit() else 0
-                            deleted = int(parts[1]) if parts[1].isdigit() else 0
-                            current_commit["added"] += added
-                            current_commit["deleted"] += deleted
+                return res.stdout.strip()
         except Exception:
             pass
+        return ""
 
-        # Fast fallback log if numstat timed out or returned empty
-        if not commits:
-            try:
-                fallback_cmd = [
-                    "git",
-                    "--no-pager",
-                    "log",
-                    "-n", "100",
-                    "--date=format:%Y-%m-%d",
-                    "--pretty=format:COMMIT%x09%h%x09%ad%x09%s%x09%an",
-                ]
-                if since_date:
-                    fallback_cmd.append(f"--since={since_date}")
-                res = subprocess.run(
-                    fallback_cmd,
-                    cwd=str(self.root_dir),
-                    capture_output=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    check=False,
-                    timeout=2.0,
-                )
-                if res.returncode == 0:
-                    for raw_line in res.stdout.splitlines():
-                        line = raw_line.strip()
-                        if line.startswith("COMMIT\t"):
-                            parts = line.split("\t")
-                            if len(parts) >= 3:
-                                commits.append({
-                                    "sha": parts[1] if len(parts) > 1 else "",
-                                    "date": parts[2] if len(parts) > 2 else "",
-                                    "subject": parts[3] if len(parts) > 3 else "",
-                                    "author": parts[4] if len(parts) > 4 else "",
-                                    "added": 0,
-                                    "deleted": 0,
-                                })
-            except Exception:
-                pass
+    def _parse_git_log(self, stdout: str) -> list[dict[str, Any]]:
+        """Parse `COMMIT<TAB>sha<TAB>date<TAB>subject<TAB>author` blocks with optional numstat lines."""
+        commits: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+        for raw_line in stdout.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("COMMIT\t"):
+                parts = line.split("\t")
+                if len(parts) >= 3:
+                    current = {
+                        "sha": parts[1],
+                        "date": parts[2],
+                        "subject": parts[3] if len(parts) > 3 else "",
+                        "author": parts[4] if len(parts) > 4 else "",
+                        "added": 0,
+                        "deleted": 0,
+                    }
+                    commits.append(current)
+            elif current is not None and "\t" in line:
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    current["added"] += int(parts[0]) if parts[0].isdigit() else 0
+                    current["deleted"] += int(parts[1]) if parts[1].isdigit() else 0
+        return commits
 
+    def _git_log(self, extra: list[str], timeout: float, stdin: str | None = None, numstat: bool = False) -> str | None:
+        cmd = ["git", "--no-pager", "log", "--date=format:%Y-%m-%d", self._GIT_PRETTY, *extra]
+        if numstat:
+            cmd.insert(3, "--numstat")
+            cmd.insert(4, "--no-renames")
+        try:
+            res = subprocess.run(
+                cmd, cwd=str(self.root_dir), input=stdin, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", check=False, timeout=timeout,
+            )
+        except Exception:
+            return None
+        return res.stdout if res.returncode == 0 else None
+
+    def _fill_numstat(self, shas: list[str]) -> int:
+        """Read line counts for ``shas`` (one git call per batch) and store them. Returns commits stored."""
+        stored = 0
+        for i in range(0, len(shas), self._NUMSTAT_BATCH):
+            batch = shas[i : i + self._NUMSTAT_BATCH]
+            out = self._git_log(["--no-walk=unsorted", "--stdin"], self._NUMSTAT_TIMEOUT, "\n".join(batch) + "\n", numstat=True)
+            if out is None:
+                break
+            parsed = {c["sha"]: c for c in self._parse_git_log(out)}
+            # A commit git no longer knows (gc'd after a rebase) is stored as zero so it is not retried forever.
+            stats = [(sha, parsed[sha]["added"] if sha in parsed else 0, parsed[sha]["deleted"] if sha in parsed else 0) for sha in batch]
+            self._index.set_commit_stats(stats)
+            stored += len(stats)
+        return stored
+
+    def _sync_git_commits(self, bound: str) -> None:
+        """Refresh the reachable set when HEAD or the bound moved (cheap: no diffs are read)."""
+        head = self._read_git_head()
+        state = self._index.get_git_sync()
+        if state is not None and state == (bound, head):
+            return
+        out = self._git_log([f"--since={bound}", "HEAD"], 60.0)
+        if out is None:
+            return
+        rows = [(c["sha"], c["date"], c["subject"], c["author"]) for c in self._parse_git_log(out)]
+        self._index.sync_git_reachable(bound, head, rows)
+
+    def _start_backfill(self) -> None:
+        """One background thread per project fills the remaining line counts, newest commits first."""
+        key = str(self._index.db_path)
+        with self._BACKFILL_LOCK:
+            running = self._BACKFILL_THREADS.get(key)
+            if running is not None and running.is_alive():
+                return
+
+            def work() -> None:
+                try:
+                    while True:
+                        shas = self._index.get_uncounted_shas(self._NUMSTAT_BATCH)
+                        if not shas or self._fill_numstat(shas) == 0:
+                            break
+                except Exception:
+                    pass
+
+            thread = threading.Thread(target=work, name=f"git-backfill-{key}", daemon=True)
+            self._BACKFILL_THREADS[key] = thread
+            thread.start()
+
+    def _get_git_churn(self, since_date: str | None = None) -> list[dict[str, Any]]:
+        """Every reachable commit since ``since_date``, with its line counts.
+
+        Cached per commit in the SQLite index: only SHAs not seen before are read. A handful are read
+        inline (a new commit shows up at once); a long history fills in on a background thread and
+        ``self._git_backfill`` says how far along it is. Read-only parsers compute live, create no files.
+        """
+        self._git_backfill = {"done": True, "counted": 0, "total": 0}
+        if self._index is None:
+            out = self._git_log([f"--since={since_date}"] if since_date else [], 120.0, numstat=True)
+            commits = self._parse_git_log(out or "")
+            for c in commits:
+                c["sha"] = c["sha"][:7]
+            self._git_backfill = {"done": True, "counted": len(commits), "total": len(commits)}
+            return commits
+
+        bound = self._git_bound()
+        since = max(since_date or bound, bound)
+        try:
+            self._sync_git_commits(bound)
+            if not self._backfill_running():
+                pending = self._index.get_uncounted_shas(self._INLINE_BUDGET)
+                if pending:
+                    self._fill_numstat(pending)
+            counted, total = self._index.git_progress(since)
+            if counted < total:
+                self._start_backfill()
+            commits = self._index.get_git_commits(since)
+        except Exception:
+            self._git_backfill = {"done": True, "counted": 0, "total": 0, "error": True}
+            return []
+        self._git_backfill = {"done": counted >= total, "counted": counted, "total": total}
         return commits
 
     def _parse_gate_runs_from_quality(self) -> list[dict[str, Any]]:
@@ -4049,6 +4317,7 @@ class PMParser:
 
         # Git churn
         commits = self._get_git_churn(since_date=since_date)
+        git_backfill = self._git_backfill
         if norm_window == "all":
             curr_commits = commits
         else:
@@ -4335,6 +4604,7 @@ class PMParser:
         return {
             "window": norm_window,
             "project": self.project.get("slug") or "current",
+            "git_backfill": dict(git_backfill),
             "kpis": {
                 "throughput": {
                     "value": tp_value,
@@ -4482,7 +4752,7 @@ class PMParser:
                 registry_projects = {}
 
         if not registry_projects:
-            single = self._compute_project_analytics(window)
+            single = dict(self._cached_project_analytics(window))
             single["project"] = "all"
             return single
 
@@ -4495,8 +4765,8 @@ class PMParser:
                 if cur_slug and p_slug == cur_slug:
                     p_parser = self
                 else:
-                    p_parser = PMParser(project=p_conf)
-                p_ana = p_parser._compute_project_analytics(window)
+                    p_parser = self._parser_for(p_conf)
+                p_ana = p_parser._cached_project_analytics(window)
                 sub_analytics.append(p_ana)
                 projects_summary.append({
                     "slug": p_slug,
@@ -4513,7 +4783,7 @@ class PMParser:
                 pass
 
         if not sub_analytics:
-            single = self._compute_project_analytics(window)
+            single = dict(self._cached_project_analytics(window))
             single["project"] = "all"
             return single
 
@@ -4846,6 +5116,11 @@ class PMParser:
         return {
             "window": window,
             "project": "all",
+            "git_backfill": {
+                "done": all(a.get("git_backfill", {}).get("done", True) for a in sub_analytics),
+                "counted": sum(a.get("git_backfill", {}).get("counted", 0) for a in sub_analytics),
+                "total": sum(a.get("git_backfill", {}).get("total", 0) for a in sub_analytics),
+            },
             "kpis": {
                 "throughput": {
                     "value": total_completed,
@@ -4978,6 +5253,98 @@ class PMParser:
             "projects_summary": projects_summary,
         }
 
+    _ANALYTICS_MAX_AGE = 600.0
+
+    def _parser_for(self, project: dict[str, Any]) -> "PMParser":
+        """The parser for another registered project: the server's pooled one when wired, else a fresh one."""
+        if self.parser_provider is not None:
+            return self.parser_provider(project)
+        return PMParser(project=project)
+
+    def _analytics_fingerprint(self) -> str:
+        """Hash of every file the rollups read (path, mtime, size): cards, reviews, QUALITY.md, PLAN.md."""
+        h = hashlib.sha256()
+        entries: list[str] = []
+
+        def add(path: Path) -> None:
+            try:
+                st = path.stat()
+            except OSError:
+                return
+            entries.append(f"{path}|{st.st_mtime_ns}|{st.st_size}")
+
+        for folder in (self.cards_dir, self.backlog_dir, self.reviews_dir):
+            try:
+                # DirEntry.stat() is served from the directory listing on Windows: no per-file syscall.
+                for entry in os.scandir(folder):
+                    if entry.is_file():
+                        st = entry.stat()
+                        entries.append(f"{entry.path}|{st.st_mtime_ns}|{st.st_size}")
+            except OSError:
+                continue
+        add(self.quality_file)
+        add(self.plan_path)
+        for e in sorted(entries):
+            h.update(e.encode("utf-8", errors="replace"))
+            h.update(b"\n")
+        return h.hexdigest()
+
+    @staticmethod
+    def _today() -> datetime.date:
+        return datetime.date.today()
+
+    @staticmethod
+    def _app_version() -> str:
+        try:
+            return (Path(__file__).resolve().parent.parent / "VERSION").read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    def _analytics_key(self, window: str) -> str:
+        parts = [
+            window,
+            self.project.get("slug") or "",
+            self._today().isoformat(),
+            self._app_version(),
+            self._read_git_head(),
+            self._analytics_fingerprint(),
+            self.prefix,
+            json.dumps(declared_extra_tags(self.project), sort_keys=True),
+        ]
+        return hashlib.sha256("\x1f".join(parts).encode("utf-8", errors="replace")).hexdigest()
+
+    def _cached_project_analytics(self, window: str) -> dict[str, Any]:
+        """This project's payload from the SQLite cache when its key still matches and the row is fresh."""
+        if self._index is None:
+            return self._compute_project_analytics(window)
+        scope = self.project.get("slug") or "current"
+        now = time.time()
+        try:
+            key = self._analytics_key(window)
+            memo = self._analytics_memo.get(window)
+            if memo is not None and memo[0] == key and (now - memo[1]) < self._ANALYTICS_MAX_AGE:
+                return memo[2]
+            hit = self._index.get_analytics(window, scope, key, self._ANALYTICS_MAX_AGE, now)
+        except Exception:
+            return self._compute_project_analytics(window)
+        if hit is not None:
+            created_at, payload = hit
+            self._analytics_memo[window] = (key, created_at, payload)
+            return payload
+        # The key changed on disk, so drop in-memory card/review caches (a pooled parser keeps them
+        # for 30s) before recomputing, or stale cards would be stored under the new key.
+        self.invalidate_cache()
+        result = self._compute_project_analytics(window)
+        # A payload still counting history is never stored: it would freeze partial numbers.
+        backfill = result.get("git_backfill", {})
+        if backfill.get("done", True) and not backfill.get("error"):
+            try:
+                self._index.put_analytics(window, scope, key, time.time(), json.dumps(result, ensure_ascii=False))
+                self._analytics_memo[window] = (key, time.time(), result)
+            except Exception:
+                pass
+        return result
+
     def get_analytics_summary(
         self, window: str = "6w", project_slug: str | None = None
     ) -> dict[str, Any]:
@@ -4988,7 +5355,9 @@ class PMParser:
 
         cache_key = f"{norm_window}:{project_slug or ''}"
         now = time.time()
-        if cache_key in self._analytics_cache:
+        # The SQLite payload cache does the freshness check; the 15s memory cache only serves
+        # parsers without an index (read-only), where it would otherwise recompute every call.
+        if self._index is None and cache_key in self._analytics_cache:
             c_time, c_data = self._analytics_cache[cache_key]
             if (now - c_time) < 15.0:
                 return c_data
@@ -5005,14 +5374,14 @@ class PMParser:
                     projects = None
             reg_projects = projects.load_registry().get("projects", {}) if projects else {}
             if project_slug in reg_projects:
-                target_parser = PMParser(project=reg_projects[project_slug])
-                result = target_parser.get_analytics_summary(window=norm_window)
+                result = self._parser_for(reg_projects[project_slug]).get_analytics_summary(window=norm_window)
             else:
-                result = self._compute_project_analytics(norm_window)
+                result = self._cached_project_analytics(norm_window)
         else:
-            result = self._compute_project_analytics(norm_window)
+            result = self._cached_project_analytics(norm_window)
 
-        self._analytics_cache[cache_key] = (now, result)
+        if self._index is None:
+            self._analytics_cache[cache_key] = (now, result)
         return result
 
     # --------------------------------------------------------------------------

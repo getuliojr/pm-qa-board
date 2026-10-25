@@ -850,6 +850,11 @@
                     <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                     <span id="analyticsReadinessText">Track: Advancing</span>
                   </div>
+                  <!-- Shown while the git history behind Work Volume and Commits is still being counted -->
+                  <div id="analyticsBackfillBadge" style="display:none" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" role="status">
+                    <i class="ph ph-spinner animate-spin"></i>
+                    <span id="analyticsBackfillText">Counting history…</span>
+                  </div>
                 </div>
               </div>
               <p class="text-xs text-[var(--text-secondary)] mt-1">Cross-lifecycle weekly delivery cohorts, smart velocity points, scope burnup, net bug drag, and pipeline stagnation.</p>
@@ -894,7 +899,7 @@
           </div>
 
           <!-- 5-Card Executive Pulse KPI Strip -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div id="analyticsKpiStrip" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <!-- KPI 1: Throughput -->
             <div class="bg-[var(--bg-surface)] p-4 sm:p-5 rounded-2xl border border-[var(--border-subtle)] shadow-xs hover:border-[var(--card-hover-border)] transition flex flex-col justify-between">
               <div>
