@@ -8,7 +8,7 @@ gate_profiler.py - Adaptive Fast vs Heavy gate profiler (design R2-Q4, 6-minute 
    - ``fast``  — full suite <= threshold: the agent runs it inline before story close and records
      the numbers in QUALITY.md itself.
    - ``heavy`` — full suite > threshold: the agent runs only the fast gates; the full suite becomes
-     an out-of-band Heavy Gate script the user (or the Cockpit's QA & Heavy Gates tab) runs.
+     an out-of-band Heavy Gate script the user (or the Board's QA & Heavy Gates tab) runs.
    A project that already ships ``scripts/gates.ps1`` + ``scripts/finalgates.ps1`` (money-nest) is
    recognised as ``heavy`` with those scripts, without re-measuring.
 """

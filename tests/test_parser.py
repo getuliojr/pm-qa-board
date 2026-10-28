@@ -23,7 +23,7 @@ def test_legacy_single_root_layout_still_parses(legacy_project):
     assert [r["sprint"] for r in p.parse_plan()["roadmap"]]
 
 
-def test_story_schema_groups_with_legacy_backlog(cockpit_home, external_project):
+def test_story_schema_groups_with_legacy_backlog(board_home, external_project):
     code, docs = external_project
     project = projects.build_project("Story App", code, prefix="APP", docs_path=docs)
     projects.ensure_docs_root(project)
@@ -44,7 +44,7 @@ def test_story_schema_groups_with_legacy_backlog(cockpit_home, external_project)
     assert roadmap and "3.1" in roadmap[0]["sprint"]
 
 
-def test_external_docs_writes_never_touch_code_repo(cockpit_home, external_project):
+def test_external_docs_writes_never_touch_code_repo(board_home, external_project):
     code, docs = external_project
     project = projects.build_project("Story App", code, prefix="APP", docs_path=docs)
     projects.ensure_docs_root(project)
@@ -81,7 +81,7 @@ def test_closeout_artifact_detected(legacy_project):
     }
 
 
-def test_registry_roundtrip_and_path_lookup(cockpit_home, legacy_project, external_project):
+def test_registry_roundtrip_and_path_lookup(board_home, legacy_project, external_project):
     code, docs = external_project
     a = projects.build_project("Legacy", legacy_project, prefix="MN")
     b = projects.build_project("Story App", code, prefix="APP", docs_path=docs)
@@ -114,7 +114,7 @@ def test_filename_id_fallback_keeps_backlog_style_ids(legacy_project):
     assert {"MN-BACKLOG-009", "APP-4.2", "MN-1.2"} <= ids
 
 
-def test_validate_reports_failed_docs_commit(cockpit_home, external_project, monkeypatch):
+def test_validate_reports_failed_docs_commit(board_home, external_project, monkeypatch):
     """Review round 1 #7: a docs-repo commit failure is surfaced, not swallowed."""
     code, docs = external_project
     project = projects.build_project("Story App", code, prefix="APP", docs_path=docs)
@@ -126,7 +126,7 @@ def test_validate_reports_failed_docs_commit(cockpit_home, external_project, mon
     assert ok and "commit failed" in msg
 
 
-def test_shared_docs_repo_holds_many_projects(cockpit_home, tmp_path):
+def test_shared_docs_repo_holds_many_projects(board_home, tmp_path):
     """pm-qa-docs layout: one private docs repo, one folder per project, no nested repos."""
     from conftest import init_repo
 

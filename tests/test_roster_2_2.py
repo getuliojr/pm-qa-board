@@ -20,7 +20,7 @@ ID_RE = re.compile(r"\bA\d+\b")
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("PM_QA_USER_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("PM_QA_COCKPIT_HOME", raising=False)
+    monkeypatch.delenv("PM_QA_BOARD_HOME", raising=False)
     return tmp_path / "home"
 
 
@@ -141,9 +141,9 @@ def test_partial_roster_offers_only_missing_roles_and_never_edits_a_file(project
 
     setup_flow.apply_actions(plan, [x["id"] for x in plan["actions"] if x["kind"] == "roster"])
     assert mine.read_bytes() == before
-    adv = roster.frontmatter((project / ".claude/agents/cockpit-advisor.md").read_text(encoding="utf-8"))
+    adv = roster.frontmatter((project / ".claude/agents/board-advisor.md").read_text(encoding="utf-8"))
     assert adv["model"] == "claude-opus-5-5" and adv["effort"] == "medium"
-    cur = (project / ".cursor/agents/cockpit-reviewer.md").read_text(encoding="utf-8")
+    cur = (project / ".cursor/agents/board-reviewer.md").read_text(encoding="utf-8")
     assert roster.frontmatter(cur)["model"] == "grok-4.7[fast=false]"
     orch = (project / "docs/ORCHESTRATION.md").read_text(encoding="utf-8")
     assert orch.count(roster.ROSTER_START) == 1 and "| builder | my-builder |" in orch and "| lead | (session pick) |" in orch
@@ -165,19 +165,19 @@ def test_customise_overrides_apply_and_bad_ones_change_nothing(project):
                 {"antigravity": {"advisor": {"model": "pro"}}}, {"claude": {"advisor": {"tools": "Edit"}}}):
         with pytest.raises(ValueError):
             setup_flow.apply_actions(plan, [aid], roster_overrides=bad)
-        assert not (project / ".claude/agents/cockpit-advisor.md").exists()
+        assert not (project / ".claude/agents/board-advisor.md").exists()
     setup_flow.apply_actions(plan, [aid], roster_overrides={
         "claude": {"advisor": {"model": "claude-sonnet-5-5", "effort": "high"}, "lead": {"model": "claude-fable-5-1", "effort": "xhigh"}}})
-    adv = roster.frontmatter((project / ".claude/agents/cockpit-advisor.md").read_text(encoding="utf-8"))
+    adv = roster.frontmatter((project / ".claude/agents/board-advisor.md").read_text(encoding="utf-8"))
     assert adv["model"] == "claude-sonnet-5-5" and adv["effort"] == "high"
     orch = (project / "docs/ORCHESTRATION.md").read_text(encoding="utf-8")
     assert roster.parse_lead(orch, setup_flow.TOOL_LABELS)["claude"] == {"model": "claude-fable-5-1", "effort": "xhigh"}
 
 
-def test_an_existing_cockpit_file_is_kept_byte_identical(project):
+def test_an_existing_board_file_is_kept_byte_identical(project):
     plan = setup_flow.build_plan(project)
-    mine = project / ".claude/agents/cockpit-advisor.md"
-    before = _agent(mine, "cockpit-advisor", "opus")  # appears between plan and apply
+    mine = project / ".claude/agents/board-advisor.md"
+    before = _agent(mine, "board-advisor", "opus")  # appears between plan and apply
     res = setup_flow.apply_actions(plan, [_roster_action(plan)["id"]])
     assert mine.read_bytes() == before and "already there, kept" in res[0]["result"]
 
@@ -205,7 +205,7 @@ def test_external_docs_keep_the_new_agent_files_out_of_git(project, tmp_path):
         name="p", cards="c", prefix="P", gate_mode="fast", gate_note="x"), encoding="utf-8")
     plan = setup_flow.build_plan(project, docs_path=ext)
     ex = next(a for a in plan["actions"] if a["kind"] == "exclude")
-    assert ".claude/agents/cockpit-advisor.md" in ex["paths"] and ".cursor/agents/cockpit-builder.md" in ex["paths"]
+    assert ".claude/agents/board-advisor.md" in ex["paths"] and ".cursor/agents/board-builder.md" in ex["paths"]
     assert ".claude/agents/my-builder.md" not in ex["paths"]
 
 
@@ -216,7 +216,7 @@ def test_external_docs_keep_the_new_agent_files_out_of_git(project, tmp_path):
 def money_nest(tmp_path, monkeypatch):
     paths = sandbox_fixture.build(tmp_path / "sbx", version=setup_flow.tool_version())
     monkeypatch.setenv("PM_QA_USER_HOME", str(paths["home"]))
-    monkeypatch.delenv("PM_QA_COCKPIT_HOME", raising=False)
+    monkeypatch.delenv("PM_QA_BOARD_HOME", raising=False)
     return paths
 
 
@@ -252,10 +252,10 @@ def test_pins_warn_for_alias_unknown_and_inherit_but_never_fail(project):
     plan = setup_flow.build_plan(project)
     setup_flow.apply_actions(plan, [_roster_action(plan)["id"]])
     assert doctor.run(str(project))["checks"][9]["status"] == "pass"
-    for rel, pin, expect in ((".claude/agents/cockpit-retrieval.md", "haiku", "alias"),
-                             (".claude/agents/cockpit-advisor.md", "claude-opus-9-9", "not in the list"),
-                             (".claude/agents/cockpit-reviewer.md", "inherit", "inherit"),
-                             (".cursor/agents/cockpit-reviewer.md", "gpt-9", "not in the list")):
+    for rel, pin, expect in ((".claude/agents/board-retrieval.md", "haiku", "alias"),
+                             (".claude/agents/board-advisor.md", "claude-opus-9-9", "not in the list"),
+                             (".claude/agents/board-reviewer.md", "inherit", "inherit"),
+                             (".cursor/agents/board-reviewer.md", "gpt-9", "not in the list")):
         f = project / rel
         original = f.read_text(encoding="utf-8")
         f.write_text(re.sub(r"(?m)^model: .*$", f"model: {pin}", original), encoding="utf-8")
@@ -283,7 +283,7 @@ def test_fresh_install_records_the_table_after_registration(project):
     orch.rename(project / "docs/hold.md")
     plan = setup_flow.build_plan(project)
     setup_flow.apply_actions(plan, [_roster_action(plan)["id"]])
-    assert not orch.exists() and (project / ".claude/agents/cockpit-advisor.md").exists()
+    assert not orch.exists() and (project / ".claude/agents/board-advisor.md").exists()
     (project / "docs/hold.md").rename(orch)  # `init --apply` has now written the template
     again = setup_flow.build_plan(project)
     a = _roster_action(again)
@@ -310,7 +310,7 @@ def test_customise_refuses_aliases_inherit_and_wrong_shapes(project):
                 {"claude": ["advisor"]}, {"claude": {"advisor": None}}, {"claude": {"advisor": ["model"]}}, ["x"]):
         with pytest.raises(ValueError):
             setup_flow.apply_actions(plan, [aid], roster_overrides=bad)
-    assert not (project / ".claude/agents/cockpit-advisor.md").exists()
+    assert not (project / ".claude/agents/board-advisor.md").exists()
 
 
 def test_cursor_customise_options_keep_the_fast_off_suffix(project):

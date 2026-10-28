@@ -1,9 +1,9 @@
 """
-index.py - Fast SQLite-backed index cache for PM & QA Cockpit.
+index.py - Fast SQLite-backed index cache for PM & QA Board.
 
 Provides incremental caching for markdown cards and artifacts:
 - Uses standard library sqlite3 only (no external dependencies, zero admin rights).
-- Database is stored in user space (~/.pm-qa-cockpit/cache/<slug>.db).
+- Database is stored in user space (~/.pm-qa-board/cache/<slug>.db).
 - Tracks file modification times (mtime) and sizes so unchanged markdown files
   are never re-read or re-parsed from disk.
 - Automatically recovers / rebuilds if the cache file is deleted or corrupted.

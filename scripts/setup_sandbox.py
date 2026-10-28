@@ -4,10 +4,10 @@ setup_sandbox.py - Rebuild PQC-2.1's Human QA starting state (R3-Q12) in a throw
 
     uv run python scripts/setup_sandbox.py [--dir FOLDER] [--dev-first]
 
-Creates a fake HOME (old global cockpit copies, grill-me only for Antigravity, pm-qa-setup 0.2.0, a
+Creates a fake HOME (old global board copies, grill-me only for Antigravity, pm-qa-setup 0.2.0, a
 registry with money-nest) and a money-nest-shaped project. The fake HOME's running copy is a local
 clone of this repo's **committed HEAD**, so commit first. Nothing outside FOLDER is touched: the
-cockpit reads ``PM_QA_USER_HOME`` instead of your real home, while your agent keeps its own login.
+board reads ``PM_QA_USER_HOME`` instead of your real home, while your agent keeps its own login.
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     paths = sandbox_fixture.build(root, dev_first=args.dev_first, running_copy=ROOT)
     home, project = paths["home"], paths["project"]
-    skill = home / ".pm-qa-cockpit" / "app" / "skills" / "pm-qa-setup" / "SKILL.md"
-    cli = home / ".pm-qa-cockpit" / "app" / "board" / "cli.py"
+    skill = home / ".pm-qa-board" / "app" / "skills" / "pm-qa-setup" / "SKILL.md"
+    cli = home / ".pm-qa-board" / "app" / "board" / "cli.py"
     print(f"""Sandbox ready.
   fake HOME: {home}
   project:   {project}
@@ -45,7 +45,7 @@ In a new PowerShell window:
   claude            # or your agent of choice; it keeps its own login
 
 Then say:
-  Set up PM & QA Cockpit in this project. Follow the pm-qa-setup skill at
+  Set up PM & QA Board in this project. Follow the pm-qa-setup skill at
   {skill}
   (not the copy in your global skills folder), with CLI = uv run python {cli}
 

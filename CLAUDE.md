@@ -10,9 +10,9 @@ This repo is **public** and holds **only the tool**. Keep it short; the details 
   cold review, close-out artifact, user confirms). Ad-hoc chat fixes need no card.
 - **Gates: fast mode.** Before close run the whole suite inline:
   `uv run --system-certs --group dev pytest -q` (~2 min). Record the result in the docs repo's `QUALITY.md`.
-- **Dev clone vs running copy.** Projects run the cockpit from `~/.pm-qa-cockpit/app`, not from here.
+- **Dev clone vs running copy.** Projects run the board from `~/.pm-qa-board/app`, not from here.
   A change reaches them only after merge to `main`, push, then
-  `git -C $HOME\.pm-qa-cockpit\app pull`; projects then upgrade their skills through `pm-qa-setup` (with the
+  `git -C $HOME\.pm-qa-board\app pull`; projects then upgrade their skills through `pm-qa-setup` (with the
   user's approval). Bump `VERSION` and every skill's `metadata.version` when a skill changes,
   then `uv run python scripts/skill_ledger.py record` as the last step (a test enforces it). Never edit
   the running copy.

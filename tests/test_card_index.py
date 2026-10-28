@@ -60,7 +60,7 @@ def test_card_index_crud(tmp_path: Path):
 
 def test_parser_with_card_index(tmp_path: Path, monkeypatch):
     from parser import PMParser
-    monkeypatch.setenv("PM_QA_COCKPIT_HOME", str(tmp_path / ".pm-qa-cockpit"))
+    monkeypatch.setenv("PM_QA_BOARD_HOME", str(tmp_path / ".pm-qa-board"))
 
     docs = tmp_path / "docs"
     cards_dir = docs / "cards"
@@ -132,7 +132,7 @@ def test_parser_with_card_index(tmp_path: Path, monkeypatch):
 
 def test_cached_cards_receive_new_reviews_and_artifacts(tmp_path: Path, monkeypatch):
     from parser import PMParser
-    monkeypatch.setenv("PM_QA_COCKPIT_HOME", str(tmp_path / ".pm-qa-cockpit"))
+    monkeypatch.setenv("PM_QA_BOARD_HOME", str(tmp_path / ".pm-qa-board"))
 
     docs = tmp_path / "docs"
     cards_dir = docs / "cards"

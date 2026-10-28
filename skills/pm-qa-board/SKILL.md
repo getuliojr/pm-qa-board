@@ -1,9 +1,9 @@
 ---
-name: pm-qa-cockpit
-description: Use when creating, reading or updating story cards, PLAN.md, reviews or close-out artifacts for a project tracked by the PM & QA Cockpit (local dashboard on :3333), or when asked to launch/register the Cockpit. Defines card schema, project resolution, docs layout and the CLI.
+name: pm-qa-board
+description: Use when creating, reading or updating story cards, PLAN.md, reviews or close-out artifacts for a project tracked by the PM & QA Board (local dashboard on :3333), or when asked to launch/register the Board. Defines card schema, project resolution, docs layout and the CLI.
 metadata:
-  version: 0.11.0
-  source: pm-qa-cockpit
+  version: 0.12.0
+  source: pm-qa-board
 ---
 
 # PM & QA Board
@@ -15,9 +15,9 @@ Markdown on disk is the only source of truth: no board mirroring, no double entr
 ## Resolving the project
 1. `--project <slug>` on the CLI, else
 2. the project whose `code_path` contains the current directory, else
-3. the active project in `~/.pm-qa-cockpit/projects.json` (`cli.py projects --select <slug>`).
+3. the active project in `~/.pm-qa-board/projects.json` (`cli.py projects --select <slug>`).
 
-`PM_QA_COCKPIT_HOME` relocates the registry. Each entry holds `slug, name, prefix, code_path, docs_path`
+`PM_QA_BOARD_HOME` relocates the registry. Each entry holds `slug, name, prefix, code_path, docs_path`
 plus the gate profile and optional `extra_tags` (see *Extra tags* below).
 
 ## Docs layout
@@ -73,7 +73,7 @@ validated: false
   `/artifacts/<name>` (spec in `pm-orchestrate`). **One per card that reaches `qa`**: the card's
   **Story Close-Out** button appears only when this exact file exists.
 
-## CLI cheat-sheet (`uv run python <cockpit>/board/cli.py [--project slug] ...`)
+## CLI cheat-sheet (`uv run python <board>/board/cli.py [--project slug] ...`)
 | Command | Does |
 |---|---|
 | `projects [--select slug]` | list / switch project |

@@ -1,11 +1,11 @@
 """
-wiring.py - Which cockpit a project's launchers and hooks actually call (Story 2.1, R2-Q6 / R3-Q11).
+wiring.py - Which board a project's launchers and hooks actually call (Story 2.1, R2-Q6 / R3-Q11).
 
-Read-only scanning. Every cockpit path reference in a launcher is classified as
+Read-only scanning. Every board path reference in a launcher is classified as
 
-    running  - the released running copy ``~/.pm-qa-cockpit/app`` (what projects should call)
-    dev      - a pm-qa-cockpit checkout (the dev clone: unreleased, half-finished edits break it)
-    frozen   - a frozen in-repo copy (``tools/pm-dashboard``, from before the cockpit was extracted)
+    running  - the released running copy ``~/.pm-qa-board/app`` (what projects should call)
+    dev      - a pm-qa-board checkout (the dev clone: unreleased, half-finished edits break it)
+    frozen   - a frozen in-repo copy (``tools/pm-dashboard``, from before the board was extracted)
 
 and a launcher's verdict comes from its **first** reference in code order: running copy first is ok
 even when it falls back to the dev clone or a frozen copy (money-nest ``scripts/pm.ps1``). A stale
@@ -26,25 +26,25 @@ import projects
 
 SCRIPT_EXTS = (".ps1", ".sh", ".cmd", ".bat")
 ORCHESTRATION_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md", "CODEX.md")
-OVERRIDE_VARS = ("PM_QA_COCKPIT_REPO", "PM_QA_COCKPIT_HOME", "PM_QA_USER_HOME")
+OVERRIDE_VARS = ("PM_QA_BOARD_REPO", "PM_QA_BOARD_HOME", "PM_QA_USER_HOME")
 _TOKEN = re.compile(r"[^\s\"'`(){}\[\],;=|<>]+")
-_QUOTED_NAME = re.compile(r"([\"'])pm-qa-cockpit\1")
+_QUOTED_NAME = re.compile(r"([\"'])pm-qa-board\1")
 # What the running copy is called in each launcher language (inside double quotes or unquoted).
-RUNNING_EXPR = {".ps1": "$HOME{sep}.pm-qa-cockpit{sep}app", ".sh": "$HOME/.pm-qa-cockpit/app",
-                ".cmd": "%USERPROFILE%\\.pm-qa-cockpit\\app", ".bat": "%USERPROFILE%\\.pm-qa-cockpit\\app"}
+RUNNING_EXPR = {".ps1": "$HOME{sep}.pm-qa-board{sep}app", ".sh": "$HOME/.pm-qa-board/app",
+                ".cmd": "%USERPROFILE%\\.pm-qa-board\\app", ".bat": "%USERPROFILE%\\.pm-qa-board\\app"}
 
 
 def running_copy() -> Path:
-    return projects.cockpit_home() / "app"
+    return projects.board_home() / "app"
 
 
 def dev_clones() -> list[Path]:
-    """Registered projects that are a cockpit checkout other than the running copy (local only)."""
+    """Registered projects that are a board checkout other than the running copy (local only)."""
     run = running_copy().resolve()
     out = []
     for proj in projects.load_registry()["projects"].values():
         p = Path(proj.get("code_path") or "")
-        if ((p / "board" / "setup_flow.py").is_file() or (p / "cockpit" / "setup_flow.py").is_file()) and p.resolve() != run:
+        if (p / "board" / "setup_flow.py").is_file() and p.resolve() != run:
             out.append(p)
     return out
 
@@ -72,9 +72,9 @@ def _code_lines(text: str, ext: str) -> list[tuple[int, str]]:
 
 
 def _not_a_checkout(parts: list[str], bases: list[Path]) -> bool:
-    """True when the path up to its ``pm-qa-cockpit`` segment resolves to an existing folder that is
-    not a cockpit checkout (e.g. a docs folder ``pm-qa-docs/pm-qa-cockpit``). Unresolvable -> False."""
-    head = parts[: parts.index("pm-qa-cockpit") + 1]
+    """True when the path up to its ``pm-qa-board`` segment resolves to an existing folder that is
+    not a board checkout (e.g. a docs folder ``pm-qa-docs/pm-qa-board``). Unresolvable -> False."""
+    head = parts[: parts.index("pm-qa-board") + 1]
     if any("$" in p or "%" in p for p in head[1:]):
         return False
     if head[0] in ("~", "$HOME", "%USERPROFILE%"):
@@ -86,12 +86,38 @@ def _not_a_checkout(parts: list[str], bases: list[Path]) -> bool:
     else:
         candidates = [b.joinpath(*head) for b in bases]
     found = [c for c in candidates if c.is_dir()]
-    return bool(found) and not any(((c / "board" / "server.py").is_file() or (c / "cockpit" / "server.py").is_file()) for c in found)
+    return bool(found) and not any((c / "board" / "server.py").is_file() for c in found)
+
+
+def _checkout_index(parts: list[str], bases: list[Path]) -> int | None:
+    """Index of the first path segment that resolves to a folder holding ``board/server.py`` (a board
+    checkout under any name), else None. Only literal, resolvable paths count."""
+    if any("$" in p or "%" in p for p in parts[1:]):
+        return None
+    import migrate  # lazy: migrate imports this module
+
+    if any(p.lower() == migrate.OLD_DIR for p in parts):
+        return None  # the previous install folder: not a dev clone (migrate-home moves it), never offer to edit it
+    for i in range(len(parts) - 1):
+        head = parts[: i + 1]
+        if all(p == "." for p in head):
+            continue  # "./x" is the project's own folder, not a clone
+        if head[0] in ("~", "$HOME", "%USERPROFILE%"):
+            cands = [projects.user_home().joinpath(*head[1:])]
+        elif re.fullmatch(r"[A-Za-z]:", head[0]):
+            cands = [Path(head[0] + "\\").joinpath(*head[1:])]
+        elif "$" in head[0] or "%" in head[0]:
+            continue
+        else:
+            cands = [b.joinpath(*head) for b in bases]
+        if any((c / "board" / "server.py").is_file() for c in cands):
+            return i
+    return None
 
 
 def classify_line(line: str, bases: list[Path] | None = None) -> list[dict[str, Any]]:
-    """Cockpit references in one line: [{kind, token, start, end, segment}] in order. ``segment`` is
-    the index of the token's ``pm-qa-cockpit`` path segment when it is a full dev-clone path literal
+    """Board references in one line: [{kind, token, start, end, segment}] in order. ``segment`` is
+    the index of the token's ``pm-qa-board`` path segment when it is a full dev-clone path literal
     (so it can be rewritten), else None. ``bases`` resolve relative paths (project root, file folder)."""
     if any(v in line for v in OVERRIDE_VARS) or "://" in line:
         return []  # an explicit override, or a clone URL - not a launch path
@@ -100,15 +126,19 @@ def classify_line(line: str, bases: list[Path] | None = None) -> list[dict[str, 
         tok = m.group(0)
         parts = [p for p in re.split(r"[\\/]", tok) if p != ""] or [tok]
         kind, seg = None, None
-        if ".pm-qa-cockpit" in parts:
+        if ".pm-qa-board" in parts:
             kind = "running"
         elif "pm-dashboard" in parts and len(parts) > 1:
             kind = "frozen"
-        elif "pm-qa-cockpit" in parts and len(parts) > 1 and not _not_a_checkout(parts, bases or []):
+        elif "pm-qa-board" in parts and len(parts) > 1 and not _not_a_checkout(parts, bases or []):
             kind = "dev"
-            i = parts.index("pm-qa-cockpit")
+            i = parts.index("pm-qa-board")
             anchored = parts[0] in ("..", "~", "$HOME", "%USERPROFILE%") or re.fullmatch(r"[A-Za-z]:", parts[0])
             seg = i if i > 0 and anchored else None
+        elif len(parts) > 1 and (ci := _checkout_index(parts, bases or [])) is not None and ".pm-qa-board" not in parts:
+            kind = "dev"  # a board checkout under another name (e.g. an older clone folder)
+            anchored = parts[0] in ("..", "~", "$HOME", "%USERPROFILE%") or re.fullmatch(r"[A-Za-z]:", parts[0])
+            seg = ci if ci > 0 and anchored else None
         if kind:
             refs.append({"kind": kind, "token": tok, "start": m.start(), "end": m.end(), "segment": seg})
     if re.search(r"join-path|join\(", line, re.IGNORECASE):
@@ -142,8 +172,8 @@ _USE = {".ps1": r"\${name}\b", ".sh": r"\$\{{?{name}\b"}
 
 
 def _ordered_refs(code_lines: list[tuple[int, str]], ext: str, bases: list[Path]) -> list[dict[str, Any]]:
-    """References in the order the script *uses* them. A variable defined with a cockpit path
-    (``$AppCopy = Join-Path $HOME ".pm-qa-cockpit\\app"``) counts where it is used, not where it is
+    """References in the order the script *uses* them. A variable defined with a board path
+    (``$AppCopy = Join-Path $HOME ".pm-qa-board\\app"``) counts where it is used, not where it is
     assigned, so a definition above a dev-clone-first ``if`` doesn't mask it. ``src`` is the line
     that holds the path literal."""
     defs: dict[str, tuple[str, int]] = {}
@@ -167,7 +197,7 @@ def _ordered_refs(code_lines: list[tuple[int, str]], ext: str, bases: list[Path]
 def _verdict(refs: list[dict[str, Any]]) -> str:
     first = refs[0]["kind"]
     if first == "running":
-        is_installed = (running_copy() / "board" / "server.py").is_file() or (running_copy() / "cockpit" / "server.py").is_file()
+        is_installed = (running_copy() / "board" / "server.py").is_file()
         return "ok" if is_installed else "missing"
     return {"dev": "dev-clone-first", "frozen": "frozen"}[first]
 
@@ -181,7 +211,7 @@ def launcher_files(code: Path) -> list[Path]:
 
 
 def scan_launchers(code: Path) -> list[dict[str, Any]]:
-    """Every launcher / orchestration file that references a cockpit, with its verdict.
+    """Every launcher / orchestration file that references a board, with its verdict.
 
     verdict: ok | missing (running copy first but not installed) | dev-clone-first | frozen.
     ``edit`` ({line, old, new}) is set only for a stale script with an exact safe rewrite."""
@@ -238,7 +268,7 @@ def scan_launchers(code: Path) -> list[dict[str, Any]]:
 
 
 def scan_hooks(code: Path) -> list[dict[str, Any]]:
-    """Hooks per tool with the cockpit paths they reference (Claude Code settings, Cursor hooks.json).
+    """Hooks per tool with the board paths they reference (Claude Code settings, Cursor hooks.json).
     problem: None | 'dev-clone' | 'missing-path'."""
     sources = [("claude", code / ".claude" / "settings.json"), ("claude", code / ".claude" / "settings.local.json"),
                ("cursor", code / ".cursor" / "hooks.json")]
@@ -259,7 +289,7 @@ def scan_hooks(code: Path) -> list[dict[str, Any]]:
                 elif any(r["kind"] == "frozen" and not _frozen_exists(code, r["token"]) for r in refs):
                     problem = "missing-path"
                 out.append({"tool": tool, "file": path.relative_to(code).as_posix(), "event": event,
-                            "command": cmd, "cockpit_refs": [r["kind"] for r in refs], "problem": problem})
+                            "command": cmd, "board_refs": [r["kind"] for r in refs], "problem": problem})
     return out
 
 

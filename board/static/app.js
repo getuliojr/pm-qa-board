@@ -1,10 +1,10 @@
-// app.js - Controller for PM & QA Cockpit
+// app.js - Controller for PM & QA Board
 
 // Session token handling for remote/tunnel connections
 (function initTokenAuth() {
   function getStoredToken() {
     try {
-      return sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
+      return sessionStorage.getItem('board_token') || localStorage.getItem('board_token') || '';
     } catch (_) {
       return '';
     }
@@ -12,13 +12,13 @@
 
   function setStoredToken(t) {
     if (!t) return;
-    try { sessionStorage.setItem('cockpit_token', t); } catch (_) {}
-    try { localStorage.setItem('cockpit_token', t); } catch (_) {}
+    try { sessionStorage.setItem('board_token', t); } catch (_) {}
+    try { localStorage.setItem('board_token', t); } catch (_) {}
   }
 
   // Also check if document.cookie contains token
   try {
-    const match = document.cookie.match(/(?:^|;\s*)cockpit_token=([^;]+)/);
+    const match = document.cookie.match(/(?:^|;\s*)board_token=([^;]+)/);
     if (match && match[1]) {
       setStoredToken(decodeURIComponent(match[1]));
     }
@@ -51,11 +51,11 @@
           }
         } catch (_) {}
       }
-      // 2. Also send X-Cockpit-Token and Authorization headers
+      // 2. Also send X-Board-Token and Authorization headers
       options = options || {};
       const headers = new Headers(options.headers || {});
-      if (!headers.has('X-Cockpit-Token')) {
-        headers.set('X-Cockpit-Token', token);
+      if (!headers.has('X-Board-Token')) {
+        headers.set('X-Board-Token', token);
       }
       if (!headers.has('Authorization')) {
         headers.set('Authorization', 'Bearer ' + token);
@@ -2044,7 +2044,7 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
     <div class="sticky bottom-0 z-10 bg-[var(--bg-surface)]/95 backdrop-blur-md -mx-6 -mb-6 px-6 pt-3 pb-3 border-t border-[var(--border-subtle)] shadow-md mt-auto">
       <h4 class="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">QA Sign-off</h4>
       <div class="flex flex-col sm:flex-row gap-3">
-        <input type="text" id="qaValidateNotes" placeholder="Optional QA validation note (e.g. 'Verified Wise import flow live')" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm rounded-lg px-3.5 py-2.5 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
+        <input type="text" id="qaValidateNotes" placeholder="Optional QA validation note (e.g. 'Checked on a real phone')" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm rounded-lg px-3.5 py-2.5 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
         <button id="qaValidateCardBtn" data-action="validate-card" data-card-id="${escId}" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 transition cursor-pointer">
           <i class="ph ph-checks text-base"></i>
           <span>Validate & Complete Work</span>
@@ -5776,7 +5776,7 @@ function initProjectUi() {
     if (prefix) prefix.addEventListener('input', () => { prefix.value = prefix.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
   }
 
-  // The close-out artifact asks the cockpit to refresh after a QA checkbox / validate.
+  // The close-out artifact asks the board to refresh after a QA checkbox / validate.
   window.addEventListener('message', (e) => {
     if (e.origin === location.origin && e.data && e.data.type === 'pmqa:refresh') fetchAll();
   });
@@ -6374,7 +6374,7 @@ function switchConnectionPath(mode) {
   }
 
   // Derive target URL
-  const storedToken = sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
+  const storedToken = sessionStorage.getItem('board_token') || localStorage.getItem('board_token') || '';
   const token = info.token || storedToken || '';
   let mobileUrl = '';
   if (activeMode === 'tunnel') {
@@ -6425,11 +6425,11 @@ async function openMobileConnectModal() {
   try {
     const freshInfo = await fetchServerInfo(true);
     if (freshInfo) {
-      const storedToken = sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
+      const storedToken = sessionStorage.getItem('board_token') || localStorage.getItem('board_token') || '';
       const token = freshInfo.token || storedToken || '';
       if (token) {
-        try { sessionStorage.setItem('cockpit_token', token); } catch (_) {}
-        try { localStorage.setItem('cockpit_token', token); } catch (_) {}
+        try { sessionStorage.setItem('board_token', token); } catch (_) {}
+        try { localStorage.setItem('board_token', token); } catch (_) {}
       }
       const savedPath = localStorage.getItem('pmqa_connection_path');
       const defaultMode = (freshInfo.tunnel_url && savedPath !== 'lan') ? 'tunnel' : (freshInfo.tunnel_url ? savedPath : 'lan');

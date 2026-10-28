@@ -4,7 +4,7 @@ roster.py - Who does each step (Story 2.2): the agent/model roster per tool.
 Six roles: ``lead`` (a session pick, recorded in the project's ORCHESTRATION.md Roster table) and five
 delegated roles whose agent *files* are the truth: builder, advisor, reviewer, retrieval, pm-sync.
 This module is pure (no writes): it reads existing agent files, maps them to roles, ships the
-recommended defaults and the known-model lists, renders the thin ``cockpit-<role>.md`` files and the
+recommended defaults and the known-model lists, renders the thin ``board-<role>.md`` files and the
 Roster table, and checks pins. ``setup_flow`` does the writing; ``doctor`` check 10 does the warning.
 
 Verified 2026-10-16 (docs): Claude Code agents read ``effort`` (low|medium|high|xhigh|max) and
@@ -24,9 +24,9 @@ from typing import Any
 
 ROLES = ("lead", "builder", "advisor", "reviewer", "retrieval", "pm-sync")
 FILE_ROLES = ROLES[1:]
-ROSTER_START = "<!-- pm-qa-cockpit:roster:start -->"
-ROSTER_END = "<!-- pm-qa-cockpit:roster:end -->"
-PREFIX = "cockpit-"
+ROSTER_START = "<!-- pm-qa-board:roster:start -->"
+ROSTER_END = "<!-- pm-qa-board:roster:end -->"
+PREFIX = "board-"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 # A role is matched by file name first, then by description (heuristic, Q9).
@@ -55,7 +55,7 @@ DEFAULT_MODELS = {
     "codex": {"lead": "gpt-5.6-terra", "advisor": "gpt-6.1-sol", "reviewer": "gpt-6.1-sol",
               "builder": "gpt-5.6-terra", "retrieval": "gpt-6-luna", "pm-sync": "gpt-6-luna"},
 }
-# Pins this cockpit version knows. A pin outside the list only warns (lists go stale).
+# Pins this board version knows. A pin outside the list only warns (lists go stale).
 KNOWN_MODELS = {
     "claude": ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1", "claude-sonnet-5"],
     "cursor": ["composer-2.5", "grok-4.6", "grok-4.7"],
@@ -201,7 +201,7 @@ def render_agent(tool: str, role: str, model: str, effort: str) -> str:
         lines.append(f"model: {model}")
         if tool == "antigravity":
             lines.append("mainAgent: false")
-    lines += ["---", "", f"You are the cockpit's **{role}** agent. {job}", "", rule]
+    lines += ["---", "", f"You are the board's **{role}** agent. {job}", "", rule]
     if tool not in EFFORT_IN_FRONTMATTER:
         lines += ["", f"Effort: **{effort}**. This tool reads no effort field from an agent file, so the dispatcher passes it when it starts you."]
     lines.append("")
@@ -236,5 +236,5 @@ def check_pin(tool: str, role: str, model: str) -> str | None:
     if base_model(tool, model).lower() in ALIASES[tool]:
         return f"'{model}' is an alias that may resolve to an older model: pin the full ID"
     if base_model(tool, model) not in KNOWN_MODELS[tool]:
-        return f"'{model}' is not in the list this cockpit version knows"
+        return f"'{model}' is not in the list this board version knows"
     return None

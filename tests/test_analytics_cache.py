@@ -117,9 +117,9 @@ def test_unregistered_projects_sharing_a_slug_get_distinct_dbs(tmp_path):
     assert dbs[0] != dbs[1]
 
 
-def test_suite_never_uses_the_real_cockpit_home(tmp_path):
-    assert projects.cockpit_home() != Path.home() / ".pm-qa-cockpit"
-    assert tmp_path in projects.cockpit_home().parents
+def test_suite_never_uses_the_real_board_home(tmp_path):
+    assert projects.board_home() != Path.home() / ".pm-qa-board"
+    assert tmp_path in projects.board_home().parents
 
 
 # ---------------------------------------------------------------- Phase 1: git cache
@@ -254,7 +254,7 @@ def test_read_only_computes_live_and_creates_no_files(proj):
     commits = p._get_git_churn(since_date=(datetime.date.today() - datetime.timedelta(days=5)).isoformat())
     assert len(commits) == 2 and sum(c["added"] for c in commits) == 4
     p.get_analytics_summary("6w")
-    assert not (projects.cockpit_home() / "cache").exists()
+    assert not (projects.board_home() / "cache").exists()
 
 
 @pytest.mark.parametrize("mode", ["loose", "packed", "detached", "worktree"])

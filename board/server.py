@@ -3,7 +3,7 @@ server.py - PM & QA Board local web server (multi-project).
 
 Runs on port 3333 with zero external dependencies (Python standard library).
 Provides REST APIs for story card inspection, interactive QA validation, git status,
-and switching between the projects registered in ``~/.pm-qa-cockpit/projects.json``.
+and switching between the projects registered in ``~/.pm-qa-board/projects.json``.
 """
 
 from __future__ import annotations
@@ -29,11 +29,11 @@ from typing import Any
 import projects
 from parser import PMParser, declared_extra_tags
 
-HOST = os.environ.get("PM_QA_COCKPIT_HOST", "127.0.0.1")
-PORT = int(os.environ.get("PM_QA_COCKPIT_PORT", "3333"))
-TOKEN = os.environ.get("PM_QA_COCKPIT_TOKEN", "")
-TUNNEL_URL = os.environ.get("PM_QA_COCKPIT_TUNNEL_URL", "")
-KEEP_ALIVE = os.environ.get("PM_QA_COCKPIT_KEEP_ALIVE", "0").lower() in ("1", "true", "yes")
+HOST = os.environ.get("PM_QA_BOARD_HOST", "127.0.0.1")
+PORT = int(os.environ.get("PM_QA_BOARD_PORT", "3333"))
+TOKEN = os.environ.get("PM_QA_BOARD_TOKEN", "")
+TUNNEL_URL = os.environ.get("PM_QA_BOARD_TUNNEL_URL", "")
+KEEP_ALIVE = os.environ.get("PM_QA_BOARD_KEEP_ALIVE", "0").lower() in ("1", "true", "yes")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
@@ -485,7 +485,7 @@ def _public_extra_tags(project: dict[str, Any]) -> dict[str, Any]:
     return project
 
 
-class CockpitState:
+class BoardState:
     """The active project's parser + heavy-gate worker; swapped atomically on project switch."""
 
     def __init__(self) -> None:
@@ -501,7 +501,7 @@ class CockpitState:
 
     @staticmethod
     def _initial_project() -> dict[str, Any]:
-        env_root = os.environ.get("PM_QA_COCKPIT_PROJECT_ROOT")
+        env_root = os.environ.get("PM_QA_BOARD_PROJECT_ROOT")
         if env_root:
             return projects.find_project_for_path(env_root) or projects.adhoc_project(env_root)
         active = projects.get_active_project()
@@ -578,7 +578,7 @@ class CockpitState:
         return view
 
 
-STATE = CockpitState()
+STATE = BoardState()
 
 
 class _WorkerProxy:
@@ -631,7 +631,7 @@ def send_ntfy_notification(
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/json; charset=utf-8",
-            "User-Agent": "PM-QA-Cockpit/1.0",
+            "User-Agent": "PM-QA-Board/1.0",
         },
         method="POST",
     )
@@ -1324,7 +1324,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         if query_token and query_token == TOKEN:
             return True
 
-        header_token = self.headers.get("X-Cockpit-Token")
+        header_token = self.headers.get("X-Board-Token")
         if header_token and header_token == TOKEN:
             return True
 
@@ -1336,7 +1336,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
         if cookie_header:
             cookies = [c.strip() for c in cookie_header.split(";")]
             for c in cookies:
-                if c.startswith("cockpit_token=") and c[len("cockpit_token=") :] == TOKEN:
+                if c.startswith("board_token=") and c[len("board_token=") :] == TOKEN:
                     return True
 
         return False
@@ -1415,8 +1415,8 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                 b"function submitToken(){"
                 b"var t=document.getElementById('tok').value.trim();"
                 b"if(!t)return;"
-                b"try{localStorage.setItem('cockpit_token',t);sessionStorage.setItem('cockpit_token',t);}catch(e){}"
-                b"document.cookie='cockpit_token='+encodeURIComponent(t)+'; Path=/; SameSite=Lax; Secure';"
+                b"try{localStorage.setItem('board_token',t);sessionStorage.setItem('board_token',t);}catch(e){}"
+                b"document.cookie='board_token='+encodeURIComponent(t)+'; Path=/; SameSite=Lax; Secure';"
                 b"window.location.href=window.location.pathname+'?token='+encodeURIComponent(t);"
                 b"}"
                 b"</script>"
@@ -1682,7 +1682,7 @@ class PMRequestHandler(BaseHTTPRequestHandler):
                     or (TUNNEL_URL and TUNNEL_URL.startswith("https"))
                 )
                 secure_flag = "; Secure" if is_secure else ""
-                self.send_header("Set-Cookie", f"cockpit_token={TOKEN}; Path=/; SameSite=Lax{secure_flag}")
+                self.send_header("Set-Cookie", f"board_token={TOKEN}; Path=/; SameSite=Lax{secure_flag}")
             self.end_headers()
             self.wfile.write(content)
         else:
