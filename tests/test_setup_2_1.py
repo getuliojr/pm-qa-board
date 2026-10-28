@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ import sandbox_fixture
 
 import cli
 import doctor
+import migrate
 import projects
 import setup_flow
 import wiring
@@ -323,4 +325,31 @@ def test_doctor_and_wiring_support_board_directory(sandbox):
         spec.loader.exec_module(mod)
         assert hasattr(mod, symbol)
 
+
+# -- PQC-34: an install under the product's previous name is pointed at migrate-home -------------
+
+
+def test_doctor_warns_and_points_to_migrate_home_when_an_old_folder_is_left(sandbox):
+    sb = sandbox()
+    (sb["home"] / migrate.OLD_DIR).mkdir()
+    by = {c["n"]: c for c in doctor.run(str(sb["project"]))["checks"]}
+    assert by[3]["status"] == "warn" and "migrate-home" in by[3]["fix"]
+
+
+def test_doctor_fails_with_a_migrate_hint_when_only_the_old_install_exists(sandbox):
+    sb = sandbox()
+    (sb["home"] / migrate.OLD_DIR).mkdir()
+    shutil.rmtree(sb["home"] / ".pm-qa-board" / "app")
+    by = {c["n"]: c for c in doctor.run(str(sb["project"]))["checks"]}
+    assert by[3]["status"] == "fail" and "migrate-home" in by[3]["fix"] and "git clone" not in by[3]["fix"]
+
+
+def test_setup_plan_reports_a_legacy_install(sandbox):
+    sb = sandbox()
+    assert setup_flow.build_plan(sb["project"])["legacy_home"] == {
+        "old_home_exists": False, "new_home_exists": True, "needs_migration": False}
+    (sb["home"] / migrate.OLD_DIR).mkdir()
+    shutil.rmtree(sb["home"] / ".pm-qa-board" / "app")
+    legacy = setup_flow.build_plan(sb["project"])["legacy_home"]
+    assert legacy["old_home_exists"] and legacy["needs_migration"]
 
