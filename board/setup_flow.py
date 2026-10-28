@@ -1249,6 +1249,8 @@ def apply_roster(code: Path, plan: dict[str, Any], a: dict[str, Any], overrides:
             done.append("ORCHESTRATION.md: roster table written")
         elif data.count(start) or data.count(end):
             done.append("ORCHESTRATION.md: the roster markers are damaged (need exactly one start then one end): table not written")
+        elif _legacy_markers()[1].encode() in data:
+            done.append("ORCHESTRATION.md: the roster section an older version wrote is still there; migrate-home updates it, so no second table was added")
         else:
             append_bytes(orch, section)
             done.append("ORCHESTRATION.md: roster table written")

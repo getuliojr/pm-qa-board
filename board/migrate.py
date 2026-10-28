@@ -95,9 +95,11 @@ def _registry_entries() -> list[dict[str, Any]]:
 def _registry_projects() -> list[tuple[Path, Path | None]]:
     """(code folder, docs folder) of every registered project, old registry included."""
     out = []
+    seen: set[str] = set()
     for proj in _registry_entries():
         p = Path(proj.get("code_path") or "")
-        if p.is_dir():
+        if p.is_dir() and _norm(p) not in seen:  # one folder registered twice (other slug, case, slashes) is scanned once
+            seen.add(_norm(p))
             d = Path(proj["docs_path"]) if proj.get("docs_path") else None
             out.append((p, d if d and d.is_dir() else None))
     return out
@@ -133,7 +135,7 @@ def repoint_line(line: str) -> str | None:
     var names replaced, or None. The package folder is only rewritten right after the old app path, so
     an unrelated ``webapp/cockpit/`` in a project is never touched."""
     new = re.sub(r"(" + re.escape(OLD_DIR) + r")([\\/]+app[\\/]+)cockpit([\\/]+)", r"\1\2board\3", line, flags=re.IGNORECASE)
-    new = re.sub(re.escape(OLD_DIR), ".pm-qa-board", new, flags=re.IGNORECASE)
+    new = re.sub(re.escape(OLD_DIR) + r"(?![\w.-])", ".pm-qa-board", new, flags=re.IGNORECASE)  # not ".pm-qa-cockpit-fork"
     new = new.replace(OLD_ENV_PREFIX, "PM_QA_BOARD_")
     return new if new != line else None
 
@@ -152,13 +154,13 @@ def broad_line(line: str, slugs: tuple[str, ...] = (), paths: tuple[str, ...] = 
     t = re.sub(r"pm-qa-docs[\\/]+pm-qa-cockpit", lambda m: hold(m.group(0)), line)
     for p in sorted({x for x in paths if x}, key=len, reverse=True):
         for form in {p, p.replace("/", "\\"), p.replace("\\", "/")}:
-            if form in t:
-                t = t.replace(form, hold(form))
+            t = re.sub(re.escape(form), lambda m: hold(m.group(0)), t, flags=re.IGNORECASE)  # Windows paths ignore case
     for slug in slugs:
         t = re.sub(r"(--?project[ =]+)" + re.escape(slug) + r"(?![\w-])", lambda m: m.group(1) + hold(slug), t, flags=re.IGNORECASE)
-    for slug in slugs:  # another project whose slug merely contains the old name
-        if slug != OLD_SKILL and "cockpit" in slug.lower() and slug in t:
-            t = t.replace(slug, hold(slug))
+    for slug in slugs:  # another project whose slug contains the old name: kept as a whole token only, so a
+        # slug like "cockpit" never shields the markers, the old skill name or the old home path
+        if slug != OLD_SKILL and "cockpit" in slug.lower():
+            t = re.sub(r"(?<![\w.-])" + re.escape(slug) + r"(?![\w-])", lambda m: hold(m.group(0)), t)
     t = t.replace("COCKPIT", "BOARD").replace("Cockpit", "Board").replace("cockpit", "board")
     for key, val in held.items():
         t = t.replace(key, val)
@@ -471,7 +473,7 @@ def _rename_agent(a: dict[str, Any], backup_root: Path) -> None:
 def apply(skip: tuple[str, ...] = ()) -> dict[str, Any]:
     """Re-plan, then run every part not in ``skip``. Nothing runs when a blocker exists."""
     p = plan()
-    result: dict[str, Any] = {"state_before": p["state"], "done": [], "failed": [], "skipped": list(skip)}
+    result: dict[str, Any] = {"state_before": p["state"], "done": [], "failed": [], "skipped": list(skip), "warnings": p["warnings"]}
     if p["state"] in ("nothing-to-do", "already-migrated"):
         return result
     if p["blockers"]:
@@ -598,6 +600,8 @@ def cmd_migrate_home(args: Any) -> int:
     if args.json:
         print(json.dumps(res, indent=2))
     else:
+        for w in res.get("warnings", []):
+            print(f"WARNING {w}")
         for d in res["done"]:
             print(f"done    [{d['part']}] {d['what']}")
         for f in res["failed"]:
