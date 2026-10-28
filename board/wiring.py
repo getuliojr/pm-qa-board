@@ -89,6 +89,26 @@ def _not_a_checkout(parts: list[str], bases: list[Path]) -> bool:
     return bool(found) and not any((c / "board" / "server.py").is_file() for c in found)
 
 
+def _checkout_index(parts: list[str], bases: list[Path]) -> int | None:
+    """Index of the first path segment that resolves to a folder holding ``board/server.py`` (a board
+    checkout under any name), else None. Only literal, resolvable paths count."""
+    if any("$" in p or "%" in p for p in parts[1:]):
+        return None
+    for i in range(len(parts) - 1):
+        head = parts[: i + 1]
+        if head[0] in ("~", "$HOME", "%USERPROFILE%"):
+            cands = [projects.user_home().joinpath(*head[1:])]
+        elif re.fullmatch(r"[A-Za-z]:", head[0]):
+            cands = [Path(head[0] + "\\").joinpath(*head[1:])]
+        elif "$" in head[0] or "%" in head[0]:
+            continue
+        else:
+            cands = [b.joinpath(*head) for b in bases]
+        if any((c / "board" / "server.py").is_file() for c in cands):
+            return i
+    return None
+
+
 def classify_line(line: str, bases: list[Path] | None = None) -> list[dict[str, Any]]:
     """Board references in one line: [{kind, token, start, end, segment}] in order. ``segment`` is
     the index of the token's ``pm-qa-board`` path segment when it is a full dev-clone path literal
@@ -109,6 +129,10 @@ def classify_line(line: str, bases: list[Path] | None = None) -> list[dict[str, 
             i = parts.index("pm-qa-board")
             anchored = parts[0] in ("..", "~", "$HOME", "%USERPROFILE%") or re.fullmatch(r"[A-Za-z]:", parts[0])
             seg = i if i > 0 and anchored else None
+        elif len(parts) > 1 and (ci := _checkout_index(parts, bases or [])) is not None and ".pm-qa-board" not in parts:
+            kind = "dev"  # a board checkout under another name (e.g. an older clone folder)
+            anchored = parts[0] in ("..", "~", "$HOME", "%USERPROFILE%") or re.fullmatch(r"[A-Za-z]:", parts[0])
+            seg = ci if ci > 0 and anchored else None
         if kind:
             refs.append({"kind": kind, "token": tok, "start": m.start(), "end": m.end(), "segment": seg})
     if re.search(r"join-path|join\(", line, re.IGNORECASE):

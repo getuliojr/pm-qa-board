@@ -172,11 +172,7 @@ def test_first_reply_decisions_are_plain_and_capped(sandbox):
 
 def test_an_edited_skill_gets_its_own_question(sandbox):
     sb = sandbox()
-    skill = sb["home"] / ".claude" / "skills" / "pm-qa-setup"
-    # installed by the tool (so it carries an install manifest), then edited by the user
-    (skill / setup_flow.MANIFEST).write_text(json.dumps({"source": setup_flow.SOURCE, "version": "0.2.0",
-                                                         "sha256": setup_flow.content_hash(skill)}), encoding="utf-8")
-    md = skill / "SKILL.md"
+    md = sb["home"] / ".claude" / "skills" / "pm-qa-setup" / "SKILL.md"
     md.write_text(md.read_text(encoding="utf-8") + "\nMy own rule.\n", encoding="utf-8")
     plan = setup_flow.build_plan(sb["project"])
     (d,) = [d for d in plan["decisions"] if d["theme"] == "edited"]
@@ -280,13 +276,10 @@ def test_cursor_reads_the_claude_global_folder(tmp_path, monkeypatch):
 def test_doctor_and_wiring_support_board_directory(sandbox):
     sb = sandbox()
     app = sb["board_home"] / "app"
-    # Migrate stub running copy from board/server.py to board/server.py
-    (app / "board" / "server.py").unlink()
-    board_server = app / "board" / "server.py"
-    board_server.parent.mkdir(parents=True, exist_ok=True)
-    board_server.write_text("# running copy stub in board\n", encoding="utf-8")
+    # the running copy is recognised by board/server.py
+    assert (app / "board" / "server.py").is_file()
 
-    # Doctor checks 3 and 4 should pass with board/server.py
+    # Doctor checks 3 and 4 pass with board/server.py
     report = doctor.run(str(sb["project"]))
     (c3,) = [c for c in report["checks"] if c["n"] == 3]
     (c4,) = [c for c in report["checks"] if c["n"] == 4]
@@ -312,12 +305,11 @@ def test_doctor_and_wiring_support_board_directory(sandbox):
     plan = setup_flow.build_plan(sb["project"])
     assert not any(a["id"] == "clone-running-copy" for a in plan.get("actions", []))
 
-    # Verify board/ backward-compatibility shims exist and load
+    # the entry points exist and load
     repo_root = Path(__file__).resolve().parent.parent
     cli_shim = repo_root / "board" / "cli.py"
     server_shim = repo_root / "board" / "server.py"
-    assert cli_shim.is_file()
-    assert server_shim.is_file()
+    assert cli_shim.is_file() and server_shim.is_file()
     import importlib.util
     for path, symbol in [(cli_shim, "main"), (server_shim, "PMRequestHandler")]:
         spec = importlib.util.spec_from_file_location(path.stem, str(path))
@@ -353,3 +345,42 @@ def test_setup_plan_reports_a_legacy_install(sandbox):
     legacy = setup_flow.build_plan(sb["project"])["legacy_home"]
     assert legacy["old_home_exists"] and legacy["needs_migration"]
 
+
+
+# -- PQC-34 review fixes: installs made before the rename, and clones under any name --------------
+
+
+def test_old_install_without_a_manifest_that_was_edited_is_still_ours_and_asks(sandbox):
+    """The frozen 0.2.0 fixture carries the old source name and no manifest; edited, it must be asked about
+    (not silently treated as someone else's skill) even though migrate-home has not run."""
+    sb = sandbox()
+    skill = sb["home"] / ".claude" / "skills" / "pm-qa-setup"
+    assert setup_flow.skill_metadata(skill / "SKILL.md")["source"] != setup_flow.SOURCE
+    (skill / "SKILL.md").write_text((skill / "SKILL.md").read_text(encoding="utf-8") + "\nMine\n", encoding="utf-8")
+    state = setup_flow.skill_state(skill, setup_flow.TOOL_ROOT / "skills" / "pm-qa-setup")
+    assert state["state"] == "edited"
+
+
+def test_unconverted_old_manifest_is_read_and_not_counted_as_content(sandbox, tmp_path):
+    sb = sandbox()
+    skill = sb["home"] / ".claude" / "skills" / "pm-sync"
+    (skill / "SKILL.md").write_text((skill / "SKILL.md").read_text(encoding="utf-8") + "\nLocal note\n", encoding="utf-8")
+    digest = setup_flow.content_hash(skill)
+    (skill / migrate.OLD_MANIFEST).write_text(json.dumps({"source": migrate.OLD_SKILL, "version": "0.1.0", "sha256": digest}), encoding="utf-8")
+    assert setup_flow.content_hash(skill) == digest  # the old manifest file is not part of the content
+    assert setup_flow.read_manifest(skill)["sha256"] == digest
+    state = setup_flow.skill_state(skill, setup_flow.TOOL_ROOT / "skills" / "pm-sync")
+    assert state["state"] == "outdated"  # the recorded hash still matches: provably unedited, safe to upgrade
+
+
+def test_a_board_checkout_under_another_name_is_a_dev_clone(tmp_path):
+    clone = tmp_path / "older-clone"
+    (clone / "board").mkdir(parents=True)
+    (clone / "board" / "server.py").write_text("# dev clone\n", encoding="utf-8")
+    code = tmp_path / "proj"
+    code.mkdir()
+    refs = wiring.classify_line("uv run python ../older-clone/board/cli.py list", [code])
+    assert [r["kind"] for r in refs] == ["dev"]
+    other = tmp_path / "plain-folder"
+    (other / "board").mkdir(parents=True)  # a folder named board without the tool's server is not a checkout
+    assert wiring.classify_line("uv run python ../plain-folder/board/cli.py list", [code]) == []

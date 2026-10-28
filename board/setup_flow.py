@@ -44,6 +44,18 @@ AGENT_SKILL_DIRS = {"claude": ".claude/skills", "antigravity": ".agents/skills",
 LEDGER = TOOL_ROOT / "skills" / "RELEASES.json"
 
 
+def _legacy() -> tuple[str, str]:
+    """(old source name, old manifest file name): installs made before the rename stay recognised even
+    when migrate-home has not converted them yet. Lazy import: migrate imports this module."""
+    import migrate
+
+    return migrate.OLD_SKILL, migrate.OLD_MANIFEST
+
+
+def _is_ours(source: str | None) -> bool:
+    return source in (SOURCE, _legacy()[0])
+
+
 def global_roots() -> dict[str, Path]:
     """Global skill folders the board installs into, per tool. Evaluated per call (never at import)
     so a sandbox ``PM_QA_USER_HOME`` set after import still applies."""
@@ -115,7 +127,7 @@ def content_hash(skill_dir: Path) -> str:
     """``files_hash`` of every file in a skill folder except the manifest. install.ps1 computes the
     identical hash."""
     return files_hash({p.relative_to(skill_dir).as_posix(): p.read_bytes()
-                       for p in skill_dir.rglob("*") if p.is_file() and p.name != MANIFEST})
+                       for p in skill_dir.rglob("*") if p.is_file() and p.name not in (MANIFEST, _legacy()[1])})
 
 
 def load_ledger(path: Path | None = None) -> dict[str, dict[str, list[str]]]:
@@ -186,6 +198,10 @@ def read_manifest(skill_dir: Path) -> dict[str, Any]:
         # utf-8-sig: Windows PowerShell 5.1 writes a BOM that json.loads rejects
         return json.loads((skill_dir / MANIFEST).read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
+        pass
+    try:  # an install made before the rename
+        return json.loads((skill_dir / _legacy()[1]).read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
         return {}
 
 
@@ -215,7 +231,7 @@ def skill_state(installed: Path, source: Path) -> dict[str, Any]:
     if released:
         # exactly what some release shipped (pre-metadata copies included): ours, never edited
         return {"state": "outdated", "installed_version": released, "available_version": src_version}
-    ours = manifest.get("source") == SOURCE or meta.get("source") == SOURCE
+    ours = _is_ours(manifest.get("source")) or _is_ours(meta.get("source"))
     if not ours:
         return {"state": "foreign", **base}
     # Only a recorded hash that still matches proves the user never touched it.
@@ -377,13 +393,13 @@ def global_copy_status(d: Path, name: str) -> str | None:
         return None
     if ledger_version(name, content_hash(d)):
         return "ours"  # exactly a released version (any release, pre-metadata copies included)
-    files = [p for p in d.rglob("*") if p.is_file() and p.name != MANIFEST]
+    files = [p for p in d.rglob("*") if p.is_file() and p.name not in (MANIFEST, _legacy()[1])]
     shipped = TOOL_ROOT / "skills" / name / "SKILL.md"
     same_as_shipped = (
         len(files) == 1 and shipped.is_file() and _strip_metadata(md.read_bytes()) == _strip_metadata(shipped.read_bytes())
     )
     manifest = read_manifest(d)
-    if manifest.get("source") == SOURCE or skill_metadata(md).get("source") == SOURCE:
+    if _is_ours(manifest.get("source")) or _is_ours(skill_metadata(md).get("source")):
         if manifest.get("sha256"):
             return "ours" if manifest["sha256"] == content_hash(d) else "ours-edited"
         return "ours" if same_as_shipped else "ours-edited"

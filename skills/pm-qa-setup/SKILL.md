@@ -16,11 +16,11 @@ The CLI does the analysis; you present it in plain words and talk to the user. R
 **running copy**:
 
 ```
-CLI = uv run python ~/.pm-qa-board/app/board/cli.py      (Windows: $HOME\.pm-qa-board\app\board\cli.py, with ~/.pm-qa-board fallback)
+CLI = uv run python ~/.pm-qa-board/app/board/cli.py      (Windows: $HOME\.pm-qa-board\app\board\cli.py)
 ```
 
 If the environment variable `PM_QA_USER_HOME` is set (a QA sandbox), read every `~` below as that
-folder. If `~/.pm-qa-board/app` (or `~/.pm-qa-board/app`) does not exist, say so and offer to clone it (it appears as a
+folder. If `~/.pm-qa-board/app` does not exist, say so and offer to clone it (it appears as a
 decision in the plan); don't run a dev clone instead.
 
 ## 0. An install under the product's previous name

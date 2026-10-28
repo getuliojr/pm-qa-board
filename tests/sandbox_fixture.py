@@ -23,8 +23,6 @@ import subprocess
 import time
 from pathlib import Path
 
-import migrate
-
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 BOARD_SKILLS = ("pm-qa-board", "pm-orchestrate", "pm-sync", "pm-review")
 OLD_RELEASE_SKILLS = tuple(sorted(p.name for p in (FIXTURES / "skills-0.1.0").iterdir() if p.is_dir()))
@@ -142,9 +140,6 @@ def build(root: Path, *, dev_first: bool = False, running_copy: Path | None = No
         for s in OLD_RELEASE_SKILLS:  # a machine that installed the 0.1.0 release: exactly the frozen folders
             shutil.copytree(FIXTURES / "skills-0.1.0" / s, d / s)
         shutil.copytree(FIXTURES / "skills-0.2.0" / "pm-qa-setup", d / "pm-qa-setup")
-        for skill in d.iterdir():  # ...after migrate-home converted their install manifests to the new name
-            if (skill / migrate.OLD_MANIFEST).is_file():
-                migrate._convert_manifest(skill)
     _write(home / ".agents" / "skills" / "grill-me" / "SKILL.md", GRILL_ME)
     _write(home / ".agents" / "skills" / "grilling" / "SKILL.md", GRILLING)
 

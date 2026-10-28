@@ -184,6 +184,21 @@ powershell -NoProfile -File $HOME\.pm-qa-board\app\install.ps1
 
 ---
 
+### Upgrading from an earlier version (before 0.12.0)
+
+Earlier versions lived under a different folder name in your home directory. Upgrade in place instead of installing a second copy:
+
+```powershell
+# inside your existing running copy (the folder you cloned earlier)
+git pull
+uv run python board/cli.py migrate-home          # prints the plan and changes nothing
+uv run python board/cli.py migrate-home --apply  # only after you have read the plan
+```
+
+`migrate-home` copies your registry and tools to `~/.pm-qa-board`, clones a fresh running copy there, repoints your project launchers, hooks and agent files line by line (with a backup), and converts installed skills. It refuses while a dashboard is running from the old folder, never overwrites anything, and leaves the old folder for you to delete once everything works. If you already cloned into `~/.pm-qa-board` first, run it the same way: it still moves your old registry across.
+
+---
+
 ### 2. Set Up a Project (Agent-Guided)
 
 Open your target project in your preferred agent tool (**Claude Code**, **Cursor**, **Google Antigravity**, **OpenAI Codex**, etc.) and prompt:
