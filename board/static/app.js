@@ -2044,7 +2044,7 @@ function selectQaCard(mn_id, { forceScrollTop = false, preserveScroll = false } 
     <div class="sticky bottom-0 z-10 bg-[var(--bg-surface)]/95 backdrop-blur-md -mx-6 -mb-6 px-6 pt-3 pb-3 border-t border-[var(--border-subtle)] shadow-md mt-auto">
       <h4 class="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">QA Sign-off</h4>
       <div class="flex flex-col sm:flex-row gap-3">
-        <input type="text" id="qaValidateNotes" placeholder="Optional QA validation note (e.g. 'Verified Wise import flow live')" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm rounded-lg px-3.5 py-2.5 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
+        <input type="text" id="qaValidateNotes" placeholder="Optional QA validation note (e.g. 'Checked on a real phone')" class="flex-1 bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm rounded-lg px-3.5 py-2.5 border border-[var(--border-medium)] focus:outline-none focus:border-emerald-500">
         <button id="qaValidateCardBtn" data-action="validate-card" data-card-id="${escId}" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 transition cursor-pointer">
           <i class="ph ph-checks text-base"></i>
           <span>Validate & Complete Work</span>
