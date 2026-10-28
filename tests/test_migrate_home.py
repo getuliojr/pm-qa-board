@@ -28,7 +28,7 @@ def home(tmp_path, monkeypatch):
     h.mkdir()
     monkeypatch.setenv("PM_QA_USER_HOME", str(h))
     monkeypatch.delenv("PM_QA_BOARD_HOME", raising=False)
-    monkeypatch.setattr(migrate, "dashboards_running", lambda: [])
+    monkeypatch.setattr(migrate, "dashboards_running", lambda *a, **k: [])
     monkeypatch.setattr(migrate, "_clone", _fake_clone)
     return h
 
@@ -163,7 +163,7 @@ def test_apply_is_idempotent(home, tmp_path):
 
 def test_blocked_while_a_dashboard_runs(home, tmp_path, monkeypatch):
     code = make_old_install(home, tmp_path)
-    monkeypatch.setattr(migrate, "dashboards_running", lambda: [4242])
+    monkeypatch.setattr(migrate, "dashboards_running", lambda *a, **k: [4242])
     p = migrate.plan()
     assert p["state"] == "blocked" and "4242" in p["blockers"][0]
     snapshot = (_tree(home), _tree(code))

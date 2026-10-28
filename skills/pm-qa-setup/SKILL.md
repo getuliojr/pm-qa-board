@@ -25,15 +25,19 @@ decision in the plan); don't run a dev clone instead.
 
 ## 0. An install under the product's previous name
 
-`CLI setup-plan` reports `legacy_home`. When `needs_migration` is true (an old install folder exists and
-`~/.pm-qa-board/app` does not), stop and offer `CLI migrate-home` before anything else. Run it WITHOUT
-`--apply` first (use the CLI from wherever it is installed today; the old running copy has it after a
-`git pull`), and tell the user in plain words what it would do: which files are copied, each launcher or
-hook line it would change, which skills are converted or removed, any desktop shortcut. Run it with
-`--apply` only after they say yes (`--skip launchers,skills,...` leaves parts out). It never changes or
-deletes the old folder, because that folder holds the code that is running: tell the user to delete it
-themselves once the dashboard starts from `~/.pm-qa-board`. It refuses while a dashboard is running; ask
-them to close it. Do the normal setup after it finishes.
+`CLI setup-plan` reports `legacy_home`. When `needs_migration` is true (an old install folder still has
+something to move: its registry or tools, or `~/.pm-qa-board/app` does not exist yet), stop and offer
+`CLI migrate-home` before anything else. Run the CLI from the NEW copy (`~/.pm-qa-board/app`; clone it
+first if it is missing, and never `git pull` the old copy, which would break its launchers before they
+are repointed). Run `migrate-home` WITHOUT `--apply` first and tell the user in plain words what it would
+do: which files are copied (or merged into a registry that already exists), each launcher, hook, instruction
+block or agent file line it would change, which skills are converted or removed, any desktop shortcut,
+and any warning or file it hands back for a manual edit. Run it with `--apply` only after they say yes
+(`--skip launchers,skills,...` leaves parts out). It never changes or deletes the old folder, because that
+folder holds the code that was running: tell the user to delete it themselves once the dashboard starts
+from `~/.pm-qa-board`. It refuses while a dashboard is running; ask them to close it. Do the normal setup
+after it finishes. If setup notes that CLAUDE.md or ORCHESTRATION.md still holds a section an older
+version wrote, that is also for `migrate-home`; do not add a second one.
 
 ## 1. Plan (read-only)
 

@@ -10,7 +10,8 @@ SKIP_FILES = {"uv.lock"}
 BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".db", ".sqlite", ".sqlite3", ".lnk", ".pyc", ".exe", ".woff", ".woff2", ".zip"}
 # migrate.py must know the old names to move an old install; RELEASES.json keeps released history keyed by
 # the old skill name; fixtures/skills-* are frozen copies of released old skills used by the upgrade tests.
-ALLOWED_FILES = {"board/migrate.py", "tests/test_migrate_home.py", "tests/test_rename_guard.py", "skills/RELEASES.json"}
+ALLOWED_FILES = {"board/migrate.py", "tests/test_migrate_home.py", "tests/test_migrate_home_review2.py",
+                 "tests/test_rename_guard.py", "skills/RELEASES.json"}
 ALLOWED_PREFIXES = ("tests/fixtures/skills-",)
 # the private PM-data folder keeps its name (Story 34 decision 4): only this exact path is exempt
 PRIVATE_DOCS = "pm-qa-docs/pm-qa-cockpit"

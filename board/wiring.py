@@ -94,8 +94,14 @@ def _checkout_index(parts: list[str], bases: list[Path]) -> int | None:
     checkout under any name), else None. Only literal, resolvable paths count."""
     if any("$" in p or "%" in p for p in parts[1:]):
         return None
+    import migrate  # lazy: migrate imports this module
+
+    if any(p.lower() == migrate.OLD_DIR for p in parts):
+        return None  # the previous install folder: not a dev clone (migrate-home moves it), never offer to edit it
     for i in range(len(parts) - 1):
         head = parts[: i + 1]
+        if all(p == "." for p in head):
+            continue  # "./x" is the project's own folder, not a clone
         if head[0] in ("~", "$HOME", "%USERPROFILE%"):
             cands = [projects.user_home().joinpath(*head[1:])]
         elif re.fullmatch(r"[A-Za-z]:", head[0]):

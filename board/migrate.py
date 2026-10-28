@@ -50,8 +50,12 @@ PARTS = ("moves", "clone", "launchers", "files", "agents", "skills", "shortcuts"
 SKILL_NAMES = ("pm-orchestrate", "pm-review", "pm-sync", "pm-qa-setup", OLD_SKILL)
 HOOK_FILES = (".claude/settings.json", ".claude/settings.local.json", ".cursor/hooks.json")
 AGENT_DIRS = (".claude/agents", ".agents/agents", ".cursor/agents")
-_REGION = re.compile(r"<!-- pm-qa-cockpit:(roster:)?start -->.*?<!-- pm-qa-cockpit:(roster:)?end -->", re.DOTALL)
-_PROTECT = "\u0001DOCS\u0001"
+OLD_POINTER_START = f"<!-- {OLD_SKILL}:start -->"
+OLD_ROSTER_START = f"<!-- {OLD_SKILL}:roster:start -->"
+# a start marker pairs only with the end marker of its own kind, so unbalanced markers never swallow user text
+_REGION = re.compile(
+    r"<!-- pm-qa-cockpit:start -->.*?<!-- pm-qa-cockpit:end -->|<!-- pm-qa-cockpit:roster:start -->.*?<!-- pm-qa-cockpit:roster:end -->",
+    re.DOTALL)
 
 
 def old_home() -> Path:
@@ -63,21 +67,65 @@ def old_home() -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _registry_projects() -> list[tuple[Path, Path | None]]:
-    """(code folder, docs folder) of registered projects, from the new registry if it exists, else the old."""
+def _load_registry(path: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _norm(p: Any) -> str:
+    return str(p or "").replace("\\", "/").rstrip("/").lower()
+
+
+def _registry_entries() -> list[dict[str, Any]]:
+    """Registered projects from the new registry and the old one (a slug in both counts once, new wins)."""
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
     for reg in (projects.board_home() / "projects.json", old_home() / "projects.json"):
-        try:
-            data = json.loads(reg.read_text(encoding="utf-8-sig"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        out = []
-        for proj in (data.get("projects") or {}).values():
-            p = Path(proj.get("code_path") or "")
-            if p.is_dir():
-                d = Path(proj["docs_path"]) if proj.get("docs_path") else None
-                out.append((p, d if d and d.is_dir() else None))
-        return out
-    return []
+        for slug, proj in ((_load_registry(reg) or {}).get("projects") or {}).items():
+            if slug in seen or not isinstance(proj, dict):
+                continue
+            seen.add(slug)
+            out.append({**proj, "slug": proj.get("slug") or slug})
+    return out
+
+
+def _registry_projects() -> list[tuple[Path, Path | None]]:
+    """(code folder, docs folder) of every registered project, old registry included."""
+    out = []
+    for proj in _registry_entries():
+        p = Path(proj.get("code_path") or "")
+        if p.is_dir():
+            d = Path(proj["docs_path"]) if proj.get("docs_path") else None
+            out.append((p, d if d and d.is_dir() else None))
+    return out
+
+
+def _missing_projects() -> dict[str, dict[str, Any]]:
+    """Projects only the old registry knows, when a new registry already exists (setup ran there first)."""
+    old = _load_registry(old_home() / "projects.json")
+    new = _load_registry(projects.board_home() / "projects.json")
+    if not old or new is None:
+        return {}
+    have = new.get("projects") or {}
+    codes = {_norm(p.get("code_path")) for p in have.values() if isinstance(p, dict)}
+    return {s: p for s, p in (old.get("projects") or {}).items()
+            if s not in have and isinstance(p, dict) and _norm(p.get("code_path")) not in codes}
+
+
+def _merge_registry(backup_root: Path) -> None:
+    """Add the projects only the old registry knows to the new one (the new file is backed up first)."""
+    dst = projects.board_home() / "projects.json"
+    new = _load_registry(dst) or {}
+    add = _missing_projects()
+    backup_root.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(dst, backup_root / "projects.json.before-merge")
+    new.setdefault("projects", {}).update(add)
+    if not new.get("active_project"):
+        new["active_project"] = next(iter(add), None)
+    dst.write_text(json.dumps(new, indent=2) + "\n", encoding="utf-8")
 
 
 def repoint_line(line: str) -> str | None:
@@ -90,10 +138,30 @@ def repoint_line(line: str) -> str | None:
     return new if new != line else None
 
 
-def broad_line(line: str) -> str | None:
-    """A line of a managed block (text this tool wrote itself) with every old name replaced."""
-    t = line.replace(DOCS_FOLDER, _PROTECT)
-    t = t.replace("COCKPIT", "BOARD").replace("Cockpit", "Board").replace("cockpit", "board").replace(_PROTECT, DOCS_FOLDER)
+def broad_line(line: str, slugs: tuple[str, ...] = (), paths: tuple[str, ...] = ()) -> str | None:
+    """A line of a managed block (text this tool wrote itself) with the old name replaced, except where
+    the old name is the user's data: the private docs folder in either slash style, registered project
+    folders, a slug named on a command line (``-Project <slug>``), and other projects' slugs."""
+    held: dict[str, str] = {}
+
+    def hold(s: str) -> str:
+        key = f"\u0001{len(held)}\u0001"
+        held[key] = s
+        return key
+
+    t = re.sub(r"pm-qa-docs[\\/]+pm-qa-cockpit", lambda m: hold(m.group(0)), line)
+    for p in sorted({x for x in paths if x}, key=len, reverse=True):
+        for form in {p, p.replace("/", "\\"), p.replace("\\", "/")}:
+            if form in t:
+                t = t.replace(form, hold(form))
+    for slug in slugs:
+        t = re.sub(r"(--?project[ =]+)" + re.escape(slug) + r"(?![\w-])", lambda m: m.group(1) + hold(slug), t, flags=re.IGNORECASE)
+    for slug in slugs:  # another project whose slug merely contains the old name
+        if slug != OLD_SKILL and "cockpit" in slug.lower() and slug in t:
+            t = t.replace(slug, hold(slug))
+    t = t.replace("COCKPIT", "BOARD").replace("Cockpit", "Board").replace("cockpit", "board")
+    for key, val in held.items():
+        t = t.replace(key, val)
     return t if t != line else None
 
 
@@ -135,7 +203,7 @@ def scan_launchers(code: Path, extra_hook_only: bool = False) -> tuple[list[dict
     return edits, manual
 
 
-def scan_managed(root: Path, rels: list[str]) -> list[dict[str, Any]]:
+def scan_managed(root: Path, rels: list[str], slugs: tuple[str, ...] = (), paths: tuple[str, ...] = ()) -> list[dict[str, Any]]:
     """Per-line edits inside the markers this tool's old setup wrote (never outside them)."""
     edits: list[dict[str, Any]] = []
     for rel in rels:
@@ -152,7 +220,7 @@ def scan_managed(root: Path, rels: list[str]) -> list[dict[str, Any]]:
             last = text.count("\n", 0, m.end()) + 1
             inside.update(range(first, last + 1))
         for n in sorted(inside):
-            new = broad_line(lines[n - 1])
+            new = broad_line(lines[n - 1], slugs, paths)
             if new is not None:
                 edits.append({"code": str(root), "file": rel, "line": n, "old": lines[n - 1], "new": new})
     return edits
@@ -251,16 +319,23 @@ def scan_shortcuts() -> list[str]:
     return out
 
 
-def dashboards_running() -> list[int]:
-    """Process ids of a dashboard server started from the old folder (best effort, empty on failure).
-    The process list is filtered here, not in the query, so the query never matches itself."""
+def dashboards_running(warn: list[str] | None = None) -> list[int]:
+    """Process ids of a dashboard server started from the old folder. The query only narrows to command
+    lines that mention server.py; the exact-folder filter runs here, and the process itself is excluded.
+    When the check cannot run, a warning is appended to ``warn`` (the plan shows it) instead of silently
+    reporting "none"."""
     me = os.getpid()
     needle = str(old_home()).lower().replace("/", "\\")  # this install's exact folder, not the folder name anywhere
     try:
         if sys.platform == "win32":
-            r = subprocess.run(["powershell", "-NoProfile", "-Command",
-                                "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"],
-                               capture_output=True, text=True, timeout=60)
+            # UTF-8 on the pipe: the OEM code page would garble a non-ASCII home path and the match would silently fail
+            ps = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+                  "Get-CimInstance Win32_Process -Filter 'CommandLine like ''%server.py%''' "
+                  "| Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress")
+            r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=60)
+            if r.returncode != 0 and not r.stdout.strip():
+                raise OSError((r.stderr or "powershell failed").strip()[:120])
             data = json.loads(r.stdout or "[]")
             data = [data] if isinstance(data, dict) else data
             return [int(p["ProcessId"]) for p in data
@@ -268,7 +343,9 @@ def dashboards_running() -> list[int]:
                     and needle in p["CommandLine"].lower().replace("/", "\\") and "Get-CimInstance" not in p["CommandLine"]]
         r = subprocess.run(["pgrep", "-f", f"{re.escape(str(old_home()))}.*server.py"], capture_output=True, text=True, timeout=10)
         return [int(x) for x in r.stdout.split() if x.strip().isdigit() and int(x) != me]
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as e:
+        if warn is not None:
+            warn.append(f"could not check for running dashboards ({type(e).__name__}); make sure none is open from {old_home()} before applying")
         return []
 
 
@@ -277,14 +354,25 @@ def dashboards_running() -> list[int]:
 # ---------------------------------------------------------------------------
 
 
-def _pending_moves(old: Path, new: Path) -> list[dict[str, str]]:
-    return [{"src": str(old / i), "dst": str(new / i)} for i in MOVE_ITEMS if (old / i).exists() and not (new / i).exists()]
+def _pending_moves(old: Path, new: Path) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for i in MOVE_ITEMS:
+        if not (old / i).exists():
+            continue
+        if not (new / i).exists():
+            out.append({"src": str(old / i), "dst": str(new / i)})
+        elif i == "projects.json" and (add := _missing_projects()):  # setup already created a new registry
+            out.append({"src": str(old / i), "dst": str(new / i), "kind": "merge-registry", "add": sorted(add)})
+    return out
 
 
 def plan() -> dict[str, Any]:
     old, new = old_home(), projects.board_home()
     proj = _registry_projects()
     codes = [c for c, _ in proj]
+    entries = _registry_entries()
+    slugs = tuple(e["slug"] for e in entries)
+    paths = tuple(str(e.get(k) or "") for e in entries for k in ("code_path", "docs_path"))
     moves = _pending_moves(old, new)
     clone = None
     if not (new / "app" / "board" / "server.py").is_file() and (old.exists() or moves):
@@ -297,18 +385,19 @@ def plan() -> dict[str, Any]:
         e, m = scan_launchers(code)
         launchers += e
         manual += m
-        files += scan_managed(code, list(wiring.ORCHESTRATION_FILES))
+        files += scan_managed(code, list(wiring.ORCHESTRATION_FILES), slugs, paths)
         if docs is not None:
-            files += scan_managed(docs, ["ORCHESTRATION.md"])
+            files += scan_managed(docs, ["ORCHESTRATION.md"], slugs, paths)
         agents += scan_agents(code)
     e, m = scan_launchers(projects.user_home(), extra_hook_only=True)  # user-level hooks
     launchers += e
     manual += m
     skills = scan_skills(codes)
     shortcuts = scan_shortcuts()
-    blockers = []
+    blockers: list[str] = []
+    warnings: list[str] = []
     if old.exists():
-        pids = dashboards_running()
+        pids = dashboards_running(warnings)
         if pids:
             blockers.append(f"a dashboard started from {old} is running (process {', '.join(map(str, pids))}); close it first")
         if clone and not shutil.which("git"):
@@ -322,7 +411,7 @@ def plan() -> dict[str, Any]:
         state = "blocked" if blockers else "ready"
     return {"state": state, "old_home": str(old), "new_home": str(new), "moves": moves, "clone": clone,
             "launchers": launchers, "files": files, "agents": agents, "skills": skills, "shortcuts": shortcuts,
-            "manual": manual, "blockers": blockers, "old_folder_remains": old.exists()}
+            "manual": manual, "blockers": blockers, "warnings": warnings, "old_folder_remains": old.exists()}
 
 
 def legacy_state() -> dict[str, Any]:
@@ -374,8 +463,8 @@ def _rename_agent(a: dict[str, Any], backup_root: Path) -> None:
         raise FileExistsError(f"{new.name} already exists; both files were left as they are")
     code = Path(a["code"])
     _backup(backup_root, code, old.relative_to(code).as_posix())
-    text = old.read_text(encoding="utf-8")
-    new.write_text("\n".join(broad_line(l) or l for l in text.split("\n")), encoding="utf-8", newline="")
+    raw = old.read_bytes().decode("utf-8")  # bytes, so CRLF files keep their line endings
+    new.write_bytes("\n".join(broad_line(l) or l for l in raw.split("\n")).encode("utf-8"))
     old.unlink()
 
 
@@ -404,7 +493,10 @@ def apply(skip: tuple[str, ...] = ()) -> dict[str, Any]:
     if "moves" not in skip:
         for m in p["moves"]:
             src, dst = Path(m["src"]), Path(m["dst"])
-            attempt("moves", f"copy {src.name}", lambda s=src, d=dst: shutil.copytree(s, d) if s.is_dir() else shutil.copy2(s, d))
+            if m.get("kind") == "merge-registry":
+                attempt("moves", f"add {', '.join(m['add'])} from the old registry", lambda: _merge_registry(backup_root))
+            else:
+                attempt("moves", f"copy {src.name}", lambda s=src, d=dst: shutil.copytree(s, d) if s.is_dir() else shutil.copy2(s, d))
     new_app_ok = (new / "app" / "board" / "server.py").is_file()
     if p["clone"] and "clone" not in skip:
         new_app_ok = attempt("clone", f"clone {p['clone']['url']}", lambda: _clone(p["clone"]["url"], p["clone"]["dest"])) \
@@ -460,10 +552,14 @@ def _edit_block(title: str, edits: list[dict[str, Any]]) -> list[str]:
 
 def format_plan(p: dict[str, Any]) -> str:
     out = [f"State: {p['state']}", f"Old home: {p['old_home']}", f"New home: {p['new_home']}", ""]
+    if p.get("warnings"):
+        out += ["WARNING:"] + [f"  - {w}" for w in p["warnings"]] + [""]
     if p["blockers"]:
         out += ["BLOCKED:"] + [f"  - {b}" for b in p["blockers"]] + [""]
     if p["moves"]:
-        out += ["Copy (the old files stay where they are):"] + [f"  {m['src']} -> {m['dst']}" for m in p["moves"]] + [""]
+        out += ["Copy (the old files stay where they are):"]
+        out += [f"  {m['src']} -> {m['dst']}" if m.get("kind") != "merge-registry"
+                else f"  add {', '.join(m['add'])} to the registry that already exists at {m['dst']} (a backup is kept)" for m in p["moves"]] + [""]
     if p["clone"]:
         out += [f"Clone the new running copy: git clone {p['clone']['url']} {p['clone']['dest']}", ""]
     if p["launchers"]:

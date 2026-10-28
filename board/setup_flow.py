@@ -56,6 +56,13 @@ def _is_ours(source: str | None) -> bool:
     return source in (SOURCE, _legacy()[0])
 
 
+def _legacy_markers() -> tuple[str, str]:
+    """(pointer start, roster start) markers an older version wrote; see migrate.py."""
+    import migrate
+
+    return migrate.OLD_POINTER_START, migrate.OLD_ROSTER_START
+
+
 def global_roots() -> dict[str, Path]:
     """Global skill folders the board installs into, per tool. Evaluated per call (never at import)
     so a sandbox ``PM_QA_USER_HOME`` set after import still applies."""
@@ -484,6 +491,8 @@ def read_roster(code: Path, project: dict[str, Any], tools: list[str]) -> dict[s
     starts, ends = text.count(roster.ROSTER_START), text.count(roster.ROSTER_END)
     markers = "none" if not (starts or ends) else (
         "ok" if starts == 1 and ends == 1 and text.find(roster.ROSTER_START) < text.find(roster.ROSTER_END) else "damaged")
+    if markers == "none" and _legacy_markers()[1] in text:
+        markers = "legacy"  # written by an older version: left for migrate-home, never duplicated
     block = text[text.find(roster.ROSTER_START):text.find(roster.ROSTER_END)] if markers == "ok" else ""
     return {"orchestration": str(orch), "orchestration_exists": orch.is_file(),
             "readable": _readable_utf8(orch), "markers": markers,
@@ -625,15 +634,20 @@ def build_plan(code_path: str | Path, *, name: str | None = None, prefix: str | 
         text = (code / fname).read_text(encoding="utf-8", errors="replace") if (code / fname).exists() else ""
         if POINTER_START in text:
             continue
+        if _legacy_markers()[0] in text:
+            notes.append(f"{fname} still has the section an older version wrote; migrate-home updates it, so no second one is added.")
+            continue
         add("pointer", f"Add a PM & QA Board section to {fname}", file=fname, writes=[str(code / fname)],
             preview=pointer_text(project, register_only))
 
     # 4b. Roster (Story 2.2): who does each step. Read for every project; written only in full mode,
     #     only for missing roles, never over an existing agent file.
     roster_state = read_roster(code, project, tools)
+    if roster_state["markers"] == "legacy":
+        notes.append("ORCHESTRATION.md still has the roster written by an older version; migrate-home updates it, so no second one is added.")
     roster_files: list[str] = []
     table_only = (roster_state["orchestration_exists"] and roster_state["readable"]
-                  and roster_state["markers"] != "damaged" and not roster_state["has_section"])
+                  and roster_state["markers"] not in ("damaged", "legacy") and not roster_state["has_section"])
     if not register_only and (table_only or any(r["missing"] for r in roster_state["tools"].values())):
         files = [{"tool": t, "role": role, "path": f"{roster.WRITE_DIR[t]}/{roster.PREFIX}{role}.md", **roster.recommended(t, role)}
                  for t in tools for role in roster_state["tools"][t]["missing"]]
@@ -1285,7 +1299,7 @@ def apply_actions(plan: dict[str, Any], approved: list[str], on_conflict: str | 
         elif kind == "pointer":
             f = code / a["file"]
             text = f.read_bytes().decode("utf-8-sig") if f.exists() else ""
-            if POINTER_START not in text:
+            if POINTER_START not in text and _legacy_markers()[0] not in text:
                 append_bytes(f, a["preview"])
             results.append({"id": aid, "result": "written"})
         elif kind == "exclude":
