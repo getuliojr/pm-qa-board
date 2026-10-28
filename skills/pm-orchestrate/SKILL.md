@@ -1,9 +1,9 @@
 ---
 name: pm-orchestrate
-description: Use at the start of any new feature, story or nontrivial change in a project tracked by the PM & QA Cockpit, before writing code or spawning agents; also when onboarding a project (cli.py init), choosing gate mode (profile-gates), or closing a story (close-out artifact).
+description: Use at the start of any new feature, story or nontrivial change in a project tracked by the PM & QA Board, before writing code or spawning agents; also when onboarding a project (cli.py init), choosing gate mode (profile-gates), or closing a story (close-out artifact).
 metadata:
-  version: 0.11.0
-  source: pm-qa-cockpit
+  version: 0.12.0
+  source: pm-qa-board
 ---
 
 # PM orchestrate - the 7-step story loop
@@ -63,7 +63,7 @@ test suite, stores the mode in the registry). Threshold default 360 s.
 | Mode | Meaning | What the agent does |
 |---|---|---|
 | `fast` | full suite <= 360 s | agent runs the full suite inline before story close and records the numbers in `QUALITY.md` / the QA tab itself |
-| `heavy` | full suite > 360 s | agent runs only Fast gates (static + tests for changed files); the full suite is the out-of-band **Heavy Gate** script (generated `scripts/finalgates.ps1`, or `<docs_path>/gates/finalgates.ps1` for external docs) run by the user or the Cockpit's QA & Heavy Gates tab; the agent picks results up from `gate-heavy-results/` next session |
+| `heavy` | full suite > 360 s | agent runs only Fast gates (static + tests for changed files); the full suite is the out-of-band **Heavy Gate** script (generated `scripts/finalgates.ps1`, or `<docs_path>/gates/finalgates.ps1` for external docs) run by the user or the Board's QA & Heavy Gates tab; the agent picks results up from `gate-heavy-results/` next session |
 | `unprofiled` | not measured yet | profile first, then proceed per the mode |
 
 Never run a whole slow suite inline in heavy mode, even "to be sure".
@@ -74,7 +74,7 @@ the steps below and never changes the project's rules without approval.
 
 1. `cli.py init <code_path> --name N --prefix P [--docs-path D]` prints a **report only**: registry entry,
    docs layout, existing orchestration files, hooks. Review it, then re-run with `--apply`.
-   `--stealth` keeps cockpit files out of git via `.git/info/exclude`.
+   `--stealth` keeps board files out of git via `.git/info/exclude`.
 2. Alignment checklist: card schema valid (no inline `#` comments in frontmatter); PLAN.md exists; WORKLOG,
    QUALITY, E2E_CANDIDATES present; agent instruction file (CLAUDE.md / AGENTS.md) points to these skills
    and states "never push"; `profile-gates --measure --apply` done.
@@ -82,9 +82,9 @@ the steps below and never changes the project's rules without approval.
    (auto-push, blocking edit guards). Report; never silently change them.
 
 ## Story Close-Out Artifact (required at every close)
-**The file in the repo is the deliverable.** The Cockpit draws a card's **Story Close-Out** button only
+**The file in the repo is the deliverable.** The Board draws a card's **Story Close-Out** button only
 when `<docs_path>/artifacts/<PREFIX>-<story>-closeout.html` exists: no file, no button. A page published
-to claude.ai (or shown in chat) leaves nothing the Cockpit can see, so it never replaces the file. Every
+to claude.ai (or shown in chat) leaves nothing the Board can see, so it never replaces the file. Every
 card that reaches `qa` gets one, big or small, and an agent checks `ls <docs_path>/artifacts/` shows the
 id before calling the close done. If the agent can also publish the page elsewhere, it publishes this
 same file. Commit it (`docs(<story>): close-out page`) before the card moves to `qa`; with an external
@@ -98,13 +98,13 @@ tag present on the card in the page header next to the story/type info. Sections
    slider, before/after, sample data). This is the part that proves it, so make it real, not decorative.
 3. **Badges** - gate results and cold-review verdict/rounds with the real numbers (start/head SHA, test counts).
 4. **Live Human QA** - the card's Verification Check items as checkboxes plus a **Validate & Complete Story**
-    button, wired to the Cockpit API:
+    button, wired to the Board API:
     - `POST /api/cards/<ID>/qa-item` body `{index, checked}`
     - `POST /api/cards/<ID>/validate` body `{notes}`
     - after each success: `window.parent.postMessage({type:'pmqa:refresh'}, location.origin)` and `window.parent.postMessage({type:'pmqa:toast', message: 'Story validated successfully!', level: 'success'}, location.origin)`.
     - Non-blocking feedback: never use `alert()`, `confirm()`, or `prompt()`. Show an inline animated glass toast banner and bridge notifications to the host window via `parent.postMessage({type: 'pmqa:toast', message, level})`.
-    - Degrade gracefully: if `fetch` fails (opened as a plain file, or Cockpit not running), show a
+    - Degrade gracefully: if `fetch` fails (opened as a plain file, or Board not running), show a
       read-only notice and disable the controls. Never throw.
 Validate is only for the user's click; an agent never presses it. Link the artifact in the card Changelog.
 
-Related: `pm-qa-cockpit` (schema, CLI), `pm-sync`, `pm-review`.
+Related: `pm-qa-board` (schema, CLI), `pm-sync`, `pm-review`.

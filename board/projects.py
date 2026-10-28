@@ -1,8 +1,8 @@
 """
-projects.py - Global multi-project registry for PM & QA Cockpit.
+projects.py - Global multi-project registry for PM & QA Board.
 
-The registry lives at ``~/.pm-qa-cockpit/projects.json`` (override the folder with the
-``PM_QA_COCKPIT_HOME`` env var — tests always do). Shape::
+The registry lives at ``~/.pm-qa-board/projects.json`` (override the folder with the
+``PM_QA_BOARD_HOME`` env var — tests always do). Shape::
 
     {
       "active_project": "money-nest",
@@ -16,7 +16,7 @@ The registry lives at ``~/.pm-qa-cockpit/projects.json`` (override the folder wi
       }
     }
 
-Standard library only, like the rest of the cockpit.
+Standard library only, like the rest of the board.
 """
 
 from __future__ import annotations
@@ -35,20 +35,20 @@ EXTERNAL_DOCS_FILES = ("PLAN.md", "WORKLOG.md", "QUALITY.md", "E2E_CANDIDATES.md
 
 
 def user_home() -> Path:
-    """The home folder holding the global skill folders and ``.pm-qa-cockpit``. ``PM_QA_USER_HOME``
+    """The home folder holding the global skill folders and ``.pm-qa-board``. ``PM_QA_USER_HOME``
     points it at a sandbox (QA sandbox, tests) while the agent itself keeps its real HOME and login.
     Read on every call, never cached at import."""
     env = os.environ.get("PM_QA_USER_HOME")
     return Path(env).expanduser() if env else Path.home()
 
 
-def cockpit_home() -> Path:
-    env = os.environ.get("PM_QA_COCKPIT_HOME")
-    return Path(env).expanduser() if env else user_home() / ".pm-qa-cockpit"
+def board_home() -> Path:
+    env = os.environ.get("PM_QA_BOARD_HOME")
+    return Path(env).expanduser() if env else user_home() / ".pm-qa-board"
 
 
 def registry_path() -> Path:
-    return cockpit_home() / "projects.json"
+    return board_home() / "projects.json"
 
 
 def slugify(name: str) -> str:

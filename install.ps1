@@ -53,8 +53,8 @@ function Get-NormalizedText([string]$Path) {
 }
 
 function Test-SameSkill([string]$A, [string]$B) {
-    $fa = @(Get-ChildItem -LiteralPath $A -File -Recurse | Where-Object { $_.Name -ne ".pm-qa-cockpit.json" })
-    $fb = @(Get-ChildItem -LiteralPath $B -File -Recurse | Where-Object { $_.Name -ne ".pm-qa-cockpit.json" })
+    $fa = @(Get-ChildItem -LiteralPath $A -File -Recurse | Where-Object { $_.Name -ne ".pm-qa-board.json" })
+    $fb = @(Get-ChildItem -LiteralPath $B -File -Recurse | Where-Object { $_.Name -ne ".pm-qa-board.json" })
     if ($fa.Count -ne $fb.Count) { return $false }
     foreach ($f in $fa) {
         $rel = $f.FullName.Substring($A.Length).TrimStart('\', '/')
@@ -66,7 +66,7 @@ function Test-SameSkill([string]$A, [string]$B) {
 }
 
 function Get-InstalledVersion([string]$Dir) {
-    $m = Join-Path $Dir ".pm-qa-cockpit.json"
+    $m = Join-Path $Dir ".pm-qa-board.json"
     if (Test-Path -LiteralPath $m) {
         try { return (Get-Content -LiteralPath $m -Raw | ConvertFrom-Json).version } catch {}
     }
@@ -99,7 +99,7 @@ function Get-SkillHash([string]$Dir) {
     $root = (Resolve-Path -LiteralPath $Dir).Path
     $map = @{}
     foreach ($f in Get-ChildItem -LiteralPath $root -File -Recurse) {
-        if ($f.Name -eq ".pm-qa-cockpit.json") { continue }
+        if ($f.Name -eq ".pm-qa-board.json") { continue }
         $rel = $f.FullName.Substring($root.Length).TrimStart('\', '/') -replace '\\', '/'
         $map[$rel] = $f.FullName
     }
@@ -176,11 +176,11 @@ foreach ($root in $Roots) {
             New-Item -ItemType Directory -Force -Path $root | Out-Null
             Copy-Item -LiteralPath $Src -Destination $dest -Recurse
             $manifest = [ordered]@{
-                source = "pm-qa-cockpit"; version = $Version; sha256 = (Get-SkillHash $dest)
+                source = "pm-qa-board"; version = $Version; sha256 = (Get-SkillHash $dest)
                 installed = (Get-Date -Format s)
             } | ConvertTo-Json
             # UTF-8 without BOM (Python's json reader rejects a BOM)
-            [IO.File]::WriteAllText((Join-Path $dest ".pm-qa-cockpit.json"), $manifest, (New-Object Text.UTF8Encoding($false)))
+            [IO.File]::WriteAllText((Join-Path $dest ".pm-qa-board.json"), $manifest, (New-Object Text.UTF8Encoding($false)))
             Write-Host "  [installed    ] $dest" -ForegroundColor Green
         }
         $installed++

@@ -2,8 +2,8 @@
 name: pm-qa-setup
 description: Use when the user asks to set up, install, onboard, register, upgrade or check PM & QA Board in a project (or on this machine), or to clean up old skills. Inspects what the project and this machine already have, sets up desktop shortcuts and skills, says in plain words where each thing belongs, asks a few plain questions, and changes only what the user approves; never overwrites a user's rules or skills. Ends with a read-only doctor check.
 metadata:
-  version: 0.11.0
-  source: pm-qa-cockpit
+  version: 0.12.0
+  source: pm-qa-board
 ---
 
 # pm-qa-setup: guided install, upgrade and check of PM & QA Board
@@ -16,12 +16,24 @@ The CLI does the analysis; you present it in plain words and talk to the user. R
 **running copy**:
 
 ```
-CLI = uv run python ~/.pm-qa-board/app/board/cli.py      (Windows: $HOME\.pm-qa-board\app\board\cli.py, with ~/.pm-qa-cockpit fallback)
+CLI = uv run python ~/.pm-qa-board/app/board/cli.py      (Windows: $HOME\.pm-qa-board\app\board\cli.py, with ~/.pm-qa-board fallback)
 ```
 
 If the environment variable `PM_QA_USER_HOME` is set (a QA sandbox), read every `~` below as that
-folder. If `~/.pm-qa-board/app` (or `~/.pm-qa-cockpit/app`) does not exist, say so and offer to clone it (it appears as a
+folder. If `~/.pm-qa-board/app` (or `~/.pm-qa-board/app`) does not exist, say so and offer to clone it (it appears as a
 decision in the plan); don't run a dev clone instead.
+
+## 0. An install under the product's previous name
+
+`CLI setup-plan` reports `legacy_home`. When `needs_migration` is true (an old install folder exists and
+`~/.pm-qa-board/app` does not), stop and offer `CLI migrate-home` before anything else. Run it WITHOUT
+`--apply` first (use the CLI from wherever it is installed today; the old running copy has it after a
+`git pull`), and tell the user in plain words what it would do: which files are copied, each launcher or
+hook line it would change, which skills are converted or removed, any desktop shortcut. Run it with
+`--apply` only after they say yes (`--skip launchers,skills,...` leaves parts out). It never changes or
+deletes the old folder, because that folder holds the code that is running: tell the user to delete it
+themselves once the dashboard starts from `~/.pm-qa-board`. It refuses while a dashboard is running; ask
+them to close it. Do the normal setup after it finishes.
 
 ## 1. Plan (read-only)
 
@@ -41,7 +53,7 @@ Use `--json` to read the details. The plan carries:
   the internal action ids.
 - `actions` (the internal ids, files written, exact text added), `notes`, `mode`
   (`full`, or `register-only` when the project runs its **own loop**, e.g. `money-nest-orchestrate`:
-  then no cockpit skills go into the project. Re-plan with `--full` only if the user insists).
+  then no board skills go into the project. Re-plan with `--full` only if the user insists).
 
 ## 2. The first reply
 
@@ -57,7 +69,7 @@ In this order, in plain words:
 **Never show action ids (A1, A3 …) as the thing to decide.** They are for you: map each answer to its
 option's `approve` list. Show ids only if the user asks for them.
 For a launcher change, show the exact old and new line. For an edited skill, first show the diff
-between their copy and the shipped one (`git diff --no-index <theirs> ~/.pm-qa-cockpit/app/skills/<name>`).
+between their copy and the shipped one (`git diff --no-index <theirs> ~/.pm-qa-board/app/skills/<name>`).
 
 **The roster question** ("Who does each step: use the recommended roster?") appears only in full mode
 and only when a role has no agent yet. Show `roster_table` as one table per tool (role, model, effort,
@@ -134,18 +146,18 @@ loop (register-only).
 - **Generic skills** (`grill-me`, `grilling`): in the global folder of every tool the project uses.
   One found only in a project or another tool's folder is **copied**, never moved; the project copy
   stays (it is the project's, and teammates use it).
-- **Cockpit skills** (`pm-qa-cockpit`, `pm-orchestrate`, `pm-sync`, `pm-review`): in the project's own
+- **Board skills** (`pm-qa-board`, `pm-orchestrate`, `pm-sync`, `pm-review`): in the project's own
   skill folder (full mode) or nowhere (register-only). With external or stealth docs they are kept
   out of git via `.git/info/exclude` (exact paths only).
-- **`pm-qa-setup`**: the one global cockpit skill, reachable for every tool used.
-- **Old global copies** of the cockpit skills (installed before per-project skills): removed, but only
+- **`pm-qa-setup`**: the one global board skill, reachable for every tool used.
+- **Old global copies** of the board skills (installed before per-project skills): removed, but only
   copies provably ours and unedited (an exact past release counts); edited or uncertain ones are
   listed for the user and never deleted.
 - **Launchers** (`scripts/*.ps1`, root scripts, `package.json` scripts) call the running copy
-  `~/.pm-qa-cockpit/app` first; a fallback to the dev clone after it is fine. A launcher that
+  `~/.pm-qa-board/app` first; a fallback to the dev clone after it is fine. A launcher that
   prefers the dev clone gets an exact one-line fix, written only on approval.
 - **The user's own loop, rules files, hooks and orchestration**: stay. A rules file only ever gets a
-  short section appended between `<!-- pm-qa-cockpit:start/end -->` markers.
+  short section appended between `<!-- pm-qa-board:start/end -->` markers.
 
 Tools: Claude Code reads `~/.claude/skills` and the project's `.claude/skills`; Antigravity
 `~/.agents/skills` and `.agents/skills`; Cursor reads `~/.cursor/skills`, `~/.agents/skills` and
@@ -157,7 +169,7 @@ Tools: Claude Code reads `~/.claude/skills` and the project's `.claude/skills`; 
 `outdated` (ours and provably unedited, by install record or an exact past release: safe to upgrade
 on approval) · `edited` (ours but changed: keep / save the new one beside it / replace, see step 2) ·
 `foreign` (a same-named skill that isn't ours: never touched) · `missing`. Before upgrading, the
-running copy should be current: `git -C ~/.pm-qa-cockpit/app pull`.
+running copy should be current: `git -C ~/.pm-qa-board/app pull`.
 
 ## Rules
 - Propose, then apply on approval: every write, every time. The project's rules win on conflict, and

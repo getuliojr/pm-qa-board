@@ -1,8 +1,8 @@
 """
-onboarding.py - `cli.py init`: bring a project under PM & QA Cockpit (design R2-Q3).
+onboarding.py - `cli.py init`: bring a project under PM & QA Board (design R2-Q3).
 
 Report-first: without ``--apply`` nothing is written. With ``--apply`` it
-  * registers the project in ``~/.pm-qa-cockpit/projects.json`` (and makes it active),
+  * registers the project in ``~/.pm-qa-board/projects.json`` (and makes it active),
   * creates the docs layout (external docs are ``git init``-ed in their own folder),
   * writes ``ORCHESTRATION.md`` (the 7-step story loop) into the docs root if missing,
   * in stealth mode appends the in-repo PM paths to ``.git/info/exclude`` so nothing is committed.
@@ -33,7 +33,7 @@ STEALTH_PATTERNS = ("docs/cards/", "docs/reviews/", "docs/artifacts/", "PLAN.md"
 
 ORCHESTRATION_TEMPLATE = """# {name} — Story loop (PM & QA Board)
 
-Cards: `{cards}` with prefix `{prefix}-<story>`. Dashboard: `pm-qa-cockpit` on http://localhost:3333.
+Cards: `{cards}` with prefix `{prefix}-<story>`. Dashboard: `pm-qa-board` on http://localhost:3333.
 
 1. **Design before code** — run `grill-me`; persist each settled round under
    `### Grill in progress — Story <id>` in `PLAN.md`; close with a `## Story <id>` section
@@ -47,16 +47,16 @@ Cards: `{cards}` with prefix `{prefix}-<story>`. Dashboard: `pm-qa-cockpit` on h
 6. **Cold review** — a separate reviewer reads the diff from the start SHA (`pm-review`); up to 3
    rounds, fewer when nothing is worth another. Persist to `reviews/<PREFIX>-<story>-round-<n>.md`.
 7. **Close** — card to `qa`, write and commit the interactive Story Close-Out file
-   `artifacts/<PREFIX>-<story>-closeout.html` for **every** card (the Cockpit's Close-Out button
+   `artifacts/<PREFIX>-<story>-closeout.html` for **every** card (the Board's Close-Out button
    exists only when that file does; a page published elsewhere does not count), hand the user the
    Human QA steps. Only the user's
    confirmation sets `completed`. **Never push** — pushing is always the user's call.
 
-<!-- pm-qa-cockpit:roster:start -->
+<!-- pm-qa-board:roster:start -->
 ## Roster
 
 Who does each step. Not recorded yet: ask your agent to run `pm-qa-setup`, which fills this in.
-<!-- pm-qa-cockpit:roster:end -->
+<!-- pm-qa-board:roster:end -->
 """
 
 
@@ -108,7 +108,7 @@ def apply_stealth(code: Path, project: dict[str, Any]) -> list[str]:
         docs_rel = docs.relative_to(code).as_posix()
     # docs_path == code_path (bare root layout) leaves docs_rel "." — fall back to the known paths.
     wanted = [f"{docs_rel}/"] if docs_rel and docs_rel != "." else list(STEALTH_PATTERNS)
-    wanted.append(".pm-qa-cockpit/")
+    wanted.append(".pm-qa-board/")
     existing = _read(exclude).splitlines()
     added = [w for w in wanted if w not in existing]
     if added:

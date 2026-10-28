@@ -1,5 +1,5 @@
 """
-doctor.py - `cli.py doctor <project>`: is this project's cockpit setup correct? (Story 2.1, R2-Q7; Story 3)
+doctor.py - `cli.py doctor <project>`: is this project's board setup correct? (Story 2.1, R2-Q7; Story 3)
 
 Strictly read-only: no registry writes, no plan file, no exclude edits, no server, no network. Each of
 the 11 checks is pass / warn / fail with a one-line fix for anything that isn't a pass; any fail makes
@@ -17,6 +17,7 @@ import shutil
 import sys
 from typing import Any
 
+import migrate
 import projects
 import roster
 import setup_flow
@@ -49,7 +50,7 @@ def run(target: str) -> dict[str, Any]:
     docs = Path(project["docs_path"])
     checks: list[dict[str, Any]] = []
     run_copy = wiring.running_copy()
-    run_ok = (run_copy / "board" / "server.py").is_file() or (run_copy / "cockpit" / "server.py").is_file()
+    run_ok = (run_copy / "board" / "server.py").is_file()
     setup_cmd = "ask your agent to run pm-qa-setup in this project"
 
     # 1. registration + PM data layout
@@ -101,9 +102,18 @@ def run(target: str) -> dict[str, Any]:
                              + ("; dashboard.ps1 is in the running copy" if run_ok else "")))
 
     # 3. the running copy
+    legacy = migrate.legacy_state()
+    migrate_cmd = f"uv run python {setup_flow.TOOL_ROOT / 'board' / 'cli.py'} migrate-home"
     if not run_ok:
-        checks.append(_check(3, "Running copy", "fail", f"{run_copy} is missing",
-                             f"git clone https://github.com/getuliojr/pm-qa-cockpit {run_copy}"))
+        if legacy["old_home_exists"]:
+            checks.append(_check(3, "Running copy", "fail", f"{run_copy} is missing, but an install under the product's previous name was found",
+                                 f"{migrate_cmd} (shows the plan and changes nothing), then add --apply"))
+        else:
+            checks.append(_check(3, "Running copy", "fail", f"{run_copy} is missing",
+                                 f"git clone https://github.com/getuliojr/pm-qa-board {run_copy}"))
+    elif legacy["old_home_exists"]:
+        checks.append(_check(3, "Running copy", "warn", f"{run_copy} is in place, but the old install folder still exists",
+                             f"{migrate_cmd} shows what is left to move; once everything works, delete the old folder"))
     else:
         version = setup_flow.tool_version(run_copy)
         newer = [(p, setup_flow.tool_version(p)) for p in wiring.dev_clones()
@@ -119,13 +129,13 @@ def run(target: str) -> dict[str, Any]:
     launchers = [lw for lw in wiring.scan_launchers(code) if not (lw["kind"] == "orchestration" and lw["verdict"] == "ok")]
     bad_l = [lw for lw in launchers if lw["verdict"] != "ok"]
     if not launchers:
-        checks.append(_check(4, "Launchers call the running copy", "pass", "no launcher in this project calls the cockpit"))
+        checks.append(_check(4, "Launchers call the running copy", "pass", "no launcher in this project calls the board"))
     elif bad_l:
         how = {"dev-clone-first": "calls the dev clone first", "frozen": "calls a frozen in-repo copy",
                "missing": "calls the running copy, which isn't installed", "dev-clone-mentioned": "mentions a dev-clone path"}
         detail = "; ".join(f"{lw['file']} {how[lw['verdict']]}" for lw in bad_l)
         fix = (f"{setup_cmd} (it offers the exact line change)" if any(lw["edit"] for lw in bad_l)
-               else "make it look in $HOME/.pm-qa-cockpit/app first, with the others only as a fallback")
+               else "make it look in $HOME/.pm-qa-board/app first, with the others only as a fallback")
         checks.append(_check(4, "Launchers call the running copy", "warn", detail, fix))
     else:
         checks.append(_check(4, "Launchers call the running copy", "pass",
@@ -146,8 +156,8 @@ def run(target: str) -> dict[str, Any]:
     if loop:
         if installed:
             checks.append(_check(5, "Skills current", "warn",
-                                 f"own loop ({', '.join(Path(p).name for p in loop)}) and cockpit skills ({', '.join(installed)}) side by side",
-                                 "two loops confuse agents: keep one (remove the cockpit skills, or the own loop)"))
+                                 f"own loop ({', '.join(Path(p).name for p in loop)}) and board skills ({', '.join(installed)}) side by side",
+                                 "two loops confuse agents: keep one (remove the board skills, or the own loop)"))
         else:
             checks.append(_check(5, "Skills current", "pass",
                                  f"register-only: the project's own loop runs ({', '.join(Path(p).name for p in loop)})"))
@@ -163,7 +173,7 @@ def run(target: str) -> dict[str, Any]:
                                  f"{setup_cmd} (it upgrades unedited copies and asks about edited ones)"))
         else:
             checks.append(_check(5, "Skills current", "pass",
-                                 f"cockpit skills current ({setup_flow.tool_version()}) for {', '.join(labels.values())}"))
+                                 f"board skills current ({setup_flow.tool_version()}) for {', '.join(labels.values())}"))
 
     # 6. grill-me reachable for every tool used
     reach = {t: setup_flow.generic_reach(code, t) for t in tools}
@@ -208,11 +218,11 @@ def run(target: str) -> dict[str, Any]:
     hooks = wiring.scan_hooks(code)
     bad_h = [h for h in hooks if h["problem"]]
     if bad_h:
-        why = {"dev-clone": "calls the dev clone", "missing-path": "calls a cockpit path that doesn't exist"}
+        why = {"dev-clone": "calls the dev clone", "missing-path": "calls a board path that doesn't exist"}
         checks.append(_check(9, "Hooks", "warn", "; ".join(f"{h['file']} {h['event']} {why[h['problem']]}" for h in bad_h),
-                             "point the hook at ~/.pm-qa-cockpit/app (or the path that exists)"))
+                             "point the hook at ~/.pm-qa-board/app (or the path that exists)"))
     else:
-        checks.append(_check(9, "Hooks", "pass", f"{len(hooks)} hook command(s), none calls a missing cockpit path or the dev clone"
+        checks.append(_check(9, "Hooks", "pass", f"{len(hooks)} hook command(s), none calls a missing board path or the dev clone"
                              if hooks else "no hooks"))
 
     # 10. every loop role has an agent and a sound model pin per tool used (warn only: a model name never fails)
@@ -248,7 +258,7 @@ def run(target: str) -> dict[str, Any]:
     # 11. mobile network status and optional cloudflared presence (Story 3)
     lan_ip = getattr(sys.modules.get("server"), "get_lan_ip", wiring.get_lan_ip)()
     bin_name = "cloudflared.exe" if sys.platform == "win32" else "cloudflared"
-    custom_cf = projects.cockpit_home() / "bin" / bin_name
+    custom_cf = projects.board_home() / "bin" / bin_name
     cf_path = str(custom_cf) if custom_cf.is_file() else shutil.which("cloudflared")
     cf_detail = f"cloudflared installed ({cf_path})" if cf_path else "cloudflared not installed (optional for -Tunnel)"
 

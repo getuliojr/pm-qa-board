@@ -4,10 +4,10 @@ sandbox_fixture.py - The 2026-10-16 starting state of PQC-2.1's Human QA, rebuil
 A fake HOME and a money-nest-shaped project, as the machine looked before it was fixed by hand:
 
 * fake HOME
-  - ``~/.claude/skills``, ``~/.agents/skills``, ``~/.cursor/skills-cursor``: the four cockpit skills as
+  - ``~/.claude/skills``, ``~/.agents/skills``, ``~/.cursor/skills-cursor``: the four board skills as
     0.1.0 shipped them (no metadata block, no manifest) and ``pm-qa-setup`` 0.2.0;
   - grill-me / grilling **only** in ``~/.agents/skills`` (Antigravity), so Claude Code has none;
-  - ``~/.pm-qa-cockpit``: the registry (money-nest registered, heavy gates) and a running copy.
+  - ``~/.pm-qa-board``: the registry (money-nest registered, heavy gates) and a running copy.
 * project ``money-nest``: its own loop skills, grill-me / grilling in ``.claude/skills``, CLAUDE.md /
   AGENTS.md / GEMINI.md, ``.cursor`` and ``.agents``, a hook, cards in ``docs/cards`` and the
   ``scripts/pm.ps1`` launcher (running copy first; ``dev_first=True`` makes it prefer the dev clone).
@@ -23,8 +23,11 @@ import subprocess
 import time
 from pathlib import Path
 
+import migrate
+
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-COCKPIT_SKILLS = ("pm-qa-cockpit", "pm-orchestrate", "pm-sync", "pm-review")
+BOARD_SKILLS = ("pm-qa-board", "pm-orchestrate", "pm-sync", "pm-review")
+OLD_RELEASE_SKILLS = tuple(sorted(p.name for p in (FIXTURES / "skills-0.1.0").iterdir() if p.is_dir()))
 GLOBAL_DIRS = (".claude/skills", ".agents/skills", ".cursor/skills-cursor")
 
 GRILL_ME = "---\nname: grill-me\ndescription: Interview the user relentlessly about a plan or design.\n---\n\nAsk one question at a time.\n"
@@ -34,25 +37,25 @@ OWN_LOOP = "---\nname: {name}\ndescription: money-nest's own story loop step.\n-
 PM_PS1_RUNNING_FIRST = r"""#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Launches the PM & QA Cockpit on port 3333, opened on money-nest.
+    Launches the PM & QA Board on port 3333, opened on money-nest.
 
 .DESCRIPTION
-    Looks in order at $env:PM_QA_COCKPIT_REPO, the released running copy ~/.pm-qa-cockpit/app,
-    then the dev clone ..\pm-qa-cockpit, then the frozen tools\pm-dashboard copy.
+    Looks in order at $env:PM_QA_BOARD_REPO, the released running copy ~/.pm-qa-board/app,
+    then the dev clone ..\pm-qa-board, then the frozen tools\pm-dashboard copy.
 #>
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = Split-Path -Parent $ScriptDir
-# Prefer the stable running copy over the dev clone ..\pm-qa-cockpit
-$AppCopy = Join-Path $HOME ".pm-qa-cockpit\app"
-$CockpitRepo = if ($env:PM_QA_COCKPIT_REPO) { $env:PM_QA_COCKPIT_REPO }
-    elseif (Test-Path (Join-Path $AppCopy "cockpit\server.py")) { $AppCopy }
-    else { Join-Path (Split-Path -Parent $RootDir) "pm-qa-cockpit" }
-$CockpitServer = Join-Path $CockpitRepo "cockpit\server.py"
-if (Test-Path $CockpitServer) {
-    $ServerPath = $CockpitServer
-    $env:PM_QA_COCKPIT_PROJECT_ROOT = $RootDir
+# Prefer the stable running copy over the dev clone ..\pm-qa-board
+$AppCopy = Join-Path $HOME ".pm-qa-board\app"
+$BoardRepo = if ($env:PM_QA_BOARD_REPO) { $env:PM_QA_BOARD_REPO }
+    elseif (Test-Path (Join-Path $AppCopy "board\server.py")) { $AppCopy }
+    else { Join-Path (Split-Path -Parent $RootDir) "pm-qa-board" }
+$BoardServer = Join-Path $BoardRepo "board\server.py"
+if (Test-Path $BoardServer) {
+    $ServerPath = $BoardServer
+    $env:PM_QA_BOARD_PROJECT_ROOT = $RootDir
 } else {
     $ServerPath = Join-Path $RootDir "tools\pm-dashboard\server.py"
 }
@@ -61,9 +64,9 @@ Set-Location $RootDir
 """
 
 # The QA "broken launcher": the dev clone is tried before the running copy.
-DEV_FIRST_LINE = '$CockpitRepo = if (Test-Path "..\\pm-qa-cockpit\\cockpit\\server.py") { "..\\pm-qa-cockpit" }'
+DEV_FIRST_LINE = '$BoardRepo = if (Test-Path "..\\pm-qa-board\\board\\server.py") { "..\\pm-qa-board" }'
 PM_PS1_DEV_FIRST = PM_PS1_RUNNING_FIRST.replace(
-    "$CockpitRepo = if ($env:PM_QA_COCKPIT_REPO) { $env:PM_QA_COCKPIT_REPO }",
+    "$BoardRepo = if ($env:PM_QA_BOARD_REPO) { $env:PM_QA_BOARD_REPO }",
     DEV_FIRST_LINE,
 )
 
@@ -124,21 +127,24 @@ def _write(path: Path, text: str) -> None:
 
 def stub_running_copy(app: Path, version: str) -> None:
     """Just enough of a running copy for the checks (tests). The QA script clones the real one."""
-    _write(app / "cockpit" / "server.py", "# running copy stub\n")
+    _write(app / "board" / "server.py", "# running copy stub\n")
     _write(app / "dashboard.ps1", "# running copy stub\n")
     _write(app / "VERSION", version + "\n")
 
 
 def build(root: Path, *, dev_first: bool = False, running_copy: Path | None = None,
           version: str | None = None) -> dict[str, Path]:
-    """Create ``root/home`` and ``root/money-nest``. ``running_copy``: a cockpit checkout to clone
+    """Create ``root/home`` and ``root/money-nest``. ``running_copy``: a board checkout to clone
     into the fake HOME (the QA script passes the dev clone); default a stub at ``version``."""
     home, code = root / "home", root / "money-nest"
     for rel in GLOBAL_DIRS:
         d = home / rel
-        for s in COCKPIT_SKILLS:
+        for s in OLD_RELEASE_SKILLS:  # a machine that installed the 0.1.0 release: exactly the frozen folders
             shutil.copytree(FIXTURES / "skills-0.1.0" / s, d / s)
         shutil.copytree(FIXTURES / "skills-0.2.0" / "pm-qa-setup", d / "pm-qa-setup")
+        for skill in d.iterdir():  # ...after migrate-home converted their install manifests to the new name
+            if (skill / migrate.OLD_MANIFEST).is_file():
+                migrate._convert_manifest(skill)
     _write(home / ".agents" / "skills" / "grill-me" / "SKILL.md", GRILL_ME)
     _write(home / ".agents" / "skills" / "grilling" / "SKILL.md", GRILLING)
 
@@ -176,14 +182,14 @@ def build(root: Path, *, dev_first: bool = False, running_copy: Path | None = No
     _git(code, "add", "-A")
     _git(code, "commit", "-q", "-m", "money-nest-shaped sandbox")
 
-    cockpit = home / ".pm-qa-cockpit"
+    board = home / ".pm-qa-board"
     if running_copy is not None:
-        subprocess.run(["git", "clone", "-q", str(running_copy), str(cockpit / "app")], capture_output=True, check=True)
+        subprocess.run(["git", "clone", "-q", str(running_copy), str(board / "app")], capture_output=True, check=True)
     else:
-        stub_running_copy(cockpit / "app", version or "0.0.0")
+        stub_running_copy(board / "app", version or "0.0.0")
     code_s = str(code.resolve()).replace("\\", "/")
-    _write(cockpit / "projects.json", json.dumps({"active_project": "money-nest", "projects": {"money-nest": {
+    _write(board / "projects.json", json.dumps({"active_project": "money-nest", "projects": {"money-nest": {
         "name": "Money-Nest", "slug": "money-nest", "prefix": "MN", "code_path": code_s,
         "docs_path": code_s + "/docs", "docs_mode": "in-repo",
         "gates": {"mode": "heavy", "reason": "sandbox", "threshold_seconds": 360}}}}, indent=2) + "\n")
-    return {"home": home, "project": code, "cockpit_home": cockpit}
+    return {"home": home, "project": code, "board_home": board}

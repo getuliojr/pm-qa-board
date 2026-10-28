@@ -24,7 +24,7 @@ def sandbox(tmp_path, monkeypatch):
     def make(dev_first: bool = False) -> dict[str, Path]:
         paths = sandbox_fixture.build(tmp_path / "sbx", dev_first=dev_first, version=setup_flow.tool_version())
         monkeypatch.setenv("PM_QA_USER_HOME", str(paths["home"]))
-        monkeypatch.delenv("PM_QA_COCKPIT_HOME", raising=False)
+        monkeypatch.delenv("PM_QA_BOARD_HOME", raising=False)
         return paths
 
     return make
@@ -70,12 +70,14 @@ def test_older_shipped_pm_orchestrate_is_recognised_as_ours(sandbox):
     sb = sandbox()
     plan = setup_flow.build_plan(sb["project"])
     old = [i for g in plan["inventory"] if g["group"].startswith("Global folder")
-           for i in g["items"] if i["what"] == "Old cockpit skill pm-orchestrate"]
+           for i in g["items"] if i["what"] == "Old board skill pm-orchestrate"]
     assert len(old) == 3, "one per global folder"
     assert all(i["status"] == "change" and "release 0.1.0, unedited" in i["now"] and "safe to remove" in i["why"] for i in old)
     assert not [n for n in plan["notes"] if "not provably ours" in n or "edited" in n]
     (cleanup,) = [a for a in plan["actions"] if a["kind"] == "cleanup-global"]
-    assert len(cleanup["paths"]) == 12
+    # three project skills x three global folders; the old-named skill is no longer a project skill
+    # (migrate-home removes it)
+    assert len(cleanup["paths"]) == 9
     (st,) = [a for a in plan["actions"] if a["kind"] == "upgrade-bootstrap" and a["agent"] == "claude"]
     assert st["state"] == "outdated" and st["detail"].startswith("0.2.0 ->")
 
@@ -98,9 +100,9 @@ def test_dev_clone_first_launcher_is_flagged_and_fixed_by_one_exact_line(sandbox
     assert item["status"] == "change" and "dev clone first" in item["now"]
     (edit,) = [a for a in plan["actions"] if a["kind"] == "launcher-edit"]
     assert edit["edit"]["old"] == sandbox_fixture.DEV_FIRST_LINE
-    assert edit["edit"]["new"] == ('$CockpitRepo = if (Test-Path "$HOME\\.pm-qa-cockpit\\app\\cockpit\\server.py") '
-                                   '{ "$HOME\\.pm-qa-cockpit\\app" }')
-    assert "pm-qa-cockpit\\cockpit" in edit["preview"] and edit["preview"].startswith("- ")
+    assert edit["edit"]["new"] == ('$BoardRepo = if (Test-Path "$HOME\\.pm-qa-board\\app\\board\\server.py") '
+                                   '{ "$HOME\\.pm-qa-board\\app" }')
+    assert "pm-qa-board\\board" in edit["preview"] and edit["preview"].startswith("- ")
     (d,) = [d for d in plan["decisions"] if d["theme"] == "wiring"]
     assert edit["id"] in d["actions"]
 
@@ -115,7 +117,7 @@ def test_launcher_edit_rechecks_the_line_before_writing(sandbox):
     plan = setup_flow.build_plan(sb["project"])
     (edit,) = [a for a in plan["actions"] if a["kind"] == "launcher-edit"]
     pm = sb["project"] / "scripts" / "pm.ps1"
-    pm.write_text(pm.read_text(encoding="utf-8").replace('{ "..\\pm-qa-cockpit" }', '{ "..\\my-cockpit" }'), encoding="utf-8")
+    pm.write_text(pm.read_text(encoding="utf-8").replace('{ "..\\pm-qa-board" }', '{ "..\\my-board" }'), encoding="utf-8")
     changed = pm.read_bytes()
     with pytest.raises(ValueError, match="changed since the plan"):
         setup_flow.apply_actions(plan, [edit["id"]])
@@ -123,15 +125,15 @@ def test_launcher_edit_rechecks_the_line_before_writing(sandbox):
 
 
 def test_a_line_is_rewritten_whole_or_not_at_all():
-    line = '$x = if (Test-Path "..\\pm-qa-cockpit\\cockpit\\server.py") { Join-Path $Root "pm-qa-cockpit" }'
+    line = '$x = if (Test-Path "..\\pm-qa-board\\board\\server.py") { Join-Path $Root "pm-qa-board" }'
     refs = [r for r in wiring.classify_line(line) if r["kind"] == "dev"]
     assert len(refs) == 2 and refs[1]["segment"] is None  # the bare Join-Path name can't be rewritten
 
 
 def test_relative_path_in_join_path_or_single_quotes_is_not_rewritten():
-    joined = '$Dev = Join-Path $PSScriptRoot "..\\..\\pm-qa-cockpit"'
-    quoted = "$Dev = '..\\..\\pm-qa-cockpit\\cockpit'"
-    plain = '$Dev = "..\\..\\pm-qa-cockpit\\cockpit"'
+    joined = '$Dev = Join-Path $PSScriptRoot "..\\..\\pm-qa-board"'
+    quoted = "$Dev = '..\\..\\pm-qa-board\\board'"
+    plain = '$Dev = "..\\..\\pm-qa-board\\board"'
     for line, expect_rewrite in ((joined, False), (quoted, False), (plain, True)):
         refs = [r for r in wiring.classify_line(line) if r["kind"] == "dev" and r["segment"] is not None]
         assert refs, line
@@ -139,11 +141,11 @@ def test_relative_path_in_join_path_or_single_quotes_is_not_rewritten():
 
 
 def test_docs_folder_named_like_the_tool_is_not_a_dev_clone(tmp_path):
-    (tmp_path / "pm-qa-docs" / "pm-qa-cockpit").mkdir(parents=True)
+    (tmp_path / "pm-qa-docs" / "pm-qa-board").mkdir(parents=True)
     code = tmp_path / "tool"
     code.mkdir()
-    assert wiring.classify_line("see `../pm-qa-docs/pm-qa-cockpit/PLAN.md`", [code]) == []
-    assert wiring.classify_line('source = "pm-qa-cockpit"; version = 1') == []
+    assert wiring.classify_line("see `../pm-qa-docs/pm-qa-board/PLAN.md`", [code]) == []
+    assert wiring.classify_line('source = "pm-qa-board"; version = 1') == []
 
 
 # ---------------------------------------------------------------- decisions
@@ -168,7 +170,11 @@ def test_first_reply_decisions_are_plain_and_capped(sandbox):
 
 def test_an_edited_skill_gets_its_own_question(sandbox):
     sb = sandbox()
-    md = sb["home"] / ".claude" / "skills" / "pm-qa-setup" / "SKILL.md"
+    skill = sb["home"] / ".claude" / "skills" / "pm-qa-setup"
+    # installed by the tool (so it carries an install manifest), then edited by the user
+    (skill / setup_flow.MANIFEST).write_text(json.dumps({"source": setup_flow.SOURCE, "version": "0.2.0",
+                                                         "sha256": setup_flow.content_hash(skill)}), encoding="utf-8")
+    md = skill / "SKILL.md"
     md.write_text(md.read_text(encoding="utf-8") + "\nMy own rule.\n", encoding="utf-8")
     plan = setup_flow.build_plan(sb["project"])
     (d,) = [d for d in plan["decisions"] if d["theme"] == "edited"]
@@ -223,7 +229,7 @@ def test_doctor_flags_a_dev_clone_first_launcher(sandbox):
 
 def test_doctor_exits_1_on_a_fail(sandbox, capsys):
     sb = sandbox()
-    (sb["cockpit_home"] / "app" / "cockpit" / "server.py").unlink()
+    (sb["board_home"] / "app" / "board" / "server.py").unlink()
     assert cli.main(["doctor", str(sb["project"])]) == 1
     out = capsys.readouterr().out
     assert "[fail] 3. Running copy" in out and "fix: git clone" in out
@@ -252,7 +258,7 @@ def test_doctor_warns_on_a_hook_calling_the_dev_clone(sandbox):
     sb = sandbox()
     settings = sb["project"] / ".claude" / "settings.json"
     settings.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [
-        {"type": "command", "command": "uv run python C:/src/pm-qa-cockpit/cockpit/cli.py list"}]}]}}), encoding="utf-8")
+        {"type": "command", "command": "uv run python C:/src/pm-qa-board/board/cli.py list"}]}]}}), encoding="utf-8")
     (c9,) = [c for c in doctor.run(str(sb["project"]))["checks"] if c["n"] == 9]
     assert c9["status"] == "warn" and "dev clone" in c9["detail"]
 
@@ -271,9 +277,9 @@ def test_cursor_reads_the_claude_global_folder(tmp_path, monkeypatch):
 
 def test_doctor_and_wiring_support_board_directory(sandbox):
     sb = sandbox()
-    app = sb["cockpit_home"] / "app"
-    # Migrate stub running copy from cockpit/server.py to board/server.py
-    (app / "cockpit" / "server.py").unlink()
+    app = sb["board_home"] / "app"
+    # Migrate stub running copy from board/server.py to board/server.py
+    (app / "board" / "server.py").unlink()
     board_server = app / "board" / "server.py"
     board_server.parent.mkdir(parents=True, exist_ok=True)
     board_server.write_text("# running copy stub in board\n", encoding="utf-8")
@@ -304,10 +310,10 @@ def test_doctor_and_wiring_support_board_directory(sandbox):
     plan = setup_flow.build_plan(sb["project"])
     assert not any(a["id"] == "clone-running-copy" for a in plan.get("actions", []))
 
-    # Verify cockpit/ backward-compatibility shims exist and load
+    # Verify board/ backward-compatibility shims exist and load
     repo_root = Path(__file__).resolve().parent.parent
-    cli_shim = repo_root / "cockpit" / "cli.py"
-    server_shim = repo_root / "cockpit" / "server.py"
+    cli_shim = repo_root / "board" / "cli.py"
+    server_shim = repo_root / "board" / "server.py"
     assert cli_shim.is_file()
     assert server_shim.is_file()
     import importlib.util

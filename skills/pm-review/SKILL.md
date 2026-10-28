@@ -2,8 +2,8 @@
 name: pm-review
 description: Use when a story's build is committed and gates are green, to run the cold review gate before the card moves to qa. Defines the separate cold reviewer, diff-only rounds, the review file format and the qa transition.
 metadata:
-  version: 0.11.0
-  source: pm-qa-cockpit
+  version: 0.12.0
+  source: pm-qa-board
 ---
 
 # PM review - the cold gate

@@ -48,6 +48,23 @@
       "ebecc76b8bfe15ecc4a9fbaa02fd30ca69fe05ad8c0611f1fb142648ef2aaeed"
     ]
   },
+  "0.12.0": {
+    "pm-orchestrate": [
+      "e545ac7a0013f3e70eadd2a2e0707aeafa1808d70702c9dbf333732d4180a460"
+    ],
+    "pm-qa-board": [
+      "9420073dc2f3f8d02e185ad410d5f9439f858981fc8f1e6eff01b11b5163a0ac"
+    ],
+    "pm-qa-setup": [
+      "bc96cfb682f4b1f71e94e3923d2ba587d33ff18596a98512d4d91ca84810d3b8"
+    ],
+    "pm-review": [
+      "a3bdf8e5ac46aad0ae791801ab193645eb9f8193b04675d78313a725d7199664"
+    ],
+    "pm-sync": [
+      "89066ed32b5fb54409ff1eacab4b851c5551ffddcff2eea964525f49cf408bdb"
+    ]
+  },
   "0.2.0": {
     "pm-orchestrate": [
       "e93255cf27d1195a3b092961774fa62c6d6bccf35783fd52b7c21a83b83c8ade"

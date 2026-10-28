@@ -12,7 +12,7 @@
     Registered project slug to make active before launching.
 
 .PARAMETER Port
-    Port to listen on (sets PM_QA_COCKPIT_PORT). Default 3333.
+    Port to listen on (sets PM_QA_BOARD_PORT). Default 3333.
 
 .PARAMETER Mobile
     Enables mobile LAN access (binds to 0.0.0.0, enables keep-alive, prints LAN URL).
@@ -54,12 +54,12 @@ $RootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ServerPath = if (Test-Path (Join-Path $RootDir "board\server.py")) {
     Join-Path $RootDir "board\server.py"
 } else {
-    Join-Path $RootDir "cockpit\server.py"
+    Join-Path $RootDir "board\server.py"
 }
 $CliPath = if (Test-Path (Join-Path $RootDir "board\cli.py")) {
     Join-Path $RootDir "board\cli.py"
 } else {
-    Join-Path $RootDir "cockpit\cli.py"
+    Join-Path $RootDir "board\cli.py"
 }
 
 function Get-LanIPAddress {
@@ -90,7 +90,7 @@ function Get-CloudflaredPath {
     if ($cmd) {
         return $cmd.Source
     }
-    $localBin = Join-Path $env:USERPROFILE ".pm-qa-cockpit\bin\cloudflared.exe"
+    $localBin = Join-Path $env:USERPROFILE ".pm-qa-board\bin\cloudflared.exe"
     if (Test-Path $localBin) {
         return $localBin
     }
@@ -98,7 +98,7 @@ function Get-CloudflaredPath {
 }
 
 function Install-Cloudflared {
-    $binDir = Join-Path $env:USERPROFILE ".pm-qa-cockpit\bin"
+    $binDir = Join-Path $env:USERPROFILE ".pm-qa-board\bin"
     if (-not (Test-Path $binDir)) {
         New-Item -ItemType Directory -Path $binDir -Force | Out-Null
     }
@@ -176,24 +176,24 @@ if ($Tunnel) {
     if (-not $HostName) {
         $HostName = "0.0.0.0"
     }
-    $env:PM_QA_COCKPIT_KEEP_ALIVE = "1"
+    $env:PM_QA_BOARD_KEEP_ALIVE = "1"
 } elseif ($Mobile) {
     if (-not $HostName) {
         $HostName = "0.0.0.0"
     }
-    $env:PM_QA_COCKPIT_KEEP_ALIVE = "1"
-    $env:PM_QA_COCKPIT_TUNNEL_URL = ""
+    $env:PM_QA_BOARD_KEEP_ALIVE = "1"
+    $env:PM_QA_BOARD_TUNNEL_URL = ""
 } elseif ($Local) {
     if (-not $HostName) {
         $HostName = "127.0.0.1"
     }
-    $env:PM_QA_COCKPIT_KEEP_ALIVE = "0"
-    $env:PM_QA_COCKPIT_TUNNEL_URL = ""
+    $env:PM_QA_BOARD_KEEP_ALIVE = "0"
+    $env:PM_QA_BOARD_TUNNEL_URL = ""
 } else {
-    $env:PM_QA_COCKPIT_TUNNEL_URL = ""
+    $env:PM_QA_BOARD_TUNNEL_URL = ""
 }
 if ($HostName) {
-    $env:PM_QA_COCKPIT_HOST = $HostName
+    $env:PM_QA_BOARD_HOST = $HostName
 }
 
 # Terminate any orphaned/stale process on the port before starting tunnel or server
@@ -227,8 +227,8 @@ if ($Tunnel) {
     if (-not $Token) {
         $Token = [System.Guid]::NewGuid().ToString("N")
     }
-    $env:PM_QA_COCKPIT_TOKEN = $Token
-    $env:PM_QA_COCKPIT_KEEP_ALIVE = "1"
+    $env:PM_QA_BOARD_TOKEN = $Token
+    $env:PM_QA_BOARD_KEEP_ALIVE = "1"
 
     Write-Host "  [tunnel] Starting Cloudflare Quick Tunnel to port $Port..." -ForegroundColor Gray
     $tunnelLog = [System.IO.Path]::GetTempFileName()
@@ -261,14 +261,14 @@ if ($Tunnel) {
         }
     }
     if ($tunnelUrl) {
-        $env:PM_QA_COCKPIT_TUNNEL_URL = $tunnelUrl
+        $env:PM_QA_BOARD_TUNNEL_URL = $tunnelUrl
     } else {
         Write-Host "  [tunnel] Warning: Could not detect Cloudflare tunnel URL within 15 seconds." -ForegroundColor Yellow
     }
 }
 
 if ($Token) {
-    $env:PM_QA_COCKPIT_TOKEN = $Token
+    $env:PM_QA_BOARD_TOKEN = $Token
 }
 
 $lanIp = Get-LanIPAddress
@@ -286,7 +286,7 @@ if ($tunnelUrl) {
     $authSuffix = if ($Token) { "?token=$Token" } else { "" }
     Write-Host "  Public Tunnel:   ${tunnelUrl}${authSuffix}" -ForegroundColor Yellow
 }
-if ($env:PM_QA_COCKPIT_KEEP_ALIVE -eq "1") {
+if ($env:PM_QA_BOARD_KEEP_ALIVE -eq "1") {
     Write-Host "  Keep-Alive:      Active (Windows sleep prevented during session)" -ForegroundColor DarkCyan
 }
 if ($Token) {
@@ -295,7 +295,7 @@ if ($Token) {
 Write-Host "  Starting server and opening browser..." -ForegroundColor Gray
 Write-Host ""
 
-$env:PM_QA_COCKPIT_PORT = "$Port"
+$env:PM_QA_BOARD_PORT = "$Port"
 Set-Location $RootDir
 
 if ($Project) {

@@ -17,7 +17,7 @@ import pytest
 MONEY_NEST = Path(os.environ.get("MONEY_NEST_ROOT", Path(__file__).resolve().parents[2] / "money-nest"))
 pytestmark = pytest.mark.skipif(not (MONEY_NEST / "docs" / "cards").is_dir(), reason="money-nest checkout not found")
 
-os.environ.setdefault("PM_QA_COCKPIT_PROJECT_ROOT", str(MONEY_NEST))
+os.environ.setdefault("PM_QA_BOARD_PROJECT_ROOT", str(MONEY_NEST))
 import projects  # noqa: E402
 import server as srv  # noqa: E402
 from server import PMRequestHandler  # noqa: E402

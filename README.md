@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.11.0-emerald.svg" alt="Version 0.11.0" />
+  <img src="https://img.shields.io/badge/version-0.12.0-emerald.svg" alt="Version 0.12.0" />
   <img src="https://img.shields.io/badge/runtime-Python%20std%20lib-blue.svg" alt="Zero Dependencies" />
   <img src="https://img.shields.io/badge/python-%3E%3D3.12-blue.svg" alt="Python 3.12+" />
   <img src="https://img.shields.io/badge/storage-pure%20markdown-orange.svg" alt="Pure Markdown Storage" />
@@ -20,7 +20,7 @@
 
 **PM & QA Board** transforms agent-driven development into a structured, verifiable, and audit-proof workflow. Instead of losing context in long chat sessions, all engineering work is tracked on disk as **stories**: structured Markdown cards with unambiguous Definitions of Done (DoD), cold-review verdicts, automated test gates, and interactive Human QA sign-off artifacts.
 
-There is **no database**, **no external cloud service**, and **no sync drift**. The dashboard reads and writes Markdown files directly on your local filesystem. Combined with an agent skill suite (`pm-orchestrate`, `pm-qa-setup`, `pm-review`, `pm-sync`, `pm-qa-cockpit`), it gives you and your AI coding partners a shared, repeatable loop from design interview through final QA sign-off.
+There is **no database**, **no external cloud service**, and **no sync drift**. The dashboard reads and writes Markdown files directly on your local filesystem. Combined with an agent skill suite (`pm-orchestrate`, `pm-qa-setup`, `pm-review`, `pm-sync`, `pm-qa-board`), it gives you and your AI coding partners a shared, repeatable loop from design interview through final QA sign-off.
 
 > **Zero-surprises guarantee:** The tool never pushes to Git without your explicit confirmation, never overwrites your project's custom rules or instructions without approval, and keeps your private project data completely decoupled from public code repositories.
 
@@ -112,7 +112,7 @@ Take your QA testing anywhere on your local Wi-Fi or on the go via secure Cloudf
 - **Web Audio Chimes & Push Notifications:** Built-in Web Audio synth engine announces QA transitions with pleasant audio cues. Includes optional cellular push notifications via [ntfy.sh](https://ntfy.sh).
 
 ### 2. ⚡ Live Data & Real-Time Agent Reactivity
-- **Zero Polling Lag / File Watcher:** The cockpit monitors your project's story files on disk in real time. When an agent updates a DoD criterion or creates a card, the UI updates reactively.
+- **Zero Polling Lag / File Watcher:** The board monitors your project's story files on disk in real time. When an agent updates a DoD criterion or creates a card, the UI updates reactively.
 - **Active Work Streams & Live DoD:** The **Active Work & DoD** view shows real-time concurrent development lanes, active builder agents, and granular completion percentages for work in progress.
 - **Active Grill Lane:** Automatically detects active design interviews or RFC discussions (`grill-me` skill), giving you early visibility into requirements refinement before any code is committed.
 - **Real-Time Telemetry:** Instant counters for cards awaiting QA, total cards, test execution durations, and gate health.
@@ -130,7 +130,7 @@ Take your QA testing anywhere on your local Wi-Fi or on the go via secure Cloudf
 - **Disk is the Source of Truth:** All project status is stored in clean, human-readable Markdown files. You can edit cards in VS Code, Obsidian, Neovim, or Notepad; the board reflects edits instantly.
 - **In-Repo vs. External Private Docs:**
   - **In-repo mode:** PM files live under `<project_root>/docs/`.
-  - **External docs mode (`--docs-path`):** PM files live in a separate, private repository (e.g., `../pm-qa-docs/<slug>/`). Keeps sensitive roadmap data, internal reviews, and business context out of public open-source repos. Optional `--stealth` flag automatically keeps local cockpit helper files excluded via `.git/info/exclude`.
+  - **External docs mode (`--docs-path`):** PM files live in a separate, private repository (e.g., `../pm-qa-docs/<slug>/`). Keeps sensitive roadmap data, internal reviews, and business context out of public open-source repos. Optional `--stealth` flag automatically keeps local board helper files excluded via `.git/info/exclude`.
 
 ### 5. 🤖 Multi-Agent Ecosystem Parity (Claude Code, OpenAI Codex, Antigravity, Cursor)
 PM & QA Board provides first-class support for the leading autonomous AI coding agent tools, with automatic detection, non-destructive instruction wiring, and specialized multi-agent model rosters:
@@ -173,13 +173,13 @@ Clone the repository into your user directory and run the non-destructive bootst
 
 ```powershell
 # 1. Clone the running copy to your user profile
-git clone https://github.com/getuliojr/pm-qa-board $HOME\.pm-qa-cockpit\app
+git clone https://github.com/getuliojr/pm-qa-board $HOME\.pm-qa-board\app
 
 # 2. Preview what the installer will do (Dry Run)
-powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1 -DryRun
+powershell -NoProfile -File $HOME\.pm-qa-board\app\install.ps1 -DryRun
 
 # 3. Install the bootstrap skill (installs only pm-qa-setup; never overwrites existing skills)
-powershell -NoProfile -File $HOME\.pm-qa-cockpit\app\install.ps1
+powershell -NoProfile -File $HOME\.pm-qa-board\app\install.ps1
 ```
 
 ---
@@ -205,16 +205,16 @@ Launch the web dashboard by double-clicking the **PM & QA Board** shortcut on yo
 
 ```powershell
 # Standard local desktop launch (http://localhost:3333)
-powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1
+powershell -File $HOME\.pm-qa-board\app\dashboard.ps1
 
 # Launch with mobile LAN Wi-Fi pairing enabled
-powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 -Mobile
+powershell -File $HOME\.pm-qa-board\app\dashboard.ps1 -Mobile
 
 # Launch with public Cloudflare Quick Tunnel (with secure session token)
-powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 -Public
+powershell -File $HOME\.pm-qa-board\app\dashboard.ps1 -Public
 
 # Launch and select a specific registered project
-powershell -File $HOME\.pm-qa-cockpit\app\dashboard.ps1 -Project my-app -Port 3333
+powershell -File $HOME\.pm-qa-board\app\dashboard.ps1 -Project my-app -Port 3333
 ```
 
 ---
@@ -225,17 +225,17 @@ To ensure that in-development changes never destabilize active client projects, 
 
 | Layer | Location | Purpose & Sync |
 |---|---|---|
-| **Dev Clone** | Your local git clone of this repository | Where you develop and test new cockpit features on local branches. |
-| **Running Copy** | `~/.pm-qa-cockpit/app` | Stable copy cloned from `main` that projects use to serve the dashboard. Updated via `git pull`. |
+| **Dev Clone** | Your local git clone of this repository | Where you develop and test new board features on local branches. |
+| **Running Copy** | `~/.pm-qa-board/app` | Stable copy cloned from `main` that projects use to serve the dashboard. Updated via `git pull`. |
 | **PM Data** | `<project>/docs` or `pm-qa-docs/<slug>/` | Project story cards, acceptance criteria, reviews, and close-out artifacts. |
-| **Registry** | `~/.pm-qa-cockpit/projects.json` | Local per-machine configuration linking project slugs, paths, gate profiles, and notification preferences. |
+| **Registry** | `~/.pm-qa-board/projects.json` | Local per-machine configuration linking project slugs, paths, gate profiles, and notification preferences. |
 | **Agent Skills** | `.claude/skills`, `.agents/skills` (Antigravity & Codex), `~/.cursor/skills-cursor` | Modular prompt skills providing the 7-step story workflow to AI agents. |
 
 ---
 
 ## The 7-Step Story Working Loop
 
-Every feature or bugfix built under the PM & QA Cockpit framework follows the standard story loop (`skills/pm-orchestrate/SKILL.md`):
+Every feature or bugfix built under the PM & QA Board framework follows the standard story loop (`skills/pm-orchestrate/SKILL.md`):
 
 ```
        [ 1. Grill-Me ]           --> Clarify requirements, edge cases & scope
@@ -297,7 +297,7 @@ Clear user intent and functional scope.
 
 A project can show extra values from card frontmatter (for example an external ticket key or an iteration
 number) as pills on the board, optionally as links, and filter the pipeline board by them. Declare them in the
-project's registry entry in `~/.pm-qa-cockpit/projects.json`:
+project's registry entry in `~/.pm-qa-board/projects.json`:
 
 ```json
 "extra_tags": [

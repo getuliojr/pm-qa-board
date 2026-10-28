@@ -153,7 +153,7 @@ class PMParser:
                     base = slug or projects.slugify(self.docs_path.name or self.root_dir.name or "project")
                     digest = hashlib.sha1(str(self.docs_path).lower().encode("utf-8")).hexdigest()[:8]
                     slug = f"{base}-{digest}"
-                db_path = projects.cockpit_home() / "cache" / f"{slug}.db"
+                db_path = projects.board_home() / "cache" / f"{slug}.db"
                 self._index = CardIndex(db_path)
             except Exception:
                 self._index = None
@@ -3045,7 +3045,7 @@ class PMParser:
                 self.project.get("slug") == "money-nest"
                 or self.project.get("prefix") == "MN"
                 or self.root_dir.name.lower() == "money-nest"
-                or (self.prefix == "MN" and "pm-qa-cockpit" not in str(self.root_dir).lower() and "pm-qa-cockpit" not in str(self.docs_path).lower())
+                or (self.prefix == "MN" and "pm-qa-board" not in str(self.root_dir).lower() and "pm-qa-board" not in str(self.docs_path).lower())
             )
             if is_legacy_money_nest and is_sprint_15_7_or_earlier(s_num):
                 verified = True

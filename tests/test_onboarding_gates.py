@@ -18,7 +18,7 @@ def _init_args(code, **kw):
     return argparse.Namespace(**base)
 
 
-def test_init_report_only_writes_nothing(cockpit_home, external_project, capsys):
+def test_init_report_only_writes_nothing(board_home, external_project, capsys):
     code, docs = external_project
     assert onboarding.cmd_init(_init_args(code, docs_path=str(docs))) == 0
     out = capsys.readouterr().out
@@ -27,7 +27,7 @@ def test_init_report_only_writes_nothing(cockpit_home, external_project, capsys)
     assert not projects.registry_path().exists()
 
 
-def test_init_apply_external_keeps_code_repo_clean(cockpit_home, external_project):
+def test_init_apply_external_keeps_code_repo_clean(board_home, external_project):
     code, docs = external_project
     assert onboarding.cmd_init(_init_args(code, docs_path=str(docs), apply=True)) == 0
     assert (docs / "ORCHESTRATION.md").is_file() and (docs / ".git").is_dir()
@@ -36,7 +36,7 @@ def test_init_apply_external_keeps_code_repo_clean(cockpit_home, external_projec
     assert projects.get_active_project()["slug"] == "story-app"
 
 
-def test_init_stealth_in_repo_excludes_docs(cockpit_home, external_project):
+def test_init_stealth_in_repo_excludes_docs(board_home, external_project):
     code, _ = external_project
     (code / ".claude").mkdir()
     (code / ".claude" / "settings.json").write_text(
@@ -94,7 +94,7 @@ def test_measure_stops_at_threshold(tmp_path):
     assert slow["timed_out"]
 
 
-def test_heavy_script_goes_to_docs_for_external(cockpit_home, external_project):
+def test_heavy_script_goes_to_docs_for_external(board_home, external_project):
     code, docs = external_project
     project = projects.build_project("Story App", code, prefix="APP", docs_path=docs)
     gates = gate_profiler.decide(
@@ -108,7 +108,7 @@ def test_heavy_script_goes_to_docs_for_external(cockpit_home, external_project):
     assert git(code, "status", "--porcelain") == ""
 
 
-def test_reprofile_keeps_existing_heavy_script(cockpit_home, external_project, monkeypatch):
+def test_reprofile_keeps_existing_heavy_script(board_home, external_project, monkeypatch):
     """Review round 1 #2: a second `profile-gates --apply` must not drop heavy_script."""
     code, docs = external_project
     project = projects.build_project("Story App", code, prefix="APP", docs_path=docs)

@@ -18,7 +18,7 @@ import setup_flow
 def _ps_style_install(src, dest, version="0.1.0", bom=True, sha=None):
     """What an older install.ps1 left behind: a copy plus a manifest (BOM, maybe no sha256)."""
     shutil.copytree(src, dest)
-    manifest = {"source": "pm-qa-cockpit", "version": version}
+    manifest = {"source": "pm-qa-board", "version": version}
     if sha:
         manifest["sha256"] = sha
     data = json.dumps(manifest).encode("utf-8")
@@ -56,16 +56,16 @@ def test_pointer_append_keeps_every_existing_byte(tmp_path, eol):
     f = tmp_path / "CLAUDE.md"
     original = b"# Rules" + eol + eol + b"Keep it short." + eol
     f.write_bytes(original)
-    setup_flow.append_bytes(f, "<!-- pm-qa-cockpit:start -->\nnote\n<!-- pm-qa-cockpit:end -->\n")
+    setup_flow.append_bytes(f, "<!-- pm-qa-board:start -->\nnote\n<!-- pm-qa-board:end -->\n")
     data = f.read_bytes()
     assert data.startswith(original)
     tail = data[len(original):]
-    assert tail == eol + b"<!-- pm-qa-cockpit:start -->" + eol + b"note" + eol + b"<!-- pm-qa-cockpit:end -->" + eol
+    assert tail == eol + b"<!-- pm-qa-board:start -->" + eol + b"note" + eol + b"<!-- pm-qa-board:end -->" + eol
     if eol == b"\n":
         assert b"\r" not in data
 
 
-def test_non_utf8_target_fails_before_anything_is_written(cockpit_home, fake_globals, tmp_path):  # noqa: F811
+def test_non_utf8_target_fails_before_anything_is_written(board_home, fake_globals, tmp_path):  # noqa: F811
     """#2b: a cp1252 CLAUDE.md must not leave a half-applied setup."""
     code = init_repo(tmp_path / "app")
     (code / ".claude").mkdir()
@@ -77,7 +77,7 @@ def test_non_utf8_target_fails_before_anything_is_written(cockpit_home, fake_glo
     assert not (code / ".claude" / "skills").exists()
 
 
-def test_guard_catches_changed_paths_under_a_constant_title(cockpit_home, fake_globals, tmp_path, capsys):  # noqa: F811
+def test_guard_catches_changed_paths_under_a_constant_title(board_home, fake_globals, tmp_path, capsys):  # noqa: F811
     """#3: cleanup's title never changes; a new global folder must still block the apply."""
     code = init_repo(tmp_path / "p")
     shutil.copytree(SKILLS / "pm-sync", fake_globals["claude"] / "pm-sync")
@@ -90,7 +90,7 @@ def test_guard_catches_changed_paths_under_a_constant_title(cockpit_home, fake_g
     assert (fake_globals["claude"] / "pm-sync").exists() and (fake_globals["antigravity"] / "pm-review").exists()
 
 
-def test_cleanup_never_deletes_edited_or_uncertain_copies(cockpit_home, fake_globals, tmp_path):  # noqa: F811
+def test_cleanup_never_deletes_edited_or_uncertain_copies(board_home, fake_globals, tmp_path):  # noqa: F811
     """#4: only provably ours + unedited copies are offered; the rest become notes."""
     code = init_repo(tmp_path / "p")
     edited = fake_globals["claude"] / "pm-sync"
@@ -98,7 +98,7 @@ def test_cleanup_never_deletes_edited_or_uncertain_copies(cockpit_home, fake_glo
     (edited / "SKILL.md").write_text((edited / "SKILL.md").read_text(encoding="utf-8") + "\nMine\n", encoding="utf-8")
     maybe = fake_globals["claude"] / "pm-review"
     maybe.mkdir()
-    (maybe / "SKILL.md").write_text("---\nname: pm-review\n---\nMy review flow for the cockpit.\n", encoding="utf-8")
+    (maybe / "SKILL.md").write_text("---\nname: pm-review\n---\nMy review flow for PM & QA Board.\n", encoding="utf-8")
     ok = fake_globals["antigravity"] / "pm-orchestrate"
     setup_flow.install_skill(SKILLS / "pm-orchestrate", ok)
 
@@ -109,7 +109,7 @@ def test_cleanup_never_deletes_edited_or_uncertain_copies(cockpit_home, fake_glo
     assert any(str(maybe) in n and "not provably ours" in n for n in plan["notes"])
 
 
-def test_cleanup_names_projects_still_relying_on_globals(cockpit_home, fake_globals, tmp_path):  # noqa: F811
+def test_cleanup_names_projects_still_relying_on_globals(board_home, fake_globals, tmp_path):  # noqa: F811
     other = init_repo(tmp_path / "other")
     projects.upsert_project(projects.build_project("Other", other, prefix="OTH"))
     setup_flow.install_skill(SKILLS / "pm-sync", fake_globals["claude"] / "pm-sync")
@@ -118,7 +118,7 @@ def test_cleanup_names_projects_still_relying_on_globals(cockpit_home, fake_glob
     assert "other" in cleanup["detail"]
 
 
-def test_per_action_conflict_choice(cockpit_home, fake_globals, tmp_path, capsys):  # noqa: F811
+def test_per_action_conflict_choice(board_home, fake_globals, tmp_path, capsys):  # noqa: F811
     """#5: keep one edited skill and replace another in the same apply."""
     code = init_repo(tmp_path / "app")
     sk = code / ".claude" / "skills"
@@ -134,7 +134,7 @@ def test_per_action_conflict_choice(cockpit_home, fake_globals, tmp_path, capsys
     assert cli.main(["setup-apply", str(code), "A1=bogus"]) == 1
 
 
-def test_cursor_only_project_gets_claude_skills_folder(cockpit_home, fake_globals, tmp_path):  # noqa: F811
+def test_cursor_only_project_gets_claude_skills_folder(board_home, fake_globals, tmp_path):  # noqa: F811
     """#7: Cursor reads .claude/skills; a Cursor-only project must not end up with no skills."""
     code = init_repo(tmp_path / "c")
     (code / ".cursor").mkdir()
@@ -144,14 +144,14 @@ def test_cursor_only_project_gets_claude_skills_folder(cockpit_home, fake_global
     assert [a["file"] for a in plan["actions"] if a["kind"] == "pointer"] == ["AGENTS.md"]
 
 
-def test_profile_gates_command_names_the_project(cockpit_home, fake_globals, tmp_path):  # noqa: F811
+def test_profile_gates_command_names_the_project(board_home, fake_globals, tmp_path):  # noqa: F811
     """#8"""
     plan = setup_flow.build_plan(init_repo(tmp_path / "g"), name="G", prefix="GG")
     (prof,) = [a for a in plan["actions"] if a["kind"] == "profile-gates"]
     assert "--project g " in prof["detail"]
 
 
-def test_full_flag_overrides_register_only(cockpit_home, fake_globals, tmp_path):  # noqa: F811
+def test_full_flag_overrides_register_only(board_home, fake_globals, tmp_path):  # noqa: F811
     """#9"""
     code = init_repo(tmp_path / "mn")
     (code / ".claude" / "skills" / "x-orchestrate").mkdir(parents=True)
@@ -161,7 +161,7 @@ def test_full_flag_overrides_register_only(cockpit_home, fake_globals, tmp_path)
     assert forced["mode"] == "full" and any(a["kind"] == "install-skill" for a in forced["actions"])
 
 
-def test_exclude_works_in_a_worktree(cockpit_home, fake_globals, tmp_path):  # noqa: F811
+def test_exclude_works_in_a_worktree(board_home, fake_globals, tmp_path):  # noqa: F811
     """#11: .git may be a file; the exclude goes to the right info/exclude."""
     from conftest import git
 

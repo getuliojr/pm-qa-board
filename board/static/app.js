@@ -1,10 +1,10 @@
-// app.js - Controller for PM & QA Cockpit
+// app.js - Controller for PM & QA Board
 
 // Session token handling for remote/tunnel connections
 (function initTokenAuth() {
   function getStoredToken() {
     try {
-      return sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
+      return sessionStorage.getItem('board_token') || localStorage.getItem('board_token') || '';
     } catch (_) {
       return '';
     }
@@ -12,13 +12,13 @@
 
   function setStoredToken(t) {
     if (!t) return;
-    try { sessionStorage.setItem('cockpit_token', t); } catch (_) {}
-    try { localStorage.setItem('cockpit_token', t); } catch (_) {}
+    try { sessionStorage.setItem('board_token', t); } catch (_) {}
+    try { localStorage.setItem('board_token', t); } catch (_) {}
   }
 
   // Also check if document.cookie contains token
   try {
-    const match = document.cookie.match(/(?:^|;\s*)cockpit_token=([^;]+)/);
+    const match = document.cookie.match(/(?:^|;\s*)board_token=([^;]+)/);
     if (match && match[1]) {
       setStoredToken(decodeURIComponent(match[1]));
     }
@@ -51,11 +51,11 @@
           }
         } catch (_) {}
       }
-      // 2. Also send X-Cockpit-Token and Authorization headers
+      // 2. Also send X-Board-Token and Authorization headers
       options = options || {};
       const headers = new Headers(options.headers || {});
-      if (!headers.has('X-Cockpit-Token')) {
-        headers.set('X-Cockpit-Token', token);
+      if (!headers.has('X-Board-Token')) {
+        headers.set('X-Board-Token', token);
       }
       if (!headers.has('Authorization')) {
         headers.set('Authorization', 'Bearer ' + token);
@@ -5776,7 +5776,7 @@ function initProjectUi() {
     if (prefix) prefix.addEventListener('input', () => { prefix.value = prefix.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
   }
 
-  // The close-out artifact asks the cockpit to refresh after a QA checkbox / validate.
+  // The close-out artifact asks the board to refresh after a QA checkbox / validate.
   window.addEventListener('message', (e) => {
     if (e.origin === location.origin && e.data && e.data.type === 'pmqa:refresh') fetchAll();
   });
@@ -6374,7 +6374,7 @@ function switchConnectionPath(mode) {
   }
 
   // Derive target URL
-  const storedToken = sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
+  const storedToken = sessionStorage.getItem('board_token') || localStorage.getItem('board_token') || '';
   const token = info.token || storedToken || '';
   let mobileUrl = '';
   if (activeMode === 'tunnel') {
@@ -6425,11 +6425,11 @@ async function openMobileConnectModal() {
   try {
     const freshInfo = await fetchServerInfo(true);
     if (freshInfo) {
-      const storedToken = sessionStorage.getItem('cockpit_token') || localStorage.getItem('cockpit_token') || '';
+      const storedToken = sessionStorage.getItem('board_token') || localStorage.getItem('board_token') || '';
       const token = freshInfo.token || storedToken || '';
       if (token) {
-        try { sessionStorage.setItem('cockpit_token', token); } catch (_) {}
-        try { localStorage.setItem('cockpit_token', token); } catch (_) {}
+        try { sessionStorage.setItem('board_token', token); } catch (_) {}
+        try { localStorage.setItem('board_token', token); } catch (_) {}
       }
       const savedPath = localStorage.getItem('pmqa_connection_path');
       const defaultMode = (freshInfo.tunnel_url && savedPath !== 'lan') ? 'tunnel' : (freshInfo.tunnel_url ? savedPath : 'lan');

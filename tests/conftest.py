@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 BOARD = Path(__file__).resolve().parent.parent / "board"
-COCKPIT = BOARD
+BOARD = BOARD
 sys.path.insert(0, str(BOARD))
 
 
@@ -128,9 +128,9 @@ STORY_PLAN = textwrap.dedent(
 
 
 @pytest.fixture(autouse=True)
-def cockpit_home(tmp_path, monkeypatch):
-    home = tmp_path / "cockpit-home"
-    monkeypatch.setenv("PM_QA_COCKPIT_HOME", str(home))
+def board_home(tmp_path, monkeypatch):
+    home = tmp_path / "board-home"
+    monkeypatch.setenv("PM_QA_BOARD_HOME", str(home))
     return home
 
 

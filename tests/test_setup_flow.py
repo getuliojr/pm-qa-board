@@ -52,7 +52,7 @@ def test_every_shipped_skill_carries_version_and_source():
     version = setup_flow.tool_version()
     for d in (p for p in SKILLS.iterdir() if p.is_dir()):
         meta = setup_flow.skill_metadata(d / "SKILL.md")
-        assert meta == {"version": version, "source": "pm-qa-cockpit"}, d.name
+        assert meta == {"version": version, "source": "pm-qa-board"}, d.name
 
 
 def test_edited_and_foreign_are_never_overwritten(tmp_path):
@@ -94,7 +94,7 @@ def test_unedited_older_version_is_outdated_and_upgrades(tmp_path):
 # ---------------------------------------------------------------- plans
 
 
-def test_money_nest_shaped_project_is_register_only(cockpit_home, fake_globals, tmp_path):
+def test_money_nest_shaped_project_is_register_only(board_home, fake_globals, tmp_path):
     code = init_repo(tmp_path / "mn")
     (code / ".claude" / "skills" / "mn-orchestrate").mkdir(parents=True)
     (code / ".claude" / "skills" / "mn-orchestrate" / "SKILL.md").write_text("x", encoding="utf-8")
@@ -110,7 +110,7 @@ def test_money_nest_shaped_project_is_register_only(cockpit_home, fake_globals, 
     assert "This file's rules always win" in pointers[0]["preview"]
 
 
-def test_full_setup_applies_only_approved_and_keeps_user_text(cockpit_home, fake_globals, tmp_path):
+def test_full_setup_applies_only_approved_and_keeps_user_text(board_home, fake_globals, tmp_path):
     code = init_repo(tmp_path / "app")
     (code / ".claude").mkdir()
     (code / ".cursor").mkdir()
@@ -127,7 +127,7 @@ def test_full_setup_applies_only_approved_and_keeps_user_text(cockpit_home, fake
     (exclude,) = by_kind["exclude"]
     (ros,) = by_kind["roster"]
     assert exclude["paths"] == sorted(
-        [f".claude/skills/{s}/" for s in setup_flow.PROJECT_SKILLS] + [".claude/skills/.pm-qa-cockpit-new/"]
+        [f".claude/skills/{s}/" for s in setup_flow.PROJECT_SKILLS] + [".claude/skills/.pm-qa-board-new/"]
         + [f["path"] for f in ros["files"]]
     )
 
@@ -149,14 +149,14 @@ def test_full_setup_applies_only_approved_and_keeps_user_text(cockpit_home, fake
     assert not [a for a in again["actions"] if a["kind"] in ("install-skill", "exclude")]
 
 
-def test_legacy_global_copies_offered_for_cleanup(cockpit_home, fake_globals, tmp_path):
+def test_legacy_global_copies_offered_for_cleanup(board_home, fake_globals, tmp_path):
     code = init_repo(tmp_path / "p")
     legacy = fake_globals["claude"] / "pm-sync"
     shutil.copytree(SKILLS / "pm-sync", legacy)
     md = legacy / "SKILL.md"  # a pre-versioning copy: no metadata block
     import re
 
-    stripped = re.sub(r"metadata:\n  version: [^\n]+\n  source: pm-qa-cockpit\n", "", md.read_text(encoding="utf-8"))
+    stripped = re.sub(r"metadata:\n  version: [^\n]+\n  source: pm-qa-board\n", "", md.read_text(encoding="utf-8"))
     assert "metadata:" not in stripped
     md.write_text(stripped, encoding="utf-8")
     (fake_globals["claude"] / "pm-review").mkdir()
@@ -169,22 +169,22 @@ def test_legacy_global_copies_offered_for_cleanup(cockpit_home, fake_globals, tm
     assert (fake_globals["claude"] / "grill-me").exists()
 
 
-def test_setup_apply_refuses_when_plan_changed(cockpit_home, fake_globals, tmp_path, capsys):
+def test_setup_apply_refuses_when_plan_changed(board_home, fake_globals, tmp_path, capsys):
     code = init_repo(tmp_path / "app")
     (code / ".claude").mkdir()
     assert cli.main(["setup-plan", str(code), "--name", "App", "--prefix", "APP"]) == 0
     first = json.loads(cli._plan_file(str(code)).read_text(encoding="utf-8"))
     first_skill = next(a for a in first["actions"] if a["kind"] == "install-skill")
-    # the project changes between "show" and "apply": the user writes their own pm-qa-cockpit skill
-    own = code / ".claude" / "skills" / "pm-qa-cockpit"
+    # the project changes between "show" and "apply": the user writes their own pm-qa-board skill
+    own = code / ".claude" / "skills" / "pm-qa-board"
     own.mkdir(parents=True)
-    (own / "SKILL.md").write_text("---\nname: pm-qa-cockpit\n---\nmine\n", encoding="utf-8")
+    (own / "SKILL.md").write_text("---\nname: pm-qa-board\n---\nmine\n", encoding="utf-8")
     assert cli.main(["setup-apply", str(code), first_skill["id"]]) == 1
     assert "plan changed" in capsys.readouterr().out
     assert (own / "SKILL.md").read_text(encoding="utf-8").endswith("mine\n")
 
 
-def test_setup_apply_without_plan_refuses(cockpit_home, fake_globals, tmp_path, capsys):
+def test_setup_apply_without_plan_refuses(board_home, fake_globals, tmp_path, capsys):
     code = init_repo(tmp_path / "x")
     assert cli.main(["setup-apply", str(code), "A1"]) == 1
     assert "run `cli.py setup-plan` first" in capsys.readouterr().out

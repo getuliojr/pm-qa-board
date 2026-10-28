@@ -258,7 +258,7 @@ def _plan_file(code_path: str) -> Path:
     import hashlib
 
     key = hashlib.sha1(str(Path(code_path).resolve()).lower().encode()).hexdigest()[:12]
-    return projects.cockpit_home() / "plans" / f"{key}.json"
+    return projects.board_home() / "plans" / f"{key}.json"
 
 
 def cmd_setup(args: argparse.Namespace) -> int:
@@ -444,7 +444,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--prefix", required=True, help="Card prefix, e.g. APP")
     p_init.add_argument("--slug")
     p_init.add_argument("--docs-path", help="External docs folder (default: <code_path>/docs, in-repo)")
-    p_init.add_argument("--stealth", action="store_true", help="Keep cockpit files out of git via .git/info/exclude")
+    p_init.add_argument("--stealth", action="store_true", help="Keep board files out of git via .git/info/exclude")
     p_init.add_argument("--apply", action="store_true", help="Write changes (default: report only)")
 
     p_plan = sub.add_parser("setup-plan", help="Read-only: what pm-qa-setup would do in a project (numbered actions)")
@@ -454,7 +454,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--docs-path", help="External docs folder for a new project")
     p_plan.add_argument("--stealth", action="store_true", default=None)
     p_plan.add_argument("--full", action="store_true",
-                        help="Install the cockpit skills even if the project has its own loop (default: register only)")
+                        help="Install the board skills even if the project has its own loop (default: register only)")
     p_plan.add_argument("--json", action="store_true", help="Machine-readable output")
 
     p_apply = sub.add_parser("setup-apply", help="Apply ONLY the approved action ids from the last setup-plan")
@@ -473,9 +473,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_status.add_argument("code_path", nargs="?", help="Also report a project's installed skills")
     p_status.add_argument("--json", action="store_true")
 
-    p_doc = sub.add_parser("doctor", help="Read-only: is this project's cockpit setup correct? (pass / warn / fail)")
+    p_doc = sub.add_parser("doctor", help="Read-only: is this project's board setup correct? (pass / warn / fail)")
     p_doc.add_argument("target", nargs="?", default=".", help="Registered slug or a path in the project (default: here)")
     p_doc.add_argument("--json", action="store_true")
+
+    p_mig = sub.add_parser("migrate-home", help="Move an install from the product's previous name to ~/.pm-qa-board (dry-run unless --apply)")
+    p_mig.add_argument("--apply", action="store_true", help="Do it (the default only shows the plan and changes nothing)")
+    p_mig.add_argument("--skip", default="", help="Comma-separated parts to leave out: moves, clone, launchers, skills, shortcuts")
+    p_mig.add_argument("--json", action="store_true")
 
     p_prof = sub.add_parser("profile-gates", help="Detect the stack, time the suite, pick Fast vs Heavy gate mode")
     p_prof.add_argument("--fast-cmd", help="Override the detected fast/static gate command")
@@ -497,6 +502,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_init(args)
     if args.command in ("setup-plan", "setup-apply", "skills-status"):
         return cmd_setup(args)
+    if args.command == "migrate-home":
+        from migrate import cmd_migrate_home
+
+        return cmd_migrate_home(args)
     if args.command == "doctor":
         from doctor import cmd_doctor
 

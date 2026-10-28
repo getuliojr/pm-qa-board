@@ -20,8 +20,8 @@ import projects
 
 
 @pytest.fixture
-def server(cockpit_home, legacy_project, monkeypatch):
-    monkeypatch.setenv("PM_QA_COCKPIT_PROJECT_ROOT", str(legacy_project))
+def server(board_home, legacy_project, monkeypatch):
+    monkeypatch.setenv("PM_QA_BOARD_PROJECT_ROOT", str(legacy_project))
     import server as srv
 
     srv.STATE.workers.clear()
@@ -164,7 +164,7 @@ def test_csrf_guard_blocks_cross_site_posts(server, external_project):
     )
     assert status == 403
     assert not docs.exists(), "nothing was created by the rejected requests"
-    # the cockpit's own origin is fine, and no CORS grant is ever sent
+    # the board's own origin is fine, and no CORS grant is ever sent
     status, headers = raw_post(
         f"{base}/api/projects/configure", body, {"Content-Type": "application/json", "Origin": f"http://127.0.0.1:{port}"}
     )
@@ -243,10 +243,10 @@ def test_token_auth_remote_guard(server, monkeypatch):
         urllib.request.urlopen(req_unauth)
     assert exc_info.value.code == 401
 
-    # Authorized with X-Cockpit-Token header
+    # Authorized with X-Board-Token header
     req_header = urllib.request.Request(
         f"{base}/api/cards",
-        headers={"CF-Connecting-IP": "203.0.113.1", "X-Cockpit-Token": "secret-token-123"},
+        headers={"CF-Connecting-IP": "203.0.113.1", "X-Board-Token": "secret-token-123"},
     )
     with urllib.request.urlopen(req_header) as r:
         assert r.status == 200
@@ -262,7 +262,7 @@ def test_token_auth_remote_guard(server, monkeypatch):
     # Authorized with Cookie
     req_cookie = urllib.request.Request(
         f"{base}/api/cards",
-        headers={"CF-Connecting-IP": "203.0.113.1", "Cookie": "cockpit_token=secret-token-123"},
+        headers={"CF-Connecting-IP": "203.0.113.1", "Cookie": "board_token=secret-token-123"},
     )
     with urllib.request.urlopen(req_cookie) as r:
         assert r.status == 200
@@ -299,7 +299,7 @@ def test_token_auth_remote_guard(server, monkeypatch):
     with urllib.request.urlopen(req_html_auth_https) as r:
         assert r.status == 200
         set_cookie = r.headers.get("Set-Cookie", "")
-        assert "cockpit_token=secret-token-123" in set_cookie
+        assert "board_token=secret-token-123" in set_cookie
         assert "Secure" in set_cookie
         assert "SameSite=Lax" in set_cookie
 
@@ -409,12 +409,12 @@ def test_post_allowed_with_tunnel_and_forwarded_host(server, legacy_project, mon
         assert r.status == 200
 
 
-def test_doctor_check_11_custom_cloudflared_in_cockpit_home(server, legacy_project, monkeypatch, tmp_path):
+def test_doctor_check_11_custom_cloudflared_in_board_home(server, legacy_project, monkeypatch, tmp_path):
     import doctor
     import wiring
     _, srv = server
-    fake_home = tmp_path / "cockpit-home"
-    monkeypatch.setenv("PM_QA_COCKPIT_HOME", str(fake_home))
+    fake_home = tmp_path / "board-home"
+    monkeypatch.setenv("PM_QA_BOARD_HOME", str(fake_home))
     custom_bin = fake_home / "bin"
     custom_bin.mkdir(parents=True, exist_ok=True)
     bin_name = "cloudflared.exe" if sys.platform == "win32" else "cloudflared"
@@ -508,7 +508,7 @@ def test_notification_test_endpoint(server, monkeypatch):
     assert dispatched[0]["topic"] == "my-test-topic"
 
 
-def test_notification_watcher_transitions(cockpit_home, external_project, monkeypatch):
+def test_notification_watcher_transitions(board_home, external_project, monkeypatch):
     import server as srv
     from conftest import seed_external_docs
 
@@ -650,7 +650,7 @@ def test_system_update_apply_endpoint_success(server, monkeypatch):
                 "success": True,
                 "old_commit": "aaa1111",
                 "new_commit": "bbb2222",
-                "changed_files": ["cockpit/static/app.js"],
+                "changed_files": ["board/static/app.js"],
                 "skills_outdated": True,
             },
         ),
@@ -695,7 +695,7 @@ def test_dashboard_ps1_story9_tunnel_default():
     dashboard = Path(__file__).resolve().parent.parent / "dashboard.ps1"
     content = dashboard.read_text(encoding="utf-8")
     assert "[1] Public Tunnel" in content
-    assert 'PM_QA_COCKPIT_TUNNEL_URL = ""' in content
+    assert 'PM_QA_BOARD_TUNNEL_URL = ""' in content
 
 
 def test_no_browser_native_dialogs_in_frontend():
